@@ -16,6 +16,14 @@ pub const SEED_COSIGNER: &[u8] = b"cosigner";
 pub const SEED_BADGE: &[u8] = b"badge";
 pub const SEED_CONFIG: &[u8] = b"config";
 
+// TODO: replace this placeholder with the real deployer pubkey before mainnet deploy.
+// Only this address is allowed to call `init_config` to prevent a race-condition
+// where an attacker front-runs the first init and sets themselves as admin.
+// Pattern: INITIAL_DEPLOYER constant (simpler / localnet-safe alternative to
+// upgrade-authority ProgramData account derivation).
+pub const INITIAL_DEPLOYER: anchor_lang::prelude::Pubkey =
+    anchor_lang::solana_program::pubkey!("11111111111111111111111111111111");
+
 #[cfg(feature = "devnet")]
 pub const USDC_MINT: Pubkey = anchor_lang::solana_program::pubkey!(
     "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"

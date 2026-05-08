@@ -38,4 +38,8 @@ pub enum ComadreError {
     MathOverflow,
     #[msg("Stake amount must equal contribution amount")]
     InvalidStake,
+    #[msg("fee_bps must be <= 10000 (100%)")]
+    InvalidFeeBps,
+    #[msg("kyc_limits[0] must be > 0 and the array must be monotonic non-decreasing")]
+    InvalidKycLimits,
 }
