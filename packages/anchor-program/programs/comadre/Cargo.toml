@@ -1,0 +1,21 @@
+[package]
+name = "comadre"
+version = "0.0.1"
+description = "Comadre — tandas on-chain en Solana"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "comadre"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+devnet = []
+
+[dependencies]
+anchor-lang = { version = "0.31.0", features = ["init-if-needed", "event-cpi"] }
+anchor-spl = "0.31.0"

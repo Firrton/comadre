@@ -1,0 +1,26 @@
+{
+  "name": "@comadre/cron",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts",
+    "build": "bun build src/index.ts --target=bun --outdir=dist",
+    "start": "bun run dist/index.js",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@comadre/anchor-client": "workspace:*",
+    "@comadre/cache": "workspace:*",
+    "@comadre/config": "workspace:*",
+    "@comadre/db": "workspace:*",
+    "@comadre/solana": "workspace:*",
+    "@coral-xyz/anchor": "^0.31.0",
+    "@solana/web3.js": "^1.98.0",
+    "drizzle-orm": "^0.36.0",
+    "node-cron": "^3.0.3",
+    "pino": "^9.5.0"
+  }
+}

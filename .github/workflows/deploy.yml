@@ -1,0 +1,36 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-services:
+    if: "!contains(github.event.head_commit.message, '[skip-deploy]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          npm i -g @railway/cli
+          railway up --service api
+          railway up --service whatsapp
+          railway up --service agent
+          railway up --service indexer
+          railway up --service cron
+
+  deploy-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Vercel deploys via Git integration
+
+  deploy-program:
+    if: "contains(github.event.head_commit.message, '[deploy-program]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: TODO — anchor deploy with multisig flow
+        run: echo "Manual review required for program upgrades"

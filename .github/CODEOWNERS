@@ -1,0 +1,10 @@
+# Default owner — el equipo Comadre
+*                                  @Firrton
+
+# Smart contracts requieren review específico
+/packages/anchor-program/          @Firrton
+
+# Infra/security
+/.github/                          @Firrton
+/.env.example                      @Firrton
+/scripts/deploy-program.sh         @Firrton

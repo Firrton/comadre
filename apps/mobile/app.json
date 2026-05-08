@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Comadre",
+    "slug": "comadre",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "scheme": "comadre",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "lat.comadre.app"
+    },
+    "android": {
+      "package": "lat.comadre.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

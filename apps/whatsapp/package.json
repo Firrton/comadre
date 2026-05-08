@@ -1,0 +1,24 @@
+{
+  "name": "@comadre/whatsapp",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts",
+    "build": "bun build src/index.ts --target=bun --outdir=dist",
+    "start": "bun run dist/index.js",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@comadre/cache": "workspace:*",
+    "@comadre/config": "workspace:*",
+    "@comadre/db": "workspace:*",
+    "@comadre/types": "workspace:*",
+    "@upstash/redis": "^1.34.0",
+    "hono": "^4.6.0",
+    "pino": "^9.5.0",
+    "zod": "^3.23.0"
+  }
+}

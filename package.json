@@ -1,0 +1,35 @@
+{
+  "name": "comadre",
+  "version": "0.0.1",
+  "private": true,
+  "description": "AI Agent Tía de LATAM — tandas, crédito social y ahorro en USDC",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "anchor:build": "cd packages/anchor-program && anchor build",
+    "anchor:test": "cd packages/anchor-program && anchor test",
+    "anchor:deploy:devnet": "cd packages/anchor-program && anchor deploy --provider.cluster devnet",
+    "db:generate": "cd packages/db && drizzle-kit generate",
+    "db:migrate": "cd packages/db && drizzle-kit migrate",
+    "db:studio": "cd packages/db && drizzle-kit studio",
+    "codegen:client": "bash scripts/codegen-client.sh"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0",
+    "@types/bun": "latest",
+    "prettier": "^3.4.0"
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  },
+  "packageManager": "bun@1.2.0"
+}

@@ -1,0 +1,36 @@
+{
+  "name": "@comadre/mobile",
+  "version": "0.0.1",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "dev": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "build:android": "eas build --platform android",
+    "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.31.0",
+    "@comadre/anchor-client": "workspace:*",
+    "@comadre/types": "workspace:*",
+    "@elevenlabs/react-native": "^0.5.0",
+    "@privy-io/expo": "^0.40.0",
+    "@privy-io/expo-native-extensions": "^0.40.0",
+    "@solana-mobile/mobile-wallet-adapter-protocol-mobile": "^2.2.0",
+    "@solana-mobile/wallet-adapter-mobile": "^2.1.4",
+    "@solana/web3.js": "^1.98.0",
+    "@tanstack/react-query": "^5.62.0",
+    "expo": "~52.0.0",
+    "expo-router": "~4.0.0",
+    "expo-secure-store": "~14.0.0",
+    "expo-status-bar": "~2.0.0",
+    "nativewind": "^4.1.0",
+    "react": "18.3.1",
+    "react-native": "0.76.0",
+    "tailwindcss": "^3.4.0",
+    "zod": "^3.23.0"
+  }
+}

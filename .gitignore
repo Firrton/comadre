@@ -1,0 +1,73 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Bun
+bun.lockb
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+.expo/
+*.tsbuildinfo
+
+# Anchor / Solana
+target/
+.anchor/
+test-ledger/
+**/*.so
+keypairs/
+*.json.bak
+
+# Env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.vscode/
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Turbo
+.turbo
+
+# Sentry
+.sentryclirc
+
+# Testing
+coverage/
+.nyc_output/
+
+# Drizzle
+drizzle/
+
+# Mobile
+.expo-shared/
+ios/Pods/
+android/.gradle/
+android/build/
+android/app/build/
+*.keystore
+!debug.keystore
+
+# Misc
+.cache/
+tmp/
+temp/
