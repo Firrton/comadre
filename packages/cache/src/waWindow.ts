@@ -27,10 +27,29 @@ const keyFor = (phoneHash: string) => `wa:lastinbound:${phoneHash}`;
 /**
  * SHA-256 hash of an E.164 phone number string.
  * Uses the Web Crypto API, which is available in both Bun and modern Node.
+ *
+ * CONTRACT
+ * ────────
+ * - Input MUST be an E.164-formatted phone number starting with `+`
+ *   (e.g. `"+5491112345678"`).
+ * - Leading/trailing whitespace is trimmed before validation.
+ * - If the trimmed value does not match `^\+[1-9]\d{6,14}$`, throws with
+ *   a descriptive message so mismatches between callers are caught early.
+ * - The hash is computed over the trimmed, validated string, guaranteeing
+ *   that `"+5491112345678"` and `" +5491112345678 "` produce the same hash.
+ *
+ * @param e164 - An E.164 phone number string (may have surrounding whitespace).
+ * @throws {Error} If the trimmed value is not valid E.164 format.
  */
 export async function hashPhone(e164: string): Promise<string> {
+  const normalized = e164.trim();
+  if (!/^\+[1-9]\d{6,14}$/.test(normalized)) {
+    throw new Error(
+      `Invalid E.164 phone number: must match ^\\+[1-9]\\d{6,14}$ — got "${normalized}"`
+    );
+  }
   const encoder = new TextEncoder();
-  const data = encoder.encode(e164);
+  const data = encoder.encode(normalized);
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, "0"))

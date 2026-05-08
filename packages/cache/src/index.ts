@@ -1,5 +1,5 @@
 // ─── Redis client ─────────────────────────────────────────────────────────────
-export { redis, getRedis } from "./client.js";
+export { getRedis } from "./client.js";
 
 // ─── Idempotency cache ────────────────────────────────────────────────────────
 export type { CachedResponse } from "./idempotency.js";

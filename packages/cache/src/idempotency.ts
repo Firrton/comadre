@@ -4,6 +4,16 @@
  * Storage key format: `idempotency:{key}`
  * TTL: 24 hours by default.
  *
+ * CONTRACT
+ * ────────
+ * The cache slot type is `CachedResponse = { status: number; body: unknown }`.
+ *
+ * - `getIdempotent` / `setIdempotent`: low-level access. Callers MUST read and
+ *   write the full `{ status, body }` shape.
+ * - `withIdempotency<T>`: ergonomic wrapper that auto-wraps the handler result
+ *   as `{ status: 200, body: T }` on write and unwraps to `T` on read. Callers
+ *   deal only with `T` — the envelope is transparent.
+ *
  * RACE-CONDITION BEHAVIOR (documented limitation):
  * ──────────────────────────────────────────────────
  * `withIdempotency` uses a best-effort check-then-set pattern:
@@ -39,9 +49,14 @@ const keyFor = (key: string) => `idempotency:${key}`;
 /**
  * Retrieve a previously cached response by idempotency key.
  * Returns `null` if the key is not found or has expired.
+ *
+ * The returned value is always `{ status, body }` — the full `CachedResponse`
+ * envelope. If you want only the body, use `withIdempotency<T>` instead.
  */
 export async function getIdempotent(key: string): Promise<CachedResponse | null> {
-  const raw = await getRedis().get<string>(keyFor(key));
+  // Use `unknown` — Upstash auto-deserializes JSON, so the value may already
+  // be a parsed object rather than a raw string.
+  const raw = await getRedis().get<unknown>(keyFor(key));
   if (raw === null || raw === undefined) return null;
 
   const parsed: unknown = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -51,6 +66,9 @@ export async function getIdempotent(key: string): Promise<CachedResponse | null>
 /**
  * Store a response under the given idempotency key with a TTL.
  * Overwrites any existing value (safe: same key should produce same response).
+ *
+ * Callers MUST pass the full `{ status, body }` envelope.
+ * Use `withIdempotency<T>` if you want auto-wrapping.
  */
 export async function setIdempotent(
   key: string,
@@ -63,10 +81,14 @@ export async function setIdempotent(
 }
 
 /**
- * Idempotency wrapper.
+ * Idempotency wrapper — transparent `T` interface over the `CachedResponse` envelope.
  *
- * - Cache hit  → return stored response without running the handler.
- * - Cache miss → run handler, cache the result, return it.
+ * - Cache miss → run `handler`, store result as `{ status: 200, body: result }`, return `result`.
+ * - Cache hit  → return `cached.body as T` without running the handler.
+ *
+ * The cache slot always stores the full `CachedResponse` shape, keeping
+ * `getIdempotent` / `setIdempotent` consistent for direct callers. This
+ * function hides the envelope so callers work only with `T`.
  *
  * See module-level docstring for race-condition caveats.
  */
@@ -79,10 +101,7 @@ export async function withIdempotency<T>(
   const cached = await getIdempotent(key);
 
   if (cached !== null) {
-    // Type assertion: caller is responsible for T being compatible with
-    // the cached shape. This is safe because the same endpoint stores
-    // and retrieves under the same key.
-    return cached as unknown as T;
+    return cached.body as T;
   }
 
   const result = await handler();
@@ -91,13 +110,9 @@ export async function withIdempotency<T>(
   // up as a handler error.  The handler already succeeded; the only downside
   // is that the *next* retry won't see the cache and will run again.
   try {
-    await setIdempotent(
-      key,
-      result as unknown as CachedResponse,
-      ttl
-    );
-  } catch {
-    // Non-fatal: log in production but don't throw
+    await setIdempotent(key, { status: 200, body: result as unknown }, ttl);
+  } catch (err) {
+    console.warn("[cache] idempotency write failed:", err);
   }
 
   return result;

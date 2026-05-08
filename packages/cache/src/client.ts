@@ -3,7 +3,7 @@
  *
  * LAZY in two stages:
  *   1. Module import  → no work done.
- *   2. `getRedis()` / `redis.*` access → client object returned immediately;
+ *   2. `getRedis()` access → client object returned immediately;
  *      still no network call.
  *   3. First Redis method (get, set, exists, …) → reads env vars, throws if
  *      missing, then issues the HTTP request.
@@ -65,6 +65,9 @@ let _redis: Redis | undefined;
  * Safe to call without env vars present — the client is a lazy proxy that
  * reads `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` from
  * `process.env` only when the first Redis method is invoked.
+ *
+ * This is the ONLY public entry point for the Redis client. Do not hold
+ * references to the returned object across module reloads in tests.
  */
 export function getRedis(): Redis {
   if (_redis === undefined) {
@@ -72,12 +75,3 @@ export function getRedis(): Redis {
   }
   return _redis;
 }
-
-/**
- * Module-level reference to the shared Redis singleton.
- *
- * Equivalent to `getRedis()`. Accessing properties on this object is safe
- * without env vars; env vars are only required when you call an actual
- * Redis method.
- */
-export const redis: Redis = getRedis();
