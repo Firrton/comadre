@@ -38,6 +38,7 @@ const SumsubReviewResult = z.object({
 
 /**
  * Fields common to all Sumsub webhook event types.
+ * Strict: unknown keys from Sumsub fail loudly at the boundary.
  */
 const SumsubBaseEvent = z.object({
   /** Sumsub internal applicant ID */
@@ -53,7 +54,7 @@ const SumsubBaseEvent = z.object({
   createdAt: z.string(),
   /** Sumsub inspection ID, useful for retrieving documents */
   inspectionId: z.string().optional(),
-  /** Detected country code (ISO 3166-1 alpha-2) */
+  /** Type of applicant as classified by Sumsub: "individual" or "company" */
   applicantType: z.string().optional(),
   sandboxMode: z.boolean().optional(),
 });
@@ -71,22 +72,22 @@ export const SumsubWebhookEvent = z.discriminatedUnion("type", [
     type: z.literal("applicantReviewed"),
     /** Present when KYC review is complete */
     reviewResult: SumsubReviewResult,
-  }),
+  }).strict(),
   SumsubBaseEvent.extend({
     type: z.literal("applicantPending"),
     /** Review started but not yet concluded */
     reviewResult: SumsubReviewResult.partial().optional(),
-  }),
+  }).strict(),
   SumsubBaseEvent.extend({
     type: z.literal("applicantOnHold"),
     /** Manual review required */
     reviewResult: SumsubReviewResult.partial().optional(),
-  }),
+  }).strict(),
   SumsubBaseEvent.extend({
     type: z.literal("applicantActionPending"),
     /** The applicant needs to take a new action (re-submit docs, etc.) */
     reviewResult: SumsubReviewResult.partial().optional(),
-  }),
+  }).strict(),
 ]);
 export type SumsubWebhookEvent = z.infer<typeof SumsubWebhookEvent>;
 
@@ -190,21 +191,24 @@ const WaChangeValue = z.object({
 /**
  * Top-level Meta WhatsApp Business webhook payload.
  * Sent to POST /webhooks/whatsapp.
+ * Strict: Meta's schema is documented and stable; unknown keys fail loudly.
  */
-export const MetaWhatsAppWebhookEvent = z.object({
-  object: z.literal("whatsapp_business_account"),
-  entry: z.array(
-    z.object({
-      id: z.string(),
-      changes: z.array(
-        z.object({
-          value: WaChangeValue,
-          field: z.string(),
-        })
-      ),
-    })
-  ),
-});
+export const MetaWhatsAppWebhookEvent = z
+  .object({
+    object: z.literal("whatsapp_business_account"),
+    entry: z.array(
+      z.object({
+        id: z.string(),
+        changes: z.array(
+          z.object({
+            value: WaChangeValue,
+            field: z.string(),
+          })
+        ),
+      })
+    ),
+  })
+  .strict();
 export type MetaWhatsAppWebhookEvent = z.infer<typeof MetaWhatsAppWebhookEvent>;
 
 // ---------------------------------------------------------------------------

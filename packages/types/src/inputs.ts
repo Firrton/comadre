@@ -24,10 +24,14 @@ export const SolanaPubkey = z
   .string()
   .regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, "Invalid Solana public key");
 
-/** Positive atomic-unit amount coerced from number/string to bigint */
+/**
+ * Positive atomic-unit amount coerced from number/string to bigint.
+ * Upper bound is the u64 max (2^64 - 1) to match the on-chain field type.
+ */
 const PositiveAtomicAmount = z.coerce
   .bigint()
-  .refine((v) => v > 0n, "Amount must be a positive integer");
+  .refine((v) => v > 0n, "Amount must be a positive integer")
+  .refine((v) => v <= 18_446_744_073_709_551_615n, "Amount exceeds u64 max");
 
 /**
  * POST /api/v1/tandas
@@ -58,8 +62,13 @@ export const CreateTandaInput = z.object({
    */
   frequency_seconds: z.number().int().min(86400),
 
-  /** Strategy used to assign payout turns */
-  payout_order_mode: z.enum(["creator_first", "random", "auction"]),
+  /**
+   * Strategy used to assign payout turns.
+   * Maps to on-chain PayoutOrder enum (ordinal-locked):
+   *   JoinOrder=0, CreatorSet=1, Random=2
+   * "auction" was removed (not in program); "creator_first" renamed → "creator_set".
+   */
+  payout_order_mode: z.enum(["join_order", "creator_set", "random"]),
 
   /** SPL token mint for the stablecoin used (must be a valid Solana pubkey) */
   usdc_mint: SolanaPubkey,

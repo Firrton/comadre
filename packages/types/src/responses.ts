@@ -11,28 +11,43 @@ import { z } from "zod";
 import { SolanaPubkey } from "./inputs.js";
 
 /**
- * KYC tier mirrors the on-chain enum:
- *   0 → none    — unverified
- *   1 → basic   — name + DOB verified
- *   2 → full    — ID + liveness verified
- *   3 → enhanced — enhanced due-diligence (high amounts)
+ * Reusable validator for u64 amounts serialised as decimal strings.
+ * Accepts only non-negative integers; rejects floats, negatives, and
+ * anything that could be SQL-injected through an amount field.
  */
-const KycTier = z.enum(["none", "basic", "full", "enhanced"]);
+const AtomicAmountString = z
+  .string()
+  .regex(/^[0-9]+$/, "Must be a non-negative integer string");
+
+/**
+ * KYC tier mirrors the on-chain KycTier enum (state/user.rs).
+ * Ordinal mapping is LOCKED to the on-chain #[repr(u8)] order:
+ *   T0Demo=0, T1Lite=1, T2Standard=2, T3Pro=3
+ * Snake-case used here per TS convention; the anchor-client codegen
+ * produces camelCase variants on its side — mapping is 1:1 by ordinal.
+ */
+const KycTier = z.enum(["t0_demo", "t1_lite", "t2_standard", "t3_pro"]);
 export type KycTier = z.infer<typeof KycTier>;
 
 /**
- * Tanda state mirrors the on-chain TandaState enum.
- * pending  → accepting members, not started
- * active   → currently running rounds
- * complete → all payouts distributed
- * disputed → frozen pending governance vote
- * cancelled → dissolved early
+ * Tanda state mirrors the on-chain TandaState enum (state/tanda.rs).
+ * Ordinal mapping is LOCKED to the on-chain order:
+ *   Forming=0, Active=1, Paused=2, Completed=3, Cancelled=4
+ *
+ * "forming"   — accepting members, not yet started
+ * "active"    — currently running rounds
+ * "paused"    — frozen (e.g. during a dispute; program transitions here)
+ * "completed" — all payouts distributed
+ * "cancelled" — dissolved early
+ *
+ * "disputed" and "pending" were removed — not on-chain states.
+ * "paused" was added. "complete" corrected to "completed".
  */
 const TandaState = z.enum([
-  "pending",
+  "forming",
   "active",
-  "complete",
-  "disputed",
+  "paused",
+  "completed",
   "cancelled",
 ]);
 export type TandaState = z.infer<typeof TandaState>;
@@ -43,10 +58,10 @@ export type TandaState = z.infer<typeof TandaState>;
 export const MemberResponse = z.object({
   /** Member's Solana wallet address */
   wallet: SolanaPubkey,
-  /** 1-based turn index assigned to this member */
-  turn_number: z.number().int().min(1),
-  /** How many contribution rounds this member has paid */
-  contributions_made: z.number().int().min(0),
+  /** 1-based turn index assigned to this member (on-chain: u8, max 255) */
+  turn_number: z.number().int().min(1).max(255),
+  /** How many contribution rounds this member has paid (on-chain: u8, max 255) */
+  contributions_made: z.number().int().min(0).max(255),
   /** Whether this member has already received their payout */
   has_received_payout: z.boolean(),
   /** False if slashed/removed from the tanda */
@@ -73,10 +88,11 @@ export const TandaResponse = z.object({
   /**
    * Per-round contribution amount as a decimal string (micro-USDC).
    * Returned as string to preserve u64 precision across JSON.
+   * Validated as a non-negative integer string to prevent injection.
    */
-  contribution_amount: z.string(),
+  contribution_amount: AtomicAmountString,
   /** Stake (collateral) per member as a decimal string (micro-USDC) */
-  stake_amount: z.string(),
+  stake_amount: AtomicAmountString,
   /** Which round is currently open (1-based, 0 = not started) */
   current_turn: z.number().int().min(0),
   /** Total number of turns (equals member_target) */
@@ -107,10 +123,13 @@ export const UserProfileResponse = z.object({
   /** Total tandas where the user was slashed as a defaulter */
   tandas_defaulted: z.number().int().min(0),
   /**
-   * ISO 3166-1 alpha-2 country code from KYC provider.
+   * ISO 3166-1 alpha-2 country code from KYC provider (uppercase, e.g. "AR", "MX").
    * null if KYC not completed.
    */
-  country_code: z.string().length(2).nullable(),
+  country_code: z
+    .string()
+    .regex(/^[A-Z]{2}$/, "ISO 3166-1 alpha-2 (uppercase)")
+    .nullable(),
 });
 export type UserProfileResponse = z.infer<typeof UserProfileResponse>;
 
@@ -130,7 +149,9 @@ export const UnsignedTransactionResponse = z.object({
    * Base64-encoded serialized Solana VersionedTransaction.
    * The fee_payer has already signed; the client must add user signature.
    */
-  unsigned_tx: z.string().min(1),
+  unsigned_tx: z
+    .string()
+    .regex(/^[A-Za-z0-9+/]+=*$/, "Must be base64"),
   /**
    * Idempotency key echoed back from the request header.
    * Clients must include this when calling /confirm to prevent double-submit.
