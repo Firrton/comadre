@@ -50,6 +50,10 @@ scripts/       # Deploy, codegen, seed
 docs/          # Arquitectura, data model, dev guide
 ```
 
+## Workspace structure
+
+`apps/mobile` and `apps/web` are intentionally excluded from the Bun workspaces during the backend-only sprint. They remain in the repository and their `package.json` files are untouched. Re-include them in the root `workspaces` array when frontend work resumes.
+
 ## Quick start
 
 ```bash
