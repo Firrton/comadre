@@ -5,14 +5,19 @@
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "generate": "drizzle-kit generate",
-    "migrate": "drizzle-kit migrate",
+    "migrate": "bun run scripts/migrate.ts",
     "studio": "drizzle-kit studio",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@comadre/config": "workspace:*",
+    "@comadre/types": "workspace:*",
     "drizzle-orm": "^0.36.0",
     "postgres": "^3.4.5"
   },
