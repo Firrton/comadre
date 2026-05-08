@@ -13,6 +13,7 @@
  * - Enums are Postgres native pgEnum — enforced at the DB level.
  */
 
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   pgEnum,
@@ -61,6 +62,10 @@ export const payoutOrderEnum = pgEnum("payout_order", [
  * Mirrors DisputeState in state/dispute.rs.
  * The on-chain enum has Open/Resolved/Expired; we split Resolved into two
  * values here to distinguish the vote outcome at the DB layer.
+ *
+ * ⚠️  INDEXER CONTRACT: when the on-chain `Resolved` event arrives, the indexer
+ * MUST inspect `votes_continue > votes_cancel` BEFORE inserting and write either
+ * `resolved_continue` or `resolved_cancel`. Never write the raw on-chain variant.
  */
 export const disputeStateEnum = pgEnum("dispute_state", [
   "open",
@@ -95,11 +100,13 @@ export const rampStatusEnum = pgEnum("ramp_status", [
   "failed",
 ]);
 
-/** Loan lifecycle state (minimal — will be fleshed out post-hackathon) */
+/**
+ * Mirrors LoanState in state/loan.rs exactly.
+ * On-chain variants: Pending | Active | Repaid | Defaulted (ordinal 0–3).
+ */
 export const loanStateEnum = pgEnum("loan_state", [
-  "requested",
-  "cosigning",
-  "disbursed",
+  "pending",
+  "active",
   "repaid",
   "defaulted",
 ]);
@@ -137,7 +144,12 @@ export const users = pgTable(
     reputationScore: integer("reputation_score").notNull().default(0),
     tandasCompleted: integer("tandas_completed").notNull().default(0),
     tandasDefaulted: integer("tandas_defaulted").notNull().default(0),
-    tandasCreated: integer("tandas_created").notNull().default(0),
+    /**
+     * On-chain u64 — bigint to prevent silent narrowing.
+     * tandasCompleted / tandasDefaulted / loansRepaid / loansDefaulted are u16
+     * on-chain and fit safely in Postgres integer (max 65 535 << 2 147 483 647).
+     */
+    tandasCreated: bigint("tandas_created", { mode: "bigint" }).notNull().$default(() => BigInt(0)),
     loansRepaid: integer("loans_repaid").notNull().default(0),
     loansDefaulted: integer("loans_defaulted").notNull().default(0),
     createdAt: ts("created_at").notNull(),
@@ -231,24 +243,31 @@ export const members = pgTable(
 // ---------------------------------------------------------------------------
 // 4. disputes — mirrors Dispute on-chain account
 // ---------------------------------------------------------------------------
-export const disputes = pgTable("disputes", {
-  /** Dispute PDA pubkey (base58) */
-  id: text("id").primaryKey(),
-  tandaId: text("tanda_id")
-    .notNull()
-    .references(() => tandas.id),
-  /** On-chain u8 dispute_id (scoped to the tanda) */
-  disputeId: bigint("dispute_id", { mode: "bigint" }).notNull(),
-  openerWallet: text("opener_wallet").notNull(),
-  reasonHash: text("reason_hash").notNull(),
-  /** Off-chain plain-text reason; populated by the opener via API */
-  reasonText: text("reason_text"),
-  openedAt: ts("opened_at").notNull(),
-  deadlineTs: ts("deadline_ts").notNull(),
-  votesContinue: smallint("votes_continue").notNull().default(0),
-  votesCancel: smallint("votes_cancel").notNull().default(0),
-  state: disputeStateEnum("state").notNull().default("open"),
-});
+export const disputes = pgTable(
+  "disputes",
+  {
+    /** Dispute PDA pubkey (base58) */
+    id: text("id").primaryKey(),
+    tandaId: text("tanda_id")
+      .notNull()
+      .references(() => tandas.id, { onDelete: "cascade" }),
+    /** On-chain u8 dispute_id (scoped to the tanda) */
+    disputeId: bigint("dispute_id", { mode: "bigint" }).notNull(),
+    openerWallet: text("opener_wallet").notNull(),
+    reasonHash: text("reason_hash").notNull(),
+    /** Off-chain plain-text reason; populated by the opener via API */
+    reasonText: text("reason_text"),
+    openedAt: ts("opened_at").notNull(),
+    deadlineTs: ts("deadline_ts").notNull(),
+    votesContinue: smallint("votes_continue").notNull().default(0),
+    votesCancel: smallint("votes_cancel").notNull().default(0),
+    state: disputeStateEnum("state").notNull().default("open"),
+  },
+  (t) => [
+    index("disputes_state_idx").on(t.state),
+    index("disputes_deadline_ts_idx").on(t.deadlineTs),
+  ]
+);
 
 // ---------------------------------------------------------------------------
 // 5. dispute_votes — mirrors DisputeVote on-chain account
@@ -260,7 +279,7 @@ export const disputeVotes = pgTable(
     id: text("id").primaryKey(),
     disputeId: text("dispute_id")
       .notNull()
-      .references(() => disputes.id),
+      .references(() => disputes.id, { onDelete: "cascade" }),
     voterWallet: text("voter_wallet").notNull(),
     continueTanda: boolean("continue_tanda").notNull(),
     votedAt: ts("voted_at").notNull(),
@@ -276,21 +295,38 @@ export const disputeVotes = pgTable(
 // ---------------------------------------------------------------------------
 // 6. loans — minimal; full model deferred post-hackathon
 // ---------------------------------------------------------------------------
-export const loans = pgTable("loans", {
-  /** Loan PDA pubkey (base58) */
-  id: text("id").primaryKey(),
-  borrowerWallet: text("borrower_wallet").notNull(),
-  /** The tanda that backs this loan as collateral, if any */
-  tandaBacking: text("tanda_backing").references(() => tandas.id),
-  /** Principal in atomic USDC units */
-  principal: bigint("principal", { mode: "bigint" }).notNull(),
-  /** Annual percentage rate in basis points (e.g. 1500 = 15%) */
-  aprBps: integer("apr_bps").notNull(),
-  totalRepaid: bigint("total_repaid", { mode: "bigint" }).notNull().$default(() => BigInt(0)),
-  disbursedAt: ts("disbursed_at"),
-  dueTs: ts("due_ts"),
-  state: loanStateEnum("state").notNull().default("requested"),
-});
+export const loans = pgTable(
+  "loans",
+  {
+    /** Loan PDA pubkey (base58) */
+    id: text("id").primaryKey(),
+    /** On-chain u64 loan_id — required to reconstruct the Loan PDA */
+    loanId: bigint("loan_id", { mode: "bigint" }).notNull(),
+    borrowerWallet: text("borrower_wallet").notNull(),
+    /** The tanda that backs this loan as collateral, if any */
+    tandaBacking: text("tanda_backing").references(() => tandas.id, {
+      onDelete: "set null",
+    }),
+    /** Principal in atomic USDC units */
+    principal: bigint("principal", { mode: "bigint" }).notNull(),
+    /** Annual percentage rate in basis points (e.g. 1500 = 15%) */
+    aprBps: integer("apr_bps").notNull(),
+    totalRepaid: bigint("total_repaid", { mode: "bigint" })
+      .notNull()
+      .$default(() => BigInt(0)),
+    /** On-chain u8 — number of cosigners required */
+    cosignerCount: smallint("cosigner_count").notNull().default(0),
+    /** On-chain u8 — number of cosigners who have signed so far */
+    cosignersSigned: smallint("cosigners_signed").notNull().default(0),
+    disbursedAt: ts("disbursed_at"),
+    dueTs: ts("due_ts"),
+    state: loanStateEnum("state").notNull().default("pending"),
+  },
+  (t) => [
+    index("loans_borrower_wallet_idx").on(t.borrowerWallet),
+    index("loans_state_idx").on(t.state),
+  ]
+);
 
 // ---------------------------------------------------------------------------
 // 7. loan_cosigners — minimal; mirrors LoanCosigner on-chain account
@@ -300,7 +336,7 @@ export const loanCosigners = pgTable("loan_cosigners", {
   id: text("id").primaryKey(),
   loanId: text("loan_id")
     .notNull()
-    .references(() => loans.id),
+    .references(() => loans.id, { onDelete: "cascade" }),
   cosignerWallet: text("cosigner_wallet").notNull(),
   stakeLocked: bigint("stake_locked", { mode: "bigint" }).notNull(),
   hasSigned: boolean("has_signed").notNull().default(false),
@@ -310,19 +346,25 @@ export const loanCosigners = pgTable("loan_cosigners", {
 // ---------------------------------------------------------------------------
 // 8. badges — mirrors ReputationBadge on-chain account
 // ---------------------------------------------------------------------------
-export const badges = pgTable("badges", {
-  /** ReputationBadge PDA pubkey (base58) */
-  id: text("id").primaryKey(),
-  userWallet: text("user_wallet")
-    .notNull()
-    .references(() => users.wallet),
-  badgeType: badgeTypeEnum("badge_type").notNull(),
-  /** The on-chain account that triggered this badge (tanda, loan, dispute PDA) */
-  sourceAccount: text("source_account").notNull(),
-  /** On-chain u64 value field (purpose varies per badge type) */
-  value: bigint("value", { mode: "bigint" }).notNull(),
-  earnedAt: ts("earned_at").notNull(),
-});
+export const badges = pgTable(
+  "badges",
+  {
+    /** ReputationBadge PDA pubkey (base58) */
+    id: text("id").primaryKey(),
+    /** On-chain u64 badge_id — required to reconstruct the Badge PDA */
+    badgeId: bigint("badge_id", { mode: "bigint" }).notNull(),
+    userWallet: text("user_wallet")
+      .notNull()
+      .references(() => users.wallet, { onDelete: "cascade" }),
+    badgeType: badgeTypeEnum("badge_type").notNull(),
+    /** The on-chain account that triggered this badge (tanda, loan, dispute PDA) */
+    sourceAccount: text("source_account").notNull(),
+    /** On-chain u64 value field (purpose varies per badge type) */
+    value: bigint("value", { mode: "bigint" }).notNull(),
+    earnedAt: ts("earned_at").notNull(),
+  },
+  (t) => [index("badges_user_wallet_idx").on(t.userWallet)]
+);
 
 // ---------------------------------------------------------------------------
 // 9. conversations — agent conversation state (WhatsApp / web)
@@ -332,7 +374,9 @@ export const conversations = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     /** Null until the user completes phone verification */
-    userWallet: text("user_wallet").references(() => users.wallet),
+    userWallet: text("user_wallet").references(() => users.wallet, {
+      onDelete: "set null",
+    }),
     /** SHA-256 hex of E.164 phone — identifies the conversation before wallet link */
     phoneHash: text("phone_hash").notNull(),
     channel: channelEnum("channel").notNull(),
@@ -378,40 +422,55 @@ export const idempotencyKeys = pgTable(
 // ---------------------------------------------------------------------------
 // 11. ramps — onramp / offramp records
 // ---------------------------------------------------------------------------
-export const ramps = pgTable("ramps", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userWallet: text("user_wallet").notNull(),
-  direction: rampDirectionEnum("direction").notNull(),
-  /** Provider slug: "mock" | "transak" | "ramp" | … */
-  provider: text("provider").notNull(),
-  /** ISO 4217 currency code, e.g. "ARS", "MXN", "USD" */
-  fiatCurrency: varchar("fiat_currency", { length: 3 }).notNull(),
-  /** Fiat amount in minor units (cents / centavos) */
-  fiatAmountCents: bigint("fiat_amount_cents", { mode: "bigint" }).notNull(),
-  /** USDC amount in atomic units; null until the quote is locked */
-  usdcAmount: bigint("usdc_amount", { mode: "bigint" }),
-  status: rampStatusEnum("status").notNull().default("pending"),
-  /** Provider-issued transaction reference / order ID */
-  providerRef: text("provider_ref"),
-  createdAt: tsNow("created_at").notNull(),
-  updatedAt: tsNow("updated_at").notNull(),
-});
+export const ramps = pgTable(
+  "ramps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userWallet: text("user_wallet").notNull(),
+    direction: rampDirectionEnum("direction").notNull(),
+    /** Provider slug: "mock" | "transak" | "ramp" | … */
+    provider: text("provider").notNull(),
+    /** ISO 4217 currency code, e.g. "ARS", "MXN", "USD" */
+    fiatCurrency: varchar("fiat_currency", { length: 3 }).notNull(),
+    /** Fiat amount in minor units (cents / centavos) */
+    fiatAmountCents: bigint("fiat_amount_cents", { mode: "bigint" }).notNull(),
+    /** USDC amount in atomic units; null until the quote is locked */
+    usdcAmount: bigint("usdc_amount", { mode: "bigint" }),
+    status: rampStatusEnum("status").notNull().default("pending"),
+    /** Provider-issued transaction reference / order ID */
+    providerRef: text("provider_ref"),
+    createdAt: tsNow("created_at").notNull(),
+    updatedAt: tsNow("updated_at").notNull(),
+  },
+  (t) => [
+    index("ramps_provider_ref_idx")
+      .on(t.providerRef)
+      .where(sql`provider_ref IS NOT NULL`),
+  ]
+);
 
 // ---------------------------------------------------------------------------
 // 12. kyc_sessions — Sumsub session tracking
 // ---------------------------------------------------------------------------
-export const kycSessions = pgTable("kyc_sessions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userWallet: text("user_wallet")
-    .notNull()
-    .references(() => users.wallet),
-  /** Sumsub applicantId; null until the SDK call succeeds */
-  applicantId: text("applicant_id"),
-  /** Sumsub verification level name, e.g. "basic-kyc-level" */
-  levelName: text("level_name").notNull(),
-  status: kycSessionStatusEnum("status").notNull().default("init"),
-  /** Sumsub reviewAnswer: "GREEN" | "RED" | null */
-  reviewAnswer: text("review_answer"),
-  createdAt: tsNow("created_at").notNull(),
-  updatedAt: tsNow("updated_at").notNull(),
-});
+export const kycSessions = pgTable(
+  "kyc_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userWallet: text("user_wallet")
+      .notNull()
+      .references(() => users.wallet, { onDelete: "cascade" }),
+    /** Sumsub applicantId; null until the SDK call succeeds */
+    applicantId: text("applicant_id"),
+    /** Sumsub verification level name, e.g. "basic-kyc-level" */
+    levelName: text("level_name").notNull(),
+    status: kycSessionStatusEnum("status").notNull().default("init"),
+    /** Sumsub reviewAnswer: "GREEN" | "RED" | null */
+    reviewAnswer: text("review_answer"),
+    createdAt: tsNow("created_at").notNull(),
+    updatedAt: tsNow("updated_at").notNull(),
+  },
+  (t) => [
+    index("kyc_sessions_applicant_id_idx").on(t.applicantId),
+    index("kyc_sessions_user_wallet_idx").on(t.userWallet),
+  ]
+);

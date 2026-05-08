@@ -1,5 +1,5 @@
 {
-  "id": "ff9bde86-df0e-43a7-a8de-1f5f6e362022",
+  "id": "bfbbdc65-0dae-47fb-94f2-c93a79e60b1a",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -12,6 +12,12 @@
           "name": "id",
           "type": "text",
           "primaryKey": true,
+          "notNull": true
+        },
+        "badge_id": {
+          "name": "badge_id",
+          "type": "bigint",
+          "primaryKey": false,
           "notNull": true
         },
         "user_wallet": {
@@ -46,7 +52,23 @@
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "badges_user_wallet_idx": {
+          "name": "badges_user_wallet_idx",
+          "columns": [
+            {
+              "expression": "user_wallet",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "badges_user_wallet_users_wallet_fk": {
           "name": "badges_user_wallet_users_wallet_fk",
@@ -58,7 +80,7 @@
           "columnsTo": [
             "wallet"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -170,7 +192,7 @@
           "columnsTo": [
             "wallet"
           ],
-          "onDelete": "no action",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -249,7 +271,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -334,7 +356,38 @@
           "default": "'open'"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "disputes_state_idx": {
+          "name": "disputes_state_idx",
+          "columns": [
+            {
+              "expression": "state",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "disputes_deadline_ts_idx": {
+          "name": "disputes_deadline_ts_idx",
+          "columns": [
+            {
+              "expression": "deadline_ts",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "disputes_tanda_id_tandas_id_fk": {
           "name": "disputes_tanda_id_tandas_id_fk",
@@ -346,7 +399,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -486,7 +539,38 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "kyc_sessions_applicant_id_idx": {
+          "name": "kyc_sessions_applicant_id_idx",
+          "columns": [
+            {
+              "expression": "applicant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "kyc_sessions_user_wallet_idx": {
+          "name": "kyc_sessions_user_wallet_idx",
+          "columns": [
+            {
+              "expression": "user_wallet",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "kyc_sessions_user_wallet_users_wallet_fk": {
           "name": "kyc_sessions_user_wallet_users_wallet_fk",
@@ -498,7 +582,7 @@
           "columnsTo": [
             "wallet"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -562,7 +646,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -580,6 +664,12 @@
           "name": "id",
           "type": "text",
           "primaryKey": true,
+          "notNull": true
+        },
+        "loan_id": {
+          "name": "loan_id",
+          "type": "bigint",
+          "primaryKey": false,
           "notNull": true
         },
         "borrower_wallet": {
@@ -612,6 +702,20 @@
           "primaryKey": false,
           "notNull": true
         },
+        "cosigner_count": {
+          "name": "cosigner_count",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "cosigners_signed": {
+          "name": "cosigners_signed",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "disbursed_at": {
           "name": "disbursed_at",
           "type": "timestamp with time zone",
@@ -630,10 +734,41 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "default": "'requested'"
+          "default": "'pending'"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "loans_borrower_wallet_idx": {
+          "name": "loans_borrower_wallet_idx",
+          "columns": [
+            {
+              "expression": "borrower_wallet",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "loans_state_idx": {
+          "name": "loans_state_idx",
+          "columns": [
+            {
+              "expression": "state",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "loans_tanda_backing_tandas_id_fk": {
           "name": "loans_tanda_backing_tandas_id_fk",
@@ -645,7 +780,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -878,7 +1013,24 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "ramps_provider_ref_idx": {
+          "name": "ramps_provider_ref_idx",
+          "columns": [
+            {
+              "expression": "provider_ref",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "provider_ref IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -1124,10 +1276,9 @@
         },
         "tandas_created": {
           "name": "tandas_created",
-          "type": "integer",
+          "type": "bigint",
           "primaryKey": false,
-          "notNull": true,
-          "default": 0
+          "notNull": true
         },
         "loans_repaid": {
           "name": "loans_repaid",
@@ -1251,9 +1402,8 @@
       "name": "loan_state",
       "schema": "public",
       "values": [
-        "requested",
-        "cosigning",
-        "disbursed",
+        "pending",
+        "active",
         "repaid",
         "defaulted"
       ]
