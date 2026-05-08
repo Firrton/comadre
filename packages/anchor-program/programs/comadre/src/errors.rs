@@ -42,4 +42,10 @@ pub enum ComadreError {
     InvalidFeeBps,
     #[msg("kyc_limits[0] must be > 0 and the array must be monotonic non-decreasing")]
     InvalidKycLimits,
+    #[msg("frequency_seconds must be at least 86400 (24 hours)")]
+    InvalidFrequency,
+    #[msg("KYC tier insufficient for the requested contribution + stake amount")]
+    KycInsufficientForAmount,
+    #[msg("Member is not active (slashed)")]
+    MemberInactive,
 }

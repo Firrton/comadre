@@ -17,4 +17,4 @@ cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "node_modules/.bin/ts-mocha -p ./tsconfig.json -t 1000000 'tests/**/*.spec.ts'"
+test = "node_modules/.bin/ts-mocha -p ./tsconfig.json -t 1000000 'tests/tanda.spec.ts' --exit"

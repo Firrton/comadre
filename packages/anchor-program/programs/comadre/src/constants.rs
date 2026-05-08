@@ -9,6 +9,7 @@ pub const DISPUTE_VOTING_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60;
 pub const SEED_USER: &[u8] = b"user";
 pub const SEED_TANDA: &[u8] = b"tanda";
 pub const SEED_MEMBER: &[u8] = b"member";
+pub const SEED_VAULT: &[u8] = b"vault";
 pub const SEED_DISPUTE: &[u8] = b"dispute";
 pub const SEED_VOTE: &[u8] = b"vote";
 pub const SEED_LOAN: &[u8] = b"loan";
