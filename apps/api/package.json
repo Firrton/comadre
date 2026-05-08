@@ -9,7 +9,7 @@
     "start": "bun run dist/index.js",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "ANTHROPIC_API_KEY=test-key bun test --env-file .env.test"
   },
   "dependencies": {
     "@comadre/anchor-client": "workspace:*",

@@ -20,6 +20,7 @@ export {
   ContributeInput,
   OpenDisputeInput,
   VoteDisputeInput,
+  CreateUserProfileInput,
 } from "./inputs.js";
 
 // --- Responses (API response bodies) ---
