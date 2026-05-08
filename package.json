@@ -4,7 +4,11 @@
   "private": true,
   "description": "AI Agent Tía de LATAM — tandas, crédito social y ahorro en USDC",
   "workspaces": [
-    "apps/*",
+    "apps/api",
+    "apps/agent",
+    "apps/cron",
+    "apps/indexer",
+    "apps/whatsapp",
     "packages/*"
   ],
   "scripts": {
