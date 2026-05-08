@@ -134,8 +134,8 @@
       "name": "@comadre/cache",
       "version": "0.0.1",
       "dependencies": {
-        "@upstash/ratelimit": "^2.0.0",
-        "@upstash/redis": "^1.34.0",
+        "@upstash/ratelimit": "^2.0.8",
+        "@upstash/redis": "^1.38.0",
       },
     },
     "packages/config": {
