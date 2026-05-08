@@ -92,124 +92,131 @@ export const SumsubWebhookEvent = z.discriminatedUnion("type", [
 export type SumsubWebhookEvent = z.infer<typeof SumsubWebhookEvent>;
 
 // ---------------------------------------------------------------------------
-// Meta WhatsApp Business webhooks
-// Docs: https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks
+// Twilio WhatsApp webhooks
+// Docs: https://www.twilio.com/docs/whatsapp/api
+//       https://www.twilio.com/docs/messaging/guides/webhook-request
+//
+// Twilio sends webhooks as application/x-www-form-urlencoded, so the schema
+// describes the parsed key/value object (URLSearchParams or qs.parse output),
+// not raw JSON. All values arrive as strings; consumers coerce as needed.
+//
+// Two flavors:
+//   - Inbound message: a user wrote on WhatsApp -> Twilio POSTs to /webhook
+//   - Status callback: the status of an outbound we sent -> Twilio POSTs to
+//     the URL set in MessagingServiceSid or per-message statusCallback
 // ---------------------------------------------------------------------------
 
-/** WhatsApp message types we handle; others are silently ignored downstream */
-const WaMessageType = z.enum([
-  "text",
-  "audio",
-  "image",
-  "document",
-  "button",
-  "interactive",
-  "sticker",
-  "reaction",
-  "unsupported",
+/**
+ * E.164 wrapped in the WhatsApp channel: `whatsapp:+5491112345678`.
+ * Twilio uses this format for both `From` and `To`.
+ */
+const TwilioWhatsAppAddress = z
+  .string()
+  .regex(/^whatsapp:\+[1-9]\d{6,14}$/, "Must be `whatsapp:+E164`");
+
+/** Outbound delivery status surface used by Twilio. */
+const TwilioMessageStatus = z.enum([
+  "queued",
+  "sending",
+  "sent",
+  "delivered",
+  "undelivered",
+  "failed",
+  "read",
+  "received",
 ]);
 
-const WaTextBody = z.object({
-  body: z.string(),
-});
+/**
+ * Inbound message webhook (user sent something to our WhatsApp number).
+ *
+ * Strict-ish: we don't `.strict()` because Twilio adds optional params
+ * (e.g. geolocation, button payloads) that we don't always model. Unknown
+ * fields are kept on the parsed object via `.passthrough()` so we don't
+ * silently drop information the agent might want.
+ *
+ * Only `AccountSid`, `MessageSid`, `From`, `To` and `Body` are guaranteed
+ * for a text message. Media-related fields appear only when `NumMedia > 0`.
+ */
+export const TwilioInboundWebhook = z
+  .object({
+    AccountSid: z.string().regex(/^AC[0-9a-f]{32}$/i),
+    MessageSid: z.string().regex(/^[A-Z]{2}[0-9a-f]{32}$/i),
+    SmsSid: z.string().optional(),
+    SmsMessageSid: z.string().optional(),
 
-const WaAudioBody = z.object({
-  id: z.string(),
-  mime_type: z.string().optional(),
-});
+    From: TwilioWhatsAppAddress,
+    To: TwilioWhatsAppAddress,
 
-const WaButtonBody = z.object({
-  payload: z.string(),
-  text: z.string(),
-});
+    /** Sender's profile name as seen on WhatsApp. */
+    ProfileName: z.string().optional(),
+    /** E.164 of the sender, no `+` (Twilio strips it for WhatsApp). */
+    WaId: z.string().regex(/^[1-9]\d{6,14}$/).optional(),
 
-const WaInteractiveBody = z.object({
-  type: z.enum(["button_reply", "list_reply"]),
-  button_reply: z
-    .object({ id: z.string(), title: z.string() })
-    .optional(),
-  list_reply: z
-    .object({ id: z.string(), title: z.string(), description: z.string().optional() })
-    .optional(),
-});
+    /** Plain text body (empty string when `NumMedia > 0` and no caption). */
+    Body: z.string(),
 
-/** A single incoming WhatsApp message */
-const WaMessage = z.object({
-  from: z.string(),
-  id: z.string(),
-  timestamp: z.string(),
-  type: WaMessageType,
-  text: WaTextBody.optional(),
-  audio: WaAudioBody.optional(),
-  button: WaButtonBody.optional(),
-  interactive: WaInteractiveBody.optional(),
-  context: z
-    .object({ from: z.string(), id: z.string() })
-    .optional(),
-});
+    /** String "0".."10" — coerce when consuming. */
+    NumMedia: z
+      .string()
+      .regex(/^\d+$/)
+      .optional(),
+    /**
+     * `MediaUrl0`..`MediaUrlN` and `MediaContentType0`..N appear when
+     * `NumMedia > 0`. We model them as a generic record keyed by the
+     * suffix-numbered name so consumers can iterate by index.
+     * Use `.passthrough()` to keep them on the parsed value.
+     */
 
-/** Contact profile attached to incoming messages */
-const WaContact = z.object({
-  profile: z.object({ name: z.string() }),
-  wa_id: z.string(),
-});
+    /** Interactive button reply (template buttons). */
+    ButtonText: z.string().optional(),
+    ButtonPayload: z.string().optional(),
 
-/** Delivery / read status update */
-const WaStatus = z.object({
-  id: z.string(),
-  recipient_id: z.string(),
-  status: z.enum(["sent", "delivered", "read", "failed"]),
-  timestamp: z.string(),
-  errors: z
-    .array(
-      z.object({
-        code: z.number(),
-        title: z.string(),
-        message: z.string().optional(),
-        error_data: z
-          .object({ details: z.string() })
-          .optional(),
-      })
-    )
-    .optional(),
-});
+    /** Status of inbound (always "received" for inbound, but Twilio sets it). */
+    SmsStatus: TwilioMessageStatus.optional(),
 
-const WaChangeValue = z.object({
-  messaging_product: z.literal("whatsapp"),
-  metadata: z.object({
-    display_phone_number: z.string(),
-    phone_number_id: z.string(),
-  }),
-  messages: z.array(WaMessage).optional(),
-  contacts: z.array(WaContact).optional(),
-  statuses: z.array(WaStatus).optional(),
-  errors: z
-    .array(z.object({ code: z.number(), title: z.string() }))
-    .optional(),
-});
+    /** Always "whatsapp" for our webhook; sanity-check downstream. */
+    ChannelSid: z.string().optional(),
+    MessagingServiceSid: z.string().optional(),
+
+    /**
+     * Reply-to context: when the user replies to a previous message in
+     * WhatsApp, Twilio echoes the original MessageSid here.
+     */
+    OriginalRepliedMessageSid: z.string().optional(),
+    OriginalRepliedMessageSender: TwilioWhatsAppAddress.optional(),
+  })
+  .passthrough(); // keep Media{Url,ContentType}<n> and any future Twilio fields
+export type TwilioInboundWebhook = z.infer<typeof TwilioInboundWebhook>;
 
 /**
- * Top-level Meta WhatsApp Business webhook payload.
- * Sent to POST /webhooks/whatsapp.
- * Strict: Meta's schema is documented and stable; unknown keys fail loudly.
+ * Outbound status callback (delivery receipt for a message we sent).
+ *
+ * Configure the callback URL via `StatusCallback` on the create-message
+ * call or via the Messaging Service. Twilio fires for each transition:
+ * queued -> sent -> delivered -> read.
  */
-export const MetaWhatsAppWebhookEvent = z
+export const TwilioStatusCallback = z
   .object({
-    object: z.literal("whatsapp_business_account"),
-    entry: z.array(
-      z.object({
-        id: z.string(),
-        changes: z.array(
-          z.object({
-            value: WaChangeValue,
-            field: z.string(),
-          })
-        ),
-      })
-    ),
+    AccountSid: z.string().regex(/^AC[0-9a-f]{32}$/i),
+    MessageSid: z.string().regex(/^[A-Z]{2}[0-9a-f]{32}$/i),
+    MessagingServiceSid: z.string().optional(),
+
+    From: TwilioWhatsAppAddress,
+    To: TwilioWhatsAppAddress,
+
+    MessageStatus: TwilioMessageStatus,
+    SmsStatus: TwilioMessageStatus.optional(),
+
+    /** Set when the message failed; numeric Twilio error code as string. */
+    ErrorCode: z.string().regex(/^\d+$/).optional(),
+    ErrorMessage: z.string().optional(),
+
+    /** WhatsApp-specific channel id, when applicable. */
+    ChannelToAddress: z.string().optional(),
+    ChannelPrefix: z.string().optional(),
   })
-  .strict();
-export type MetaWhatsAppWebhookEvent = z.infer<typeof MetaWhatsAppWebhookEvent>;
+  .passthrough();
+export type TwilioStatusCallback = z.infer<typeof TwilioStatusCallback>;
 
 // ---------------------------------------------------------------------------
 // Helius enhanced transaction webhooks

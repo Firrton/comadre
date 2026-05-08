@@ -22,41 +22,72 @@ const walletsSchema = z.object({
 });
 
 // -----------------------------------------------------------------------
-// Privy
+// Privy — embedded wallets + auth
 // -----------------------------------------------------------------------
 const privySchema = z.object({
   PRIVY_APP_ID: z.string().min(1),
   PRIVY_APP_SECRET: z.string().min(1),
-  PRIVY_VERIFICATION_KEY: z.string().min(1),
+  // Verification key downloaded from Privy dashboard. Optional for dev,
+  // required for production JWT signature verification.
+  PRIVY_VERIFICATION_KEY: z.string().min(1).optional(),
 });
 
 // -----------------------------------------------------------------------
-// Sumsub — KYC
+// Sumsub — KYC (Phase 2; optional for the WhatsApp bot MVP)
 // -----------------------------------------------------------------------
 const sumsubSchema = z.object({
-  SUMSUB_APP_TOKEN: z.string().min(1),
-  SUMSUB_SECRET_KEY: z.string().min(1),
-  SUMSUB_WEBHOOK_SECRET: z.string().min(1),
+  SUMSUB_APP_TOKEN: z.string().min(1).optional(),
+  SUMSUB_SECRET_KEY: z.string().min(1).optional(),
+  SUMSUB_WEBHOOK_SECRET: z.string().min(1).optional(),
 });
 
 // -----------------------------------------------------------------------
-// Meta WhatsApp Cloud API
+// Twilio — WhatsApp Business API provider
 // -----------------------------------------------------------------------
-const metaSchema = z.object({
-  META_APP_SECRET: z.string().min(1),
-  META_PHONE_NUMBER_ID: z.string().min(1),
-  META_ACCESS_TOKEN: z.string().min(1),
-  META_VERIFY_TOKEN: z.string().min(1),
-  META_WABA_ID: z.string().min(1),
+// We use Twilio (NOT Meta Cloud API) for WhatsApp. Sandbox during dev,
+// approved sender for production. Auth model:
+//   - TWILIO_AUTH_TOKEN: master token. Used ONLY for webhook signature
+//     verification (X-Twilio-Signature HMAC). Treat as primary secret.
+//   - TWILIO_API_KEY_SID + TWILIO_API_KEY_SECRET: scoped credentials for
+//     outbound (Messages create). Rotatable without breaking the account.
+//
+// During the hackathon the sandbox sender `whatsapp:+14155238886` is used.
+const twilioSchema = z.object({
+  TWILIO_ACCOUNT_SID: z.string().regex(/^AC[0-9a-f]{32}$/i, "Must be an Account SID (AC...)"),
+  TWILIO_AUTH_TOKEN: z.string().min(32, "Auth Token must be at least 32 chars"),
+  TWILIO_API_KEY_SID: z.string().regex(/^SK[0-9a-f]{32}$/i, "Must be an API Key SID (SK...)"),
+  TWILIO_API_KEY_SECRET: z.string().min(32, "API Key secret must be at least 32 chars"),
+  /** WhatsApp sender, e.g. `whatsapp:+14155238886` (sandbox) or your approved number. */
+  TWILIO_WHATSAPP_FROM: z.string().regex(/^whatsapp:\+\d{6,15}$/, "Must be `whatsapp:+E164`"),
 });
 
 // -----------------------------------------------------------------------
-// Anthropic
+// LLM provider — Kimi K2 via Moonshot or Groq
 // -----------------------------------------------------------------------
-const anthropicSchema = z.object({
-  ANTHROPIC_API_KEY: z.string().min(1),
-  ANTHROPIC_MODEL: z.string().min(1),
-});
+// Provider is selectable. At least ONE of MOONSHOT_API_KEY or GROQ_API_KEY
+// must be set; the agent service reads LLM_PROVIDER to pick which to use.
+//   - moonshot: direct API to Moonshot (cheaper, slower)
+//   - groq:     same Kimi model on Groq's infra (faster, paid by tokens)
+const llmSchema = z
+  .object({
+    LLM_PROVIDER: z.enum(["moonshot", "groq"]).default("moonshot"),
+    MOONSHOT_API_KEY: z.string().min(1).optional(),
+    GROQ_API_KEY: z.string().min(1).optional(),
+    /** Kimi model name; e.g. `kimi-k2-0905-preview` (Moonshot) or `moonshotai/kimi-k2-instruct` (Groq). */
+    KIMI_MODEL: z.string().min(1),
+  })
+  .refine(
+    (v) => Boolean(v.MOONSHOT_API_KEY) || Boolean(v.GROQ_API_KEY),
+    { message: "At least one of MOONSHOT_API_KEY or GROQ_API_KEY must be set" }
+  )
+  .refine(
+    (v) => v.LLM_PROVIDER !== "moonshot" || Boolean(v.MOONSHOT_API_KEY),
+    { message: "LLM_PROVIDER=moonshot requires MOONSHOT_API_KEY", path: ["MOONSHOT_API_KEY"] }
+  )
+  .refine(
+    (v) => v.LLM_PROVIDER !== "groq" || Boolean(v.GROQ_API_KEY),
+    { message: "LLM_PROVIDER=groq requires GROQ_API_KEY", path: ["GROQ_API_KEY"] }
+  );
 
 // -----------------------------------------------------------------------
 // ElevenLabs — Phase 2 (optional)
@@ -67,11 +98,11 @@ const elevenLabsSchema = z.object({
 });
 
 // -----------------------------------------------------------------------
-// Helius
+// Helius — Solana RPC + enhanced webhooks
 // -----------------------------------------------------------------------
 const heliusSchema = z.object({
   HELIUS_API_KEY: z.string().min(1),
-  HELIUS_WEBHOOK_SECRET: z.string().min(1),
+  HELIUS_WEBHOOK_SECRET: z.string().min(1).optional(),
 });
 
 // -----------------------------------------------------------------------
@@ -79,11 +110,12 @@ const heliusSchema = z.object({
 // -----------------------------------------------------------------------
 const postgresSchema = z.object({
   DATABASE_URL: z.string().url(),
-  DIRECT_URL: z.string().url(),
+  /** Direct connection (no pgbouncer) used by drizzle-kit migrations. */
+  DIRECT_URL: z.string().url().optional(),
 });
 
 // -----------------------------------------------------------------------
-// Upstash Redis
+// Upstash Redis (REST)
 // -----------------------------------------------------------------------
 const upstashSchema = z.object({
   UPSTASH_REDIS_REST_URL: z.string().url(),
@@ -91,14 +123,14 @@ const upstashSchema = z.object({
 });
 
 // -----------------------------------------------------------------------
-// Internal auth
+// Internal auth — service-to-service HMAC
 // -----------------------------------------------------------------------
 const internalAuthSchema = z.object({
-  INTERNAL_HMAC_SECRET: z.string().min(1),
+  INTERNAL_HMAC_SECRET: z.string().min(32, "Must be at least 32 chars (256-bit)"),
 });
 
 // -----------------------------------------------------------------------
-// Service URLs — internal
+// Service URLs — internal mesh
 // -----------------------------------------------------------------------
 const serviceUrlsSchema = z.object({
   API_URL: z.string().url(),
@@ -116,6 +148,14 @@ const observabilitySchema = z.object({
 });
 
 // -----------------------------------------------------------------------
+// Dev tooling — optional
+// -----------------------------------------------------------------------
+const devToolingSchema = z.object({
+  /** ngrok auth token for exposing local webhooks during dev. */
+  NGROK_AUTH_TOKEN: z.string().min(1).optional(),
+});
+
+// -----------------------------------------------------------------------
 // App
 // -----------------------------------------------------------------------
 const appSchema = z.object({
@@ -126,12 +166,16 @@ const appSchema = z.object({
 // -----------------------------------------------------------------------
 // Combined schema — all domains merged
 // -----------------------------------------------------------------------
-export const envSchema = solanaSchema
+//
+// `llmSchema` carries `.refine()` checks, so it can't `.merge()` a plain
+// object schema. We compose by intersecting: the base schema (everything
+// else merged) AND the LLM schema's refined object. Zod handles the
+// intersection cleanly and the inferred type is the union of fields.
+const baseSchema = solanaSchema
   .merge(walletsSchema)
   .merge(privySchema)
   .merge(sumsubSchema)
-  .merge(metaSchema)
-  .merge(anthropicSchema)
+  .merge(twilioSchema)
   .merge(elevenLabsSchema)
   .merge(heliusSchema)
   .merge(postgresSchema)
@@ -139,6 +183,8 @@ export const envSchema = solanaSchema
   .merge(internalAuthSchema)
   .merge(serviceUrlsSchema)
   .merge(observabilitySchema)
+  .merge(devToolingSchema)
   .merge(appSchema);
 
+export const envSchema = z.intersection(baseSchema, llmSchema);
 export type Env = z.infer<typeof envSchema>;
