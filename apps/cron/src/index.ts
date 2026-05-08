@@ -1,8 +1,7 @@
-// TODO: register cron jobs
-// import cron from "node-cron";
-// cron.schedule("*/5 * * * *", payoutCrank);
-// cron.schedule("0 * * * *", disputeResolveCrank);
-// cron.schedule("0 9 * * *", reminderJob);
-// cron.schedule("0 4 * * *", kycRefreshJob);
-
-console.log("cron service started");
+// Re-exports for convenience (not the entrypoint — see server.ts)
+export { payoutCrank } from "./jobs/payoutCrank.js";
+export { disputeResolveCrank } from "./jobs/disputeResolveCrank.js";
+export { reminderJob } from "./jobs/reminderJob.js";
+export { kycRefreshJob } from "./jobs/kycRefreshJob.js";
+export { scheduleJob } from "./lib/scheduler.js";
+export { sendTemplate } from "./lib/whatsappStub.js";
