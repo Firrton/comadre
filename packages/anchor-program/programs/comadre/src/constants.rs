@@ -6,11 +6,15 @@ pub const MAX_DISPUTES_PER_TANDA: u8 = 5;
 
 pub const DISPUTE_VOTING_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60;
 
+/// Grace period after next_payout_ts before a member can be slashed for default (24h).
+pub const SLASH_GRACE_SECONDS: i64 = 86_400;
+
 pub const SEED_USER: &[u8] = b"user";
 pub const SEED_TANDA: &[u8] = b"tanda";
 pub const SEED_MEMBER: &[u8] = b"member";
 pub const SEED_VAULT: &[u8] = b"vault";
 pub const SEED_DISPUTE: &[u8] = b"dispute";
+pub const SEED_DISPUTE_VOTE: &[u8] = b"dispute_vote";
 pub const SEED_VOTE: &[u8] = b"vote";
 pub const SEED_LOAN: &[u8] = b"loan";
 pub const SEED_COSIGNER: &[u8] = b"cosigner";

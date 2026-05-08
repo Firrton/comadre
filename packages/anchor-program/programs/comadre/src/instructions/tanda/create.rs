@@ -125,6 +125,7 @@ pub fn handler(ctx: Context<CreateTanda>, params: CreateTandaParams) -> Result<(
     tanda.total_turns = params.member_target; // one turn per member
     tanda.current_turn = 0;
     tanda.contributions_this_turn = 0;
+    tanda.disputes_opened = 0;
     tanda.state = TandaState::Forming;
     tanda.payout_order_mode = params.payout_order_mode;
     tanda.next_payout_ts = 0;

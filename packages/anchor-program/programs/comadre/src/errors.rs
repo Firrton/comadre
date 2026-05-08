@@ -52,4 +52,14 @@ pub enum ComadreError {
     AlreadyPaidOut,
     #[msg("Payout order mode not yet implemented; use JoinOrder")]
     NotImplemented,
+    #[msg("Dispute is not in Open state")]
+    DisputeNotOpen,
+    #[msg("Dispute voting window has expired")]
+    DisputeExpired,
+    #[msg("Dispute voting window has not expired yet")]
+    DisputeNotExpired,
+    #[msg("Member has not defaulted (contributions up to date or grace period not elapsed)")]
+    MemberNotDefaulted,
+    #[msg("Maximum number of disputes per tanda reached")]
+    MaxDisputesReached,
 }
