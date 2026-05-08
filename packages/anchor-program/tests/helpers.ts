@@ -16,11 +16,13 @@ import type { Comadre } from "../target/types/comadre";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-export const SEED_USER   = Buffer.from("user");
-export const SEED_CONFIG = Buffer.from("config");
-export const SEED_TANDA  = Buffer.from("tanda");
-export const SEED_MEMBER = Buffer.from("member");
-export const SEED_VAULT  = Buffer.from("vault");
+export const SEED_USER         = Buffer.from("user");
+export const SEED_CONFIG       = Buffer.from("config");
+export const SEED_TANDA        = Buffer.from("tanda");
+export const SEED_MEMBER       = Buffer.from("member");
+export const SEED_VAULT        = Buffer.from("vault");
+export const SEED_DISPUTE      = Buffer.from("dispute");
+export const SEED_DISPUTE_VOTE = Buffer.from("dispute_vote");
 
 // ─── Provider & Program ───────────────────────────────────────────────────────
 
@@ -94,6 +96,36 @@ export function deriveVaultPda(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEED_VAULT, tanda.toBuffer()],
+    programId
+  );
+}
+
+/**
+ * Derives [disputePda, bump] for a (tanda, dispute_id) pair.
+ * Seeds: ["dispute", tanda, dispute_id_byte]
+ */
+export function deriveDisputePda(
+  tanda: PublicKey,
+  disputeId: number,
+  programId: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEED_DISPUTE, tanda.toBuffer(), Buffer.from([disputeId])],
+    programId
+  );
+}
+
+/**
+ * Derives [disputeVotePda, bump] for a (dispute, voter) pair.
+ * Seeds: ["dispute_vote", dispute, voter]
+ */
+export function deriveDisputeVotePda(
+  dispute: PublicKey,
+  voter: PublicKey,
+  programId: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEED_DISPUTE_VOTE, dispute.toBuffer(), voter.toBuffer()],
     programId
   );
 }
