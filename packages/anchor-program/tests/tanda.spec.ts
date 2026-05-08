@@ -737,6 +737,579 @@ describe("tanda lifecycle", () => {
     });
   });
 
+  // ── security / negative-path tests ───────────────────────────────────────────
+
+  describe("security guards", () => {
+    // ── start_tanda: rejects non-JoinOrder modes ────────────────────────────
+
+    it("start_tanda rejects CreatorSet mode with NotImplemented", async function () {
+      if (!ownedConfig) return this.skip();
+
+      const csId = new BN(3001);
+      const [csTanda] = deriveTandaPda(members[0]!.publicKey, csId, program.programId);
+      const [csVault] = deriveVaultPda(csTanda, program.programId);
+
+      // Create a tanda with CreatorSet mode
+      await program.methods
+        .createTanda({
+          tandaId:            csId,
+          nameHash:           Array.from(Buffer.alloc(32, 0x31)),
+          memberTarget:       3,
+          contributionAmount: new BN(CONTRIBUTION_AMOUNT),
+          stakeAmount:        new BN(STAKE_AMOUNT),
+          frequencySeconds:   FREQUENCY_SECONDS,
+          payoutOrderMode:    { creatorSet: {} },
+        })
+        .accounts({
+          creator:         members[0]!.publicKey,
+          creatorProfile:  memberProfiles[0]!,
+          programConfig:   configPda,
+          tanda:           csTanda,
+          vault:           csVault,
+          usdcMint,
+          tokenProgram:    TOKEN_PROGRAM_ID,
+          systemProgram:   SystemProgram.programId,
+          rent:            SYSVAR_RENT_PUBKEY,
+        } as any)
+        .signers([members[0]!])
+        .rpc({ commitment: "confirmed" });
+
+      // Fill to 3 members — turn_number is ignored in JoinOrder but required; pass 0
+      for (let i = 0; i < 3; i++) {
+        const [mp] = deriveMemberPda(csTanda, members[i]!.publicKey, program.programId);
+        await program.methods.joinTanda(i + 1)
+          .accounts({
+            user:           members[i]!.publicKey,
+            userProfile:    memberProfiles[i]!,
+            programConfig:  configPda,
+            tanda:          csTanda,
+            member:         mp,
+            userUsdcAta:    memberAtas[i]!,
+            vault:          csVault,
+            usdcMint,
+            tokenProgram:   TOKEN_PROGRAM_ID,
+            systemProgram:  SystemProgram.programId,
+          } as any)
+          .signers([members[i]!])
+          .rpc({ commitment: "confirmed" });
+      }
+
+      try {
+        await program.methods
+          .startTanda()
+          .accounts({
+            creator:       members[0]!.publicKey,
+            tanda:         csTanda,
+            programConfig: configPda,
+          } as any)
+          .signers([members[0]!])
+          .rpc({ commitment: "confirmed" });
+        assert.fail("Expected NotImplemented");
+      } catch (err: any) {
+        const msg = String(err.message ?? err);
+        assert.ok(
+          msg.includes("NotImplemented") || msg.includes("6024"),
+          `Expected NotImplemented, got: ${msg}`
+        );
+      }
+    });
+
+    it("start_tanda rejects Random mode with NotImplemented", async function () {
+      if (!ownedConfig) return this.skip();
+
+      const rndId = new BN(3002);
+      const [rndTanda] = deriveTandaPda(members[0]!.publicKey, rndId, program.programId);
+      const [rndVault] = deriveVaultPda(rndTanda, program.programId);
+
+      await program.methods
+        .createTanda({
+          tandaId:            rndId,
+          nameHash:           Array.from(Buffer.alloc(32, 0x32)),
+          memberTarget:       3,
+          contributionAmount: new BN(CONTRIBUTION_AMOUNT),
+          stakeAmount:        new BN(STAKE_AMOUNT),
+          frequencySeconds:   FREQUENCY_SECONDS,
+          payoutOrderMode:    { random: {} },
+        })
+        .accounts({
+          creator:         members[0]!.publicKey,
+          creatorProfile:  memberProfiles[0]!,
+          programConfig:   configPda,
+          tanda:           rndTanda,
+          vault:           rndVault,
+          usdcMint,
+          tokenProgram:    TOKEN_PROGRAM_ID,
+          systemProgram:   SystemProgram.programId,
+          rent:            SYSVAR_RENT_PUBKEY,
+        } as any)
+        .signers([members[0]!])
+        .rpc({ commitment: "confirmed" });
+
+      for (let i = 0; i < 3; i++) {
+        const [mp] = deriveMemberPda(rndTanda, members[i]!.publicKey, program.programId);
+        await program.methods.joinTanda(i + 1)
+          .accounts({
+            user:           members[i]!.publicKey,
+            userProfile:    memberProfiles[i]!,
+            programConfig:  configPda,
+            tanda:          rndTanda,
+            member:         mp,
+            userUsdcAta:    memberAtas[i]!,
+            vault:          rndVault,
+            usdcMint,
+            tokenProgram:   TOKEN_PROGRAM_ID,
+            systemProgram:  SystemProgram.programId,
+          } as any)
+          .signers([members[i]!])
+          .rpc({ commitment: "confirmed" });
+      }
+
+      try {
+        await program.methods
+          .startTanda()
+          .accounts({
+            creator:       members[0]!.publicKey,
+            tanda:         rndTanda,
+            programConfig: configPda,
+          } as any)
+          .signers([members[0]!])
+          .rpc({ commitment: "confirmed" });
+        assert.fail("Expected NotImplemented");
+      } catch (err: any) {
+        const msg = String(err.message ?? err);
+        assert.ok(
+          msg.includes("NotImplemented") || msg.includes("6024"),
+          `Expected NotImplemented, got: ${msg}`
+        );
+      }
+    });
+
+    it("start_tanda rejects non-creator with NotCreator", async function () {
+      if (!ownedConfig) return this.skip();
+
+      // Create a fresh tanda so it is still in Forming state
+      const ncId = new BN(3003);
+      const [ncTanda] = deriveTandaPda(members[0]!.publicKey, ncId, program.programId);
+      const [ncVault] = deriveVaultPda(ncTanda, program.programId);
+
+      await program.methods
+        .createTanda({
+          tandaId:            ncId,
+          nameHash:           Array.from(Buffer.alloc(32, 0x33)),
+          memberTarget:       3,
+          contributionAmount: new BN(CONTRIBUTION_AMOUNT),
+          stakeAmount:        new BN(STAKE_AMOUNT),
+          frequencySeconds:   FREQUENCY_SECONDS,
+          payoutOrderMode:    { joinOrder: {} },
+        })
+        .accounts({
+          creator:         members[0]!.publicKey,
+          creatorProfile:  memberProfiles[0]!,
+          programConfig:   configPda,
+          tanda:           ncTanda,
+          vault:           ncVault,
+          usdcMint,
+          tokenProgram:    TOKEN_PROGRAM_ID,
+          systemProgram:   SystemProgram.programId,
+          rent:            SYSVAR_RENT_PUBKEY,
+        } as any)
+        .signers([members[0]!])
+        .rpc({ commitment: "confirmed" });
+
+      for (let i = 0; i < 3; i++) {
+        const [mp] = deriveMemberPda(ncTanda, members[i]!.publicKey, program.programId);
+        await program.methods.joinTanda(0)
+          .accounts({
+            user:           members[i]!.publicKey,
+            userProfile:    memberProfiles[i]!,
+            programConfig:  configPda,
+            tanda:          ncTanda,
+            member:         mp,
+            userUsdcAta:    memberAtas[i]!,
+            vault:          ncVault,
+            usdcMint,
+            tokenProgram:   TOKEN_PROGRAM_ID,
+            systemProgram:  SystemProgram.programId,
+          } as any)
+          .signers([members[i]!])
+          .rpc({ commitment: "confirmed" });
+      }
+
+      // members[1] is NOT the creator — expect NotCreator
+      try {
+        await program.methods
+          .startTanda()
+          .accounts({
+            creator:       members[1]!.publicKey,
+            tanda:         ncTanda,
+            programConfig: configPda,
+          } as any)
+          .signers([members[1]!])
+          .rpc({ commitment: "confirmed" });
+        assert.fail("Expected NotCreator");
+      } catch (err: any) {
+        const msg = String(err.message ?? err);
+        assert.ok(
+          msg.includes("NotCreator") || msg.includes("6013"),
+          `Expected NotCreator, got: ${msg}`
+        );
+      }
+    });
+
+    // ── contribute: rejects double-contribute in same turn ──────────────────
+
+    it("contribute rejects double-contribute in same turn with AlreadyContributed", async function () {
+      if (!ownedConfig) return this.skip();
+
+      // Use a fresh 3-member tanda so we don't interfere with the happy-path tanda
+      const dcId = new BN(3004);
+      const [dcTanda] = deriveTandaPda(members[0]!.publicKey, dcId, program.programId);
+      const [dcVault] = deriveVaultPda(dcTanda, program.programId);
+
+      await program.methods
+        .createTanda({
+          tandaId:            dcId,
+          nameHash:           Array.from(Buffer.alloc(32, 0x34)),
+          memberTarget:       3,
+          contributionAmount: new BN(CONTRIBUTION_AMOUNT),
+          stakeAmount:        new BN(STAKE_AMOUNT),
+          frequencySeconds:   FREQUENCY_SECONDS,
+          payoutOrderMode:    { joinOrder: {} },
+        })
+        .accounts({
+          creator:         members[0]!.publicKey,
+          creatorProfile:  memberProfiles[0]!,
+          programConfig:   configPda,
+          tanda:           dcTanda,
+          vault:           dcVault,
+          usdcMint,
+          tokenProgram:    TOKEN_PROGRAM_ID,
+          systemProgram:   SystemProgram.programId,
+          rent:            SYSVAR_RENT_PUBKEY,
+        } as any)
+        .signers([members[0]!])
+        .rpc({ commitment: "confirmed" });
+
+      for (let i = 0; i < 3; i++) {
+        const [mp] = deriveMemberPda(dcTanda, members[i]!.publicKey, program.programId);
+        await program.methods.joinTanda(0)
+          .accounts({
+            user:           members[i]!.publicKey,
+            userProfile:    memberProfiles[i]!,
+            programConfig:  configPda,
+            tanda:          dcTanda,
+            member:         mp,
+            userUsdcAta:    memberAtas[i]!,
+            vault:          dcVault,
+            usdcMint,
+            tokenProgram:   TOKEN_PROGRAM_ID,
+            systemProgram:  SystemProgram.programId,
+          } as any)
+          .signers([members[i]!])
+          .rpc({ commitment: "confirmed" });
+      }
+
+      await program.methods.startTanda()
+        .accounts({
+          creator:       members[0]!.publicKey,
+          tanda:         dcTanda,
+          programConfig: configPda,
+        } as any)
+        .signers([members[0]!])
+        .rpc({ commitment: "confirmed" });
+
+      const [creatorMemberPda] = deriveMemberPda(dcTanda, members[0]!.publicKey, program.programId);
+
+      // First contribution — should succeed
+      await program.methods
+        .contribute()
+        .accounts({
+          user:          members[0]!.publicKey,
+          member:        creatorMemberPda,
+          tanda:         dcTanda,
+          programConfig: configPda,
+          userUsdcAta:   memberAtas[0]!,
+          vault:         dcVault,
+          usdcMint,
+          tokenProgram:  TOKEN_PROGRAM_ID,
+        } as any)
+        .signers([members[0]!])
+        .rpc({ commitment: "confirmed" });
+
+      // Second contribution — must fail with AlreadyContributed
+      try {
+        await program.methods
+          .contribute()
+          .accounts({
+            user:          members[0]!.publicKey,
+            member:        creatorMemberPda,
+            tanda:         dcTanda,
+            programConfig: configPda,
+            userUsdcAta:   memberAtas[0]!,
+            vault:         dcVault,
+            usdcMint,
+            tokenProgram:  TOKEN_PROGRAM_ID,
+          } as any)
+          .signers([members[0]!])
+          .rpc({ commitment: "confirmed" });
+        assert.fail("Expected AlreadyContributed");
+      } catch (err: any) {
+        const msg = String(err.message ?? err);
+        assert.ok(
+          msg.includes("AlreadyContributed") || msg.includes("6007"),
+          `Expected AlreadyContributed, got: ${msg}`
+        );
+      }
+    });
+
+    // ── payout: rejects when not all members contributed ───────────────────
+
+    it("payout rejects when not all members contributed (MissingContributions)", async function () {
+      if (!ownedConfig) return this.skip();
+
+      // Fresh 3-member tanda: only 2 out of 3 contribute, then payout must fail
+      const mcId = new BN(3005);
+      const [mcTanda] = deriveTandaPda(members[0]!.publicKey, mcId, program.programId);
+      const [mcVault] = deriveVaultPda(mcTanda, program.programId);
+
+      await program.methods
+        .createTanda({
+          tandaId:            mcId,
+          nameHash:           Array.from(Buffer.alloc(32, 0x35)),
+          memberTarget:       3,
+          contributionAmount: new BN(CONTRIBUTION_AMOUNT),
+          stakeAmount:        new BN(STAKE_AMOUNT),
+          frequencySeconds:   FREQUENCY_SECONDS,
+          payoutOrderMode:    { joinOrder: {} },
+        })
+        .accounts({
+          creator:         members[0]!.publicKey,
+          creatorProfile:  memberProfiles[0]!,
+          programConfig:   configPda,
+          tanda:           mcTanda,
+          vault:           mcVault,
+          usdcMint,
+          tokenProgram:    TOKEN_PROGRAM_ID,
+          systemProgram:   SystemProgram.programId,
+          rent:            SYSVAR_RENT_PUBKEY,
+        } as any)
+        .signers([members[0]!])
+        .rpc({ commitment: "confirmed" });
+
+      for (let i = 0; i < 3; i++) {
+        const [mp] = deriveMemberPda(mcTanda, members[i]!.publicKey, program.programId);
+        await program.methods.joinTanda(0)
+          .accounts({
+            user:           members[i]!.publicKey,
+            userProfile:    memberProfiles[i]!,
+            programConfig:  configPda,
+            tanda:          mcTanda,
+            member:         mp,
+            userUsdcAta:    memberAtas[i]!,
+            vault:          mcVault,
+            usdcMint,
+            tokenProgram:   TOKEN_PROGRAM_ID,
+            systemProgram:  SystemProgram.programId,
+          } as any)
+          .signers([members[i]!])
+          .rpc({ commitment: "confirmed" });
+      }
+
+      await program.methods.startTanda()
+        .accounts({
+          creator:       members[0]!.publicKey,
+          tanda:         mcTanda,
+          programConfig: configPda,
+        } as any)
+        .signers([members[0]!])
+        .rpc({ commitment: "confirmed" });
+
+      // Wait for payout window
+      const tandaState = await program.account.tanda.fetch(mcTanda);
+      const nextTs = tandaState.nextPayoutTs.toNumber();
+      const nowTs  = Math.floor(Date.now() / 1000);
+      const waitMs = Math.max(0, (nextTs - nowTs + 1) * 1000);
+      if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+
+      // Only 2 out of 3 contribute
+      for (let i = 0; i < 2; i++) {
+        const [mp] = deriveMemberPda(mcTanda, members[i]!.publicKey, program.programId);
+        await program.methods
+          .contribute()
+          .accounts({
+            user:          members[i]!.publicKey,
+            member:        mp,
+            tanda:         mcTanda,
+            programConfig: configPda,
+            userUsdcAta:   memberAtas[i]!,
+            vault:         mcVault,
+            usdcMint,
+            tokenProgram:  TOKEN_PROGRAM_ID,
+          } as any)
+          .signers([members[i]!])
+          .rpc({ commitment: "confirmed" });
+      }
+
+      // Find turn-1 beneficiary
+      let beneficiaryIdx = 0;
+      for (let i = 0; i < 3; i++) {
+        const [mp] = deriveMemberPda(mcTanda, members[i]!.publicKey, program.programId);
+        const m = await program.account.member.fetch(mp);
+        if (m.turnNumber === 1) { beneficiaryIdx = i; break; }
+      }
+      const [mcBenMember] = deriveMemberPda(mcTanda, members[beneficiaryIdx]!.publicKey, program.programId);
+
+      try {
+        await program.methods
+          .payout()
+          .accounts({
+            crank:              crankAuthority.publicKey,
+            tanda:              mcTanda,
+            programConfig:      configPda,
+            beneficiaryMember:  mcBenMember,
+            beneficiaryUsdcAta: memberAtas[beneficiaryIdx]!,
+            vault:              mcVault,
+            usdcMint,
+            tokenProgram:       TOKEN_PROGRAM_ID,
+          } as any)
+          .signers([crankAuthority])
+          .rpc({ commitment: "confirmed" });
+        assert.fail("Expected MissingContributions");
+      } catch (err: any) {
+        const msg = String(err.message ?? err);
+        assert.ok(
+          msg.includes("MissingContributions") || msg.includes("6009"),
+          `Expected MissingContributions, got: ${msg}`
+        );
+      }
+    });
+
+    // ── payout: rejects non-crank ──────────────────────────────────────────
+
+    it("payout rejects non-crank with Unauthorized", async function () {
+      if (!ownedConfig) return this.skip();
+
+      // Create and fully set up a 3-member tanda with all contributions done
+      const unauthId = new BN(3006);
+      const [unauthTanda] = deriveTandaPda(members[0]!.publicKey, unauthId, program.programId);
+      const [unauthVault] = deriveVaultPda(unauthTanda, program.programId);
+
+      await program.methods
+        .createTanda({
+          tandaId:            unauthId,
+          nameHash:           Array.from(Buffer.alloc(32, 0x36)),
+          memberTarget:       3,
+          contributionAmount: new BN(CONTRIBUTION_AMOUNT),
+          stakeAmount:        new BN(STAKE_AMOUNT),
+          frequencySeconds:   FREQUENCY_SECONDS,
+          payoutOrderMode:    { joinOrder: {} },
+        })
+        .accounts({
+          creator:         members[0]!.publicKey,
+          creatorProfile:  memberProfiles[0]!,
+          programConfig:   configPda,
+          tanda:           unauthTanda,
+          vault:           unauthVault,
+          usdcMint,
+          tokenProgram:    TOKEN_PROGRAM_ID,
+          systemProgram:   SystemProgram.programId,
+          rent:            SYSVAR_RENT_PUBKEY,
+        } as any)
+        .signers([members[0]!])
+        .rpc({ commitment: "confirmed" });
+
+      for (let i = 0; i < 3; i++) {
+        const [mp] = deriveMemberPda(unauthTanda, members[i]!.publicKey, program.programId);
+        await program.methods.joinTanda(0)
+          .accounts({
+            user:           members[i]!.publicKey,
+            userProfile:    memberProfiles[i]!,
+            programConfig:  configPda,
+            tanda:          unauthTanda,
+            member:         mp,
+            userUsdcAta:    memberAtas[i]!,
+            vault:          unauthVault,
+            usdcMint,
+            tokenProgram:   TOKEN_PROGRAM_ID,
+            systemProgram:  SystemProgram.programId,
+          } as any)
+          .signers([members[i]!])
+          .rpc({ commitment: "confirmed" });
+      }
+
+      await program.methods.startTanda()
+        .accounts({
+          creator:       members[0]!.publicKey,
+          tanda:         unauthTanda,
+          programConfig: configPda,
+        } as any)
+        .signers([members[0]!])
+        .rpc({ commitment: "confirmed" });
+
+      // Wait for payout window
+      const tandaState = await program.account.tanda.fetch(unauthTanda);
+      const nextTs = tandaState.nextPayoutTs.toNumber();
+      const nowTs  = Math.floor(Date.now() / 1000);
+      const waitMs = Math.max(0, (nextTs - nowTs + 1) * 1000);
+      if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+
+      // All 3 members contribute
+      for (let i = 0; i < 3; i++) {
+        const [mp] = deriveMemberPda(unauthTanda, members[i]!.publicKey, program.programId);
+        await program.methods
+          .contribute()
+          .accounts({
+            user:          members[i]!.publicKey,
+            member:        mp,
+            tanda:         unauthTanda,
+            programConfig: configPda,
+            userUsdcAta:   memberAtas[i]!,
+            vault:         unauthVault,
+            usdcMint,
+            tokenProgram:  TOKEN_PROGRAM_ID,
+          } as any)
+          .signers([members[i]!])
+          .rpc({ commitment: "confirmed" });
+      }
+
+      // Find turn-1 beneficiary
+      let beneficiaryIdx = 0;
+      for (let i = 0; i < 3; i++) {
+        const [mp] = deriveMemberPda(unauthTanda, members[i]!.publicKey, program.programId);
+        const m = await program.account.member.fetch(mp);
+        if (m.turnNumber === 1) { beneficiaryIdx = i; break; }
+      }
+      const [unauthBenMember] = deriveMemberPda(unauthTanda, members[beneficiaryIdx]!.publicKey, program.programId);
+
+      // Use members[1] as a fake crank — not the real crankAuthority
+      const fakeCrank = members[1]!;
+
+      try {
+        await program.methods
+          .payout()
+          .accounts({
+            crank:              fakeCrank.publicKey,
+            tanda:              unauthTanda,
+            programConfig:      configPda,
+            beneficiaryMember:  unauthBenMember,
+            beneficiaryUsdcAta: memberAtas[beneficiaryIdx]!,
+            vault:              unauthVault,
+            usdcMint,
+            tokenProgram:       TOKEN_PROGRAM_ID,
+          } as any)
+          .signers([fakeCrank])
+          .rpc({ commitment: "confirmed" });
+        assert.fail("Expected Unauthorized");
+      } catch (err: any) {
+        const msg = String(err.message ?? err);
+        assert.ok(
+          msg.includes("Unauthorized") || msg.includes("6014"),
+          `Expected Unauthorized, got: ${msg}`
+        );
+      }
+    });
+  });
+
   // ── paused program ────────────────────────────────────────────────────────────
 
   describe("paused program", () => {

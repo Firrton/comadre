@@ -93,6 +93,13 @@ pub fn handler(ctx: Context<Contribute>) -> Result<()> {
         .ok_or(ComadreError::MathOverflow)?;
     member.last_contribution_ts = now;
 
+    // ── Track per-turn contribution count on tanda ──────────────────────────
+    let tanda = &mut ctx.accounts.tanda;
+    tanda.contributions_this_turn = tanda
+        .contributions_this_turn
+        .checked_add(1)
+        .ok_or(ComadreError::MathOverflow)?;
+
     emit!(ContributionMade {
         tanda: tanda_key,
         user: user_key,

@@ -83,17 +83,25 @@ pub fn handler(ctx: Context<Payout>) -> Result<()> {
         ComadreError::NotAMember
     );
 
+    // ── Belt-and-suspenders: reject double payout ───────────────────────────
+    require!(
+        !beneficiary_member.has_received_payout,
+        ComadreError::AlreadyPaidOut
+    );
+
+    // ── All-contributions guard ─────────────────────────────────────────────
+    // Prevents a compromised or buggy crank from draining the vault before all
+    // members have contributed for the current turn.
+    require!(
+        tanda.contributions_this_turn == tanda.member_target,
+        ComadreError::MissingContributions
+    );
+
     // ── Payout amount ───────────────────────────────────────────────────────
     // Convention: every member — including the beneficiary — contributes their
     // own turn. The beneficiary receives the FULL pot of N × contribution_amount.
     // This is the standard Mexican tanda convention: everyone contributes every
     // turn regardless of whose turn it is to receive.
-    //
-    // KNOWN LIMITATION: we do not verify that ALL N members have contributed
-    // before releasing the payout. The crank (off-chain indexer) is trusted to
-    // call payout only after all contributions are confirmed. For production,
-    // add a contributions_this_turn counter to Tanda or a separate
-    // mark_turn_complete instruction.
     let contribution_amount = tanda.contribution_amount;
     let member_target = tanda.member_target;
     let payout_amount = contribution_amount
@@ -134,6 +142,9 @@ pub fn handler(ctx: Context<Payout>) -> Result<()> {
 
     // ── Advance tanda turn / maybe complete ────────────────────────────────
     let tanda = &mut ctx.accounts.tanda;
+
+    // Reset per-turn contribution counter for the next turn.
+    tanda.contributions_this_turn = 0;
     let next_turn = tanda
         .current_turn
         .checked_add(1)

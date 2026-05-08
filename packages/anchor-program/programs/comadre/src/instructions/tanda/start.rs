@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use crate::constants::SEED_CONFIG;
 use crate::errors::ComadreError;
 use crate::events::TandaStarted;
-use crate::state::{ProgramConfig, Tanda, TandaState};
+use crate::state::{PayoutOrder, ProgramConfig, Tanda, TandaState};
 
 #[derive(Accounts)]
 pub struct StartTanda<'info> {
@@ -41,6 +41,15 @@ pub fn handler(ctx: Context<StartTanda>) -> Result<()> {
         ComadreError::InvalidMemberCount
     );
 
+    // ── Payout order guard ──────────────────────────────────────────────────
+    // CreatorSet and Random modes allow caller-supplied turn_number in join_tanda
+    // with no uniqueness or bounds check. Two members can grab the same turn →
+    // the loser's stake is locked forever. Hard-reject until VRF + uniqueness land.
+    require!(
+        tanda.payout_order_mode == PayoutOrder::JoinOrder,
+        ComadreError::NotImplemented
+    );
+
     // ── Transition to Active ────────────────────────────────────────────────
     // NOTE (Random payout order): For PayoutOrder::Random we would ideally use
     // Chainlink VRF or a commit-reveal scheme to shuffle turn_numbers across
@@ -56,6 +65,7 @@ pub fn handler(ctx: Context<StartTanda>) -> Result<()> {
     tanda.state = TandaState::Active;
     tanda.started_at = now;
     tanda.current_turn = 1;
+    tanda.contributions_this_turn = 0;
     tanda.next_payout_ts = now
         .checked_add(frequency_seconds as i64)
         .ok_or(ComadreError::MathOverflow)?;

@@ -31,6 +31,9 @@ pub struct Tanda {
     pub frequency_seconds: u32,
     pub total_turns: u8,
     pub current_turn: u8,
+    /// Running count of contributions received for the current turn.
+    /// Incremented by `contribute`, reset to 0 after each `payout`.
+    pub contributions_this_turn: u8,
     pub state: TandaState,
     pub payout_order_mode: PayoutOrder,
     pub next_payout_ts: i64,
@@ -42,7 +45,7 @@ pub struct Tanda {
 
 impl Tanda {
     pub const SIZE: usize =
-        8 + 32 + 8 + 32 + 32 + 32 + 1 + 1 + 8 + 8 + 4 + 1 + 1 + 1 + 1 + 8 + 8 + 8 + 1 + 1;
+        8 + 32 + 8 + 32 + 32 + 32 + 1 + 1 + 8 + 8 + 4 + 1 + 1 + 1 + 1 + 1 + 8 + 8 + 8 + 1 + 1;
 }
 
 #[account]

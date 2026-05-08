@@ -62,10 +62,9 @@ pub struct CreateTanda<'info> {
     pub vault: Account<'info, TokenAccount>,
 
     /// The token mint for this tanda.
-    /// NOTE: on devnet/mainnet callers should only pass the canonical USDC mint.
-    /// We do not enforce address = program_config.usdc_mint here to allow localnet
-    /// tests to use fresh test mints. A production deployment should re-enable this
-    /// constraint or add a custom check in the handler.
+    /// On localnet (feature = "localnet") any mint is accepted so tests can use
+    /// fresh mints without a canonical USDC deployment.  On mainnet/devnet the
+    /// mint is verified in-handler against program_config.usdc_mint.
     pub usdc_mint: Account<'info, Mint>,
 
     pub token_program: Program<'info, Token>,
@@ -78,6 +77,13 @@ pub fn handler(ctx: Context<CreateTanda>, params: CreateTandaParams) -> Result<(
 
     // ── Global pause guard ──────────────────────────────────────────────────
     require!(!config.paused, ComadreError::ProgramPaused);
+
+    // ── USDC mint guard (skipped on localnet to allow fresh test mints) ─────
+    #[cfg(not(feature = "localnet"))]
+    require!(
+        ctx.accounts.usdc_mint.key() == config.usdc_mint,
+        ComadreError::Unauthorized
+    );
 
     // ── Parameter validation ────────────────────────────────────────────────
     require!(
@@ -118,6 +124,7 @@ pub fn handler(ctx: Context<CreateTanda>, params: CreateTandaParams) -> Result<(
     tanda.frequency_seconds = params.frequency_seconds;
     tanda.total_turns = params.member_target; // one turn per member
     tanda.current_turn = 0;
+    tanda.contributions_this_turn = 0;
     tanda.state = TandaState::Forming;
     tanda.payout_order_mode = params.payout_order_mode;
     tanda.next_payout_ts = 0;
