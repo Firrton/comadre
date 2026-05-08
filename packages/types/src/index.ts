@@ -36,7 +36,8 @@ export type { KycTier, TandaState } from "./responses.js";
 // --- Webhooks (incoming from external services) ---
 export {
   SumsubWebhookEvent,
-  MetaWhatsAppWebhookEvent,
+  TwilioInboundWebhook,
+  TwilioStatusCallback,
   HeliusWebhookEvent,
   HeliusWebhookPayload,
 } from "./webhooks.js";
