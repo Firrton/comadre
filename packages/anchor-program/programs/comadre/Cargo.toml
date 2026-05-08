@@ -13,8 +13,14 @@ no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
 cpi = ["no-entrypoint"]
-default = []
+# IMPORTANT: localnet is in default for local development and CI. Remove "localnet" from
+# default[] before mainnet deploy to re-enable the deployer-only guard in init_config.
+default = ["localnet"]
 devnet = []
+# localnet: skips deployer-only guard in init_config so that anchor test (local validator)
+# works without a well-known deployer keypair baked in. Must be removed from default[] before
+# mainnet deploy.
+localnet = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 
 [dependencies]

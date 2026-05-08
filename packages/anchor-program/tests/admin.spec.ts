@@ -57,7 +57,7 @@ describe("admin & user-kyc instructions", () => {
     new BN(100_000_000),
     new BN(1_000_000_000),
     new BN(5_000_000_000),
-    new BN(0),
+    new BN(10_000_000_000),
   ];
 
   before(async () => {
@@ -93,7 +93,100 @@ describe("admin & user-kyc instructions", () => {
       .rpc({ commitment: "confirmed" });
   });
 
-  // ─── init_config ──────────────────────────────────────────────────────────
+  // ─── init_config bounds checks (MUST run before happy-path init_config) ───
+  // These tests run against a fresh (not-yet-initialized) configPda so that
+  // the handler's require! checks fire before any state is written.
+
+  describe("init_config bounds checks", () => {
+    it("rejects fee_bps > 10000", async () => {
+      try {
+        await program.methods
+          .initConfig({
+            kycOracle:      kycOracle.publicKey,
+            crankAuthority: crankAuthority.publicKey,
+            feeBps:         10_001,   // exceeds 100%
+            feeDestination: feeDestination.publicKey,
+            kycLimits,
+          })
+          .accounts({
+            programConfig: configPda,
+            admin:         deployer.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([deployer])
+          .rpc({ commitment: "confirmed" });
+
+        assert.fail("Expected InvalidFeeBps error but succeeded");
+      } catch (err: any) {
+        const msg: string = err.message ?? err.toString();
+        assert.ok(
+          msg.includes("InvalidFeeBps") || msg.includes("fee") ||
+          msg.includes("6019") || msg.includes("0x1783"),
+          `Expected InvalidFeeBps, got: ${msg}`
+        );
+      }
+    });
+
+    it("rejects kyc_limits[0] = 0", async () => {
+      try {
+        await program.methods
+          .initConfig({
+            kycOracle:      kycOracle.publicKey,
+            crankAuthority: crankAuthority.publicKey,
+            feeBps:         50,
+            feeDestination: feeDestination.publicKey,
+            kycLimits:      [new BN(0), new BN(1_000_000_000), new BN(5_000_000_000), new BN(10_000_000_000)],
+          })
+          .accounts({
+            programConfig: configPda,
+            admin:         deployer.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([deployer])
+          .rpc({ commitment: "confirmed" });
+
+        assert.fail("Expected InvalidKycLimits error but succeeded");
+      } catch (err: any) {
+        const msg: string = err.message ?? err.toString();
+        assert.ok(
+          msg.includes("InvalidKycLimits") || msg.includes("kyc") ||
+          msg.includes("6020") || msg.includes("0x1784"),
+          `Expected InvalidKycLimits, got: ${msg}`
+        );
+      }
+    });
+
+    it("rejects non-monotonic kyc_limits", async () => {
+      try {
+        await program.methods
+          .initConfig({
+            kycOracle:      kycOracle.publicKey,
+            crankAuthority: crankAuthority.publicKey,
+            feeBps:         50,
+            feeDestination: feeDestination.publicKey,
+            kycLimits:      [new BN(1_000_000), new BN(500_000), new BN(5_000_000_000), new BN(10_000_000_000)],
+          })
+          .accounts({
+            programConfig: configPda,
+            admin:         deployer.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([deployer])
+          .rpc({ commitment: "confirmed" });
+
+        assert.fail("Expected InvalidKycLimits error but succeeded");
+      } catch (err: any) {
+        const msg: string = err.message ?? err.toString();
+        assert.ok(
+          msg.includes("InvalidKycLimits") || msg.includes("kyc") ||
+          msg.includes("6020") || msg.includes("0x1784"),
+          `Expected InvalidKycLimits, got: ${msg}`
+        );
+      }
+    });
+  });
+
+  // ─── init_config happy path ───────────────────────────────────────────────
 
   describe("init_config", () => {
     it("deployer initialises ProgramConfig", async () => {
@@ -154,6 +247,7 @@ describe("admin & user-kyc instructions", () => {
         .updateKycTier({ t1Lite: {} })
         .accounts({
           userProfile:   userProfilePda,
+          wallet:        userWallet.publicKey,
           programConfig: configPda,
           kycOracle:     kycOracle.publicKey,
         })
@@ -169,6 +263,7 @@ describe("admin & user-kyc instructions", () => {
         .updateKycTier({ t2Standard: {} })
         .accounts({
           userProfile:   userProfilePda,
+          wallet:        userWallet.publicKey,
           programConfig: configPda,
           kycOracle:     kycOracle.publicKey,
         })
@@ -180,14 +275,13 @@ describe("admin & user-kyc instructions", () => {
     });
 
     it("rejects update from non-oracle signer", async () => {
-      // Re-use kycOracle keypair but sign with deployer (not the oracle).
-      // This avoids the "Blockhash not found" race caused by creating a new
-      // funded keypair immediately before using it.
+      // Sign with deployer (not the oracle) — the oracle pubkey check in the handler fails.
       try {
         await program.methods
           .updateKycTier({ t3Pro: {} })
           .accounts({
             userProfile:   userProfilePda,
+            wallet:        userWallet.publicKey,
             programConfig: configPda,
             kycOracle:     deployer.publicKey,   // deployer != oracle
           })
@@ -200,6 +294,33 @@ describe("admin & user-kyc instructions", () => {
         assert.ok(
           msg.includes("Unauthorized") || msg.includes("2015") || msg.includes("unauthorized"),
           `Expected Unauthorized, got: ${msg}`
+        );
+      }
+    });
+
+    it("rejects update when wallet account does not match user_profile PDA seed", async () => {
+      // Pass a different wallet address — seeds = [SEED_USER, wallet.key()] will derive
+      // a different PDA than userProfilePda, so the constraint fails.
+      const wrongWallet = await newFundedKeypair(provider);
+      try {
+        await program.methods
+          .updateKycTier({ t3Pro: {} })
+          .accounts({
+            userProfile:   userProfilePda,
+            wallet:        wrongWallet.publicKey,  // wrong wallet → PDA mismatch
+            programConfig: configPda,
+            kycOracle:     kycOracle.publicKey,
+          })
+          .signers([kycOracle])
+          .rpc({ commitment: "confirmed" });
+
+        assert.fail("Expected seeds constraint violation");
+      } catch (err: any) {
+        const msg: string = err.message ?? err.toString();
+        assert.ok(
+          msg.includes("seeds") || msg.includes("ConstraintSeeds") ||
+          msg.includes("2006") || msg.includes("address"),
+          `Expected seeds/address constraint error, got: ${msg}`
         );
       }
     });
@@ -228,6 +349,7 @@ describe("admin & user-kyc instructions", () => {
           .updateKycTier({ t0Demo: {} })
           .accounts({
             userProfile:   userProfilePda,
+            wallet:        userWallet.publicKey,
             programConfig: configPda,
             kycOracle:     kycOracle.publicKey,
           })

@@ -1,6 +1,9 @@
 use anchor_lang::prelude::*;
 
+#[cfg(not(feature = "localnet"))]
+use crate::constants::INITIAL_DEPLOYER;
 use crate::constants::{SEED_CONFIG, USDC_MINT};
+use crate::errors::ComadreError;
 use crate::state::ProgramConfig;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -23,6 +26,8 @@ pub struct InitConfig<'info> {
     )]
     pub program_config: Account<'info, ProgramConfig>,
 
+    /// Only the designated deployer may call init_config (prevents front-run race condition).
+    /// In localnet/test mode this constraint is skipped — see handler below.
     #[account(mut)]
     pub admin: Signer<'info>,
 
@@ -30,6 +35,24 @@ pub struct InitConfig<'info> {
 }
 
 pub fn handler(ctx: Context<InitConfig>, params: InitConfigParams) -> Result<()> {
+    // Deployer-only guard: only the pre-registered deployer pubkey may call init_config.
+    // Prevents a front-run race condition where an attacker deploys and calls init_config
+    // before the real deployer, setting themselves as admin.
+    // NOTE: skipped in localnet/test mode (feature = "localnet"). Replace INITIAL_DEPLOYER
+    // with the real deployer pubkey before mainnet deploy.
+    #[cfg(not(feature = "localnet"))]
+    require!(
+        ctx.accounts.admin.key() == INITIAL_DEPLOYER,
+        ComadreError::Unauthorized
+    );
+
+    require!(params.fee_bps <= 10_000, ComadreError::InvalidFeeBps);
+    require!(params.kyc_limits[0] > 0, ComadreError::InvalidKycLimits);
+    require!(
+        params.kyc_limits.windows(2).all(|w| w[0] <= w[1]),
+        ComadreError::InvalidKycLimits
+    );
+
     let config = &mut ctx.accounts.program_config;
 
     config.admin = ctx.accounts.admin.key();

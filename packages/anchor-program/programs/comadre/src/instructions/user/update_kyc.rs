@@ -9,10 +9,13 @@ use crate::state::{KycTier, ProgramConfig, UserProfile};
 pub struct UpdateKycTier<'info> {
     #[account(
         mut,
-        seeds = [SEED_USER, user_profile.wallet.as_ref()],
+        seeds = [SEED_USER, wallet.key().as_ref()],
         bump = user_profile.bump,
     )]
     pub user_profile: Account<'info, UserProfile>,
+
+    /// CHECK: this is the wallet owner whose profile is being updated; pubkey only, no signing required
+    pub wallet: UncheckedAccount<'info>,
 
     #[account(
         seeds = [SEED_CONFIG],
@@ -20,7 +23,6 @@ pub struct UpdateKycTier<'info> {
     )]
     pub program_config: Account<'info, ProgramConfig>,
 
-    /// CHECK: validated against program_config.kyc_oracle below
     pub kyc_oracle: Signer<'info>,
 }
 
