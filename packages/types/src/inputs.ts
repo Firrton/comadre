@@ -123,3 +123,20 @@ export const VoteDisputeInput = z.object({
 });
 
 export type VoteDisputeInput = z.infer<typeof VoteDisputeInput>;
+
+/**
+ * POST /api/v1/users/init
+ * Initializes a user profile on-chain.
+ * phone_hash: SHA-256 hex of E.164 phone number (64 hex chars)
+ * country_code: ISO 3166-1 alpha-2 uppercase
+ */
+export const CreateUserProfileInput = z.object({
+  phone_hash: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/, "Must be a SHA-256 hex digest (64 lowercase hex chars)"),
+  country_code: z
+    .string()
+    .regex(/^[A-Z]{2}$/, "Must be ISO 3166-1 alpha-2 uppercase (e.g. 'AR', 'MX')"),
+});
+
+export type CreateUserProfileInput = z.infer<typeof CreateUserProfileInput>;
