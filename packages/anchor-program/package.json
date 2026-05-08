@@ -6,7 +6,8 @@
     "test": "ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.spec.ts"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.31.0"
+    "@coral-xyz/anchor": "^0.31.0",
+    "@solana/spl-token": "^0.4.14"
   },
   "devDependencies": {
     "@types/bn.js": "^5.1.1",

@@ -36,10 +36,20 @@ pub enum ComadreError {
     ProgramPaused,
     #[msg("Math overflow")]
     MathOverflow,
-    #[msg("Stake amount must equal contribution amount")]
+    #[msg("Stake amount must be greater than zero")]
     InvalidStake,
     #[msg("fee_bps must be <= 10000 (100%)")]
     InvalidFeeBps,
     #[msg("kyc_limits[0] must be > 0 and the array must be monotonic non-decreasing")]
     InvalidKycLimits,
+    #[msg("frequency_seconds must be at least 86400 (24 hours)")]
+    InvalidFrequency,
+    #[msg("KYC tier insufficient for the requested contribution + stake amount")]
+    KycInsufficientForAmount,
+    #[msg("Member is not active (slashed)")]
+    MemberInactive,
+    #[msg("Beneficiary has already received their payout")]
+    AlreadyPaidOut,
+    #[msg("Payout order mode not yet implemented; use JoinOrder")]
+    NotImplemented,
 }

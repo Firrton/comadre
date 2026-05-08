@@ -6,12 +6,21 @@ import {
   SystemProgram,
   LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
+import {
+  createMint,
+  createAssociatedTokenAccount,
+  mintTo,
+  getAssociatedTokenAddress,
+} from "@solana/spl-token";
 import type { Comadre } from "../target/types/comadre";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-export const SEED_USER = Buffer.from("user");
+export const SEED_USER   = Buffer.from("user");
 export const SEED_CONFIG = Buffer.from("config");
+export const SEED_TANDA  = Buffer.from("tanda");
+export const SEED_MEMBER = Buffer.from("member");
+export const SEED_VAULT  = Buffer.from("vault");
 
 // ─── Provider & Program ───────────────────────────────────────────────────────
 
@@ -43,6 +52,52 @@ export function deriveUserProfilePda(
   );
 }
 
+/**
+ * Derives [tandaPda, bump] for a (creator, tanda_id) pair.
+ * Seeds: ["tanda", creator, tanda_id_le_bytes]
+ */
+export function deriveTandaPda(
+  creator: PublicKey,
+  tandaId: BN,
+  programId: PublicKey
+): [PublicKey, number] {
+  const idBuf = Buffer.alloc(8);
+  idBuf.set(tandaId.toArrayLike(Buffer, "le", 8));
+  return PublicKey.findProgramAddressSync(
+    [SEED_TANDA, creator.toBuffer(), idBuf],
+    programId
+  );
+}
+
+/**
+ * Derives [memberPda, bump] for a (tanda, user) pair.
+ * Seeds: ["member", tanda, user]
+ */
+export function deriveMemberPda(
+  tanda: PublicKey,
+  user: PublicKey,
+  programId: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEED_MEMBER, tanda.toBuffer(), user.toBuffer()],
+    programId
+  );
+}
+
+/**
+ * Derives [vaultPda, bump] for a tanda.
+ * Seeds: ["vault", tanda]
+ */
+export function deriveVaultPda(
+  tanda: PublicKey,
+  programId: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEED_VAULT, tanda.toBuffer()],
+    programId
+  );
+}
+
 // ─── Airdrop helper ───────────────────────────────────────────────────────────
 
 /**
@@ -70,36 +125,91 @@ export async function airdrop(
       return;
     } catch (err: any) {
       if (attempt === retries - 1) throw err;
-      // Brief backoff before retry
       await new Promise((r) => setTimeout(r, 800));
     }
   }
 }
 
-// ─── USDC mock mint ───────────────────────────────────────────────────────────
+// ─── USDC helpers (real SPL mint) ─────────────────────────────────────────────
 
 /**
- * Creates a fresh SPL token mint that acts as USDC in tests.
- * Returns the mint public key.
- *
- * Note: on localnet we don't have the real USDC mint, so tests that need
- * token accounts should use this mock.  The ProgramConfig stores a usdc_mint
- * field that is set at init time; in tests we pass this mock mint address.
+ * Creates a real SPL Token mint owned by `mintAuthority`.
+ * The `payer` keypair pays for the mint account rent.
  */
-export async function createMockUsdcMint(
+export async function createUsdcMint(
   provider: AnchorProvider,
-  mintAuthority: Keypair
+  payer: Keypair,
+  mintAuthority: PublicKey
 ): Promise<PublicKey> {
-  // We use raw spl-token instructions to avoid pulling in a heavy dep.
-  // Alternatively callers can pass any PublicKey here — the program stores
-  // whatever is given; it doesn't validate the mint during init_config.
-  const mint = Keypair.generate();
+  return createMint(
+    provider.connection,
+    payer,
+    mintAuthority,
+    null,        // freeze authority — none
+    6,           // decimals (USDC = 6)
+    Keypair.generate(), // fresh mint keypair
+    { commitment: "confirmed" }
+  );
+}
 
-  // We borrow the connection directly to send the CreateAccount + InitializeMint
-  // transaction.  Use @solana/spl-token if it's already in the dep tree; for
-  // now we keep helpers minimal and just return a freshly generated keypair
-  // address.  Callers that need actual token transfers should extend this.
-  return mint.publicKey;
+/**
+ * Creates an Associated Token Account for `owner` and the given `mint`.
+ * Returns the ATA public key.
+ */
+export async function createUsdcAta(
+  provider: AnchorProvider,
+  payer: Keypair,
+  mint: PublicKey,
+  owner: PublicKey
+): Promise<PublicKey> {
+  return createAssociatedTokenAccount(
+    provider.connection,
+    payer,
+    mint,
+    owner,
+    { commitment: "confirmed" }
+  );
+}
+
+/**
+ * Mints `amount` tokens (in raw lamports/smallest unit) to `destination` ATA.
+ * `mintAuthority` must be the keypair that was set as mint authority.
+ */
+export async function mintUsdcTo(
+  provider: AnchorProvider,
+  payer: Keypair,
+  mint: PublicKey,
+  destination: PublicKey,
+  mintAuthority: Keypair,
+  amount: number | bigint
+): Promise<void> {
+  await mintTo(
+    provider.connection,
+    payer,
+    mint,
+    destination,
+    mintAuthority,
+    amount,
+    [],
+    { commitment: "confirmed" }
+  );
+}
+
+/**
+ * Returns an existing ATA address or creates one if it doesn't exist.
+ */
+export async function getOrCreateUsdcAta(
+  provider: AnchorProvider,
+  payer: Keypair,
+  mint: PublicKey,
+  owner: PublicKey
+): Promise<PublicKey> {
+  const ata = await getAssociatedTokenAddress(mint, owner);
+  const info = await provider.connection.getAccountInfo(ata);
+  if (!info) {
+    return createUsdcAta(provider, payer, mint, owner);
+  }
+  return ata;
 }
 
 // ─── Misc helpers ─────────────────────────────────────────────────────────────
@@ -111,4 +221,15 @@ export async function newFundedKeypair(
   const kp = Keypair.generate();
   await airdrop(provider, kp.publicKey);
   return kp;
+}
+
+/**
+ * @deprecated Use createUsdcMint() instead.
+ * Legacy stub kept for backward-compat — returns a stub pubkey, no mint created.
+ */
+export async function createMockUsdcMint(
+  _provider: AnchorProvider,
+  _mintAuthority: Keypair
+): Promise<PublicKey> {
+  return Keypair.generate().publicKey;
 }
