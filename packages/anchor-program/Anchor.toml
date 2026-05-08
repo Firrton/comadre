@@ -13,14 +13,8 @@ comadre = "CMDRxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "devnet"
-wallet = "~/.config/solana/devnet.json"
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.spec.ts"
-
-[test.validator]
-url = "https://api.devnet.solana.com"
-
-[[test.validator.clone]]
-address = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+test = "node_modules/.bin/ts-mocha -p ./tsconfig.json -t 1000000 'tests/**/*.spec.ts'"
