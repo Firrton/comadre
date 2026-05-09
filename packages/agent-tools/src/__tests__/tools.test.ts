@@ -97,8 +97,9 @@ describe("crear_tanda", () => {
     expect(body.contribution_amount).toBe("50000000");
     expect(body.stake_amount).toBe("50000000");
     // 7 days × 86_400 = 604_800 seconds
-    expect(body.frequency_seconds).toBe("604800");
+    expect(body.frequency_seconds).toBe(604800);
     expect(body.payout_order_mode).toBe("join_order");
+    expect(body.usdc_mint).toBe("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
   });
 
   it("rejects negative cents (RangeError)", async () => {

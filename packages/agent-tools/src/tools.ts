@@ -149,8 +149,9 @@ export const crearTandaExecute: ToolExecutor = async (args, context) => {
       member_target: a.member_target,
       contribution_amount: atomic.toString(),
       stake_amount: atomic.toString(), // 1× stake-to-contribution per CHECKLIST
-      frequency_seconds: daysToSeconds(a.frequency_days).toString(),
+      frequency_seconds: Number(daysToSeconds(a.frequency_days)),
       payout_order_mode: a.payout_order_mode,
+      usdc_mint: process.env["USDC_MINT"] ?? "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
     },
     userWallet: context.userWallet,
     idempotencyKey,
