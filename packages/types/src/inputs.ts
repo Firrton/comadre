@@ -140,3 +140,41 @@ export const CreateUserProfileInput = z.object({
 });
 
 export type CreateUserProfileInput = z.infer<typeof CreateUserProfileInput>;
+
+// ---------------------------------------------------------------------------
+// Phone-to-phone USDC transfers
+// ---------------------------------------------------------------------------
+
+/**
+ * E.164 phone number validator: starts with +, country code (1-9), 6-14 more digits.
+ * Used as the wire format between WhatsApp/Twilio and our API.
+ */
+export const E164Phone = z
+  .string()
+  .regex(/^\+[1-9]\d{6,14}$/, "Phone must be E.164 (e.g. +5218116346072)");
+
+/**
+ * GET /api/v1/transfers/lookup?phone=+5218116346072
+ * Resolves a phone to wallet info before initiating a transfer.
+ */
+export const LookupPhoneInput = z.object({
+  phone: E164Phone,
+});
+export type LookupPhoneInput = z.infer<typeof LookupPhoneInput>;
+
+/**
+ * POST /api/v1/transfers
+ *
+ * `amountUsdc` is a decimal STRING ("10.50") to avoid IEEE-754 issues. The API
+ * multiplies by 1_000_000 to obtain micro-USDC (u64) before persisting.
+ * Up to 6 decimal places (USDC mint precision); leading sign rejected by regex.
+ */
+export const CreateTransferInput = z.object({
+  toPhone: E164Phone,
+  amountUsdc: z
+    .string()
+    .regex(/^\d+(\.\d{1,6})?$/, "Amount must be a non-negative decimal with ≤6 places (e.g. 10.50)")
+    .refine((v) => parseFloat(v) > 0, "Amount must be positive"),
+  note: z.string().max(280).optional(),
+});
+export type CreateTransferInput = z.infer<typeof CreateTransferInput>;
