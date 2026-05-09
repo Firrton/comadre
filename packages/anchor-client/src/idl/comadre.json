@@ -1,0 +1,2394 @@
+{
+  "address": "BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh",
+  "metadata": {
+    "name": "comadre",
+    "version": "0.0.1",
+    "spec": "0.1.0",
+    "description": "Comadre — tandas on-chain en Solana"
+  },
+  "instructions": [
+    {
+      "name": "complete_tanda",
+      "discriminator": [
+        158,
+        66,
+        156,
+        138,
+        3,
+        219,
+        87,
+        123
+      ],
+      "accounts": [
+        {
+          "name": "crank",
+          "docs": [
+            "Must equal program_config.crank_authority."
+          ],
+          "signer": true
+        },
+        {
+          "name": "tanda",
+          "writable": true
+        },
+        {
+          "name": "program_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "contribute",
+      "discriminator": [
+        82,
+        33,
+        68,
+        131,
+        32,
+        0,
+        205,
+        95
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "member",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  109,
+                  98,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tanda"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tanda",
+          "writable": true
+        },
+        {
+          "name": "program_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_usdc_ata",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_tanda",
+      "discriminator": [
+        55,
+        18,
+        165,
+        166,
+        110,
+        120,
+        33,
+        66
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "creator_profile",
+          "docs": [
+            "Creator must have an initialised profile so we can check their KYC tier."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_config",
+          "docs": [
+            "Singleton config — reject if program is paused."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "tanda",
+          "docs": [
+            "Tanda PDA — created here."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  110,
+                  100,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              },
+              {
+                "kind": "arg",
+                "path": "params.tanda_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "Vault token account (PDA-owned, authority = tanda PDA)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tanda"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint",
+          "docs": [
+            "The token mint for this tanda.",
+            "On localnet (feature = \"localnet\") any mint is accepted so tests can use",
+            "fresh mints without a canonical USDC deployment.  On mainnet/devnet the",
+            "mint is verified in-handler against program_config.usdc_mint."
+          ]
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "CreateTandaParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "init_config",
+      "discriminator": [
+        23,
+        235,
+        115,
+        232,
+        168,
+        96,
+        1,
+        231
+      ],
+      "accounts": [
+        {
+          "name": "program_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "Only the designated deployer may call init_config (prevents front-run race condition).",
+            "In localnet/test mode this constraint is skipped — see handler below."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "InitConfigParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "init_user_profile",
+      "discriminator": [
+        148,
+        35,
+        126,
+        247,
+        28,
+        169,
+        135,
+        175
+      ],
+      "accounts": [
+        {
+          "name": "user_profile",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "wallet"
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "phone_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "country_code",
+          "type": {
+            "array": [
+              "u8",
+              2
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "join_tanda",
+      "discriminator": [
+        186,
+        60,
+        178,
+        234,
+        139,
+        112,
+        80,
+        60
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "user_profile",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "tanda",
+          "docs": [
+            "The tanda to join — must be in Forming state."
+          ],
+          "writable": true
+        },
+        {
+          "name": "member",
+          "docs": [
+            "Member PDA — created here."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  109,
+                  98,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tanda"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_usdc_ata",
+          "docs": [
+            "User's USDC token account (source of stake transfer)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "Vault — must be the one stored in tanda.vault."
+          ],
+          "writable": true
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "turn_number",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "open_dispute",
+      "discriminator": [
+        137,
+        25,
+        99,
+        119,
+        23,
+        223,
+        161,
+        42
+      ],
+      "accounts": [
+        {
+          "name": "opener",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "opener_member",
+          "docs": [
+            "Opener's membership PDA for this tanda — proves they are an active member."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  109,
+                  98,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tanda"
+              },
+              {
+                "kind": "account",
+                "path": "opener"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tanda",
+          "writable": true
+        },
+        {
+          "name": "program_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "dispute",
+          "docs": [
+            "Dispute PDA — initialised here.",
+            "dispute_id = tanda.disputes_opened (before increment)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "reason_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "pause",
+      "discriminator": [
+        211,
+        22,
+        221,
+        251,
+        74,
+        121,
+        193,
+        47
+      ],
+      "accounts": [
+        {
+          "name": "program_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "program_config"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "paused",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "payout",
+      "discriminator": [
+        149,
+        140,
+        194,
+        236,
+        174,
+        189,
+        6,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "crank",
+          "docs": [
+            "Must equal program_config.crank_authority."
+          ],
+          "signer": true
+        },
+        {
+          "name": "tanda",
+          "writable": true
+        },
+        {
+          "name": "program_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "beneficiary_member",
+          "docs": [
+            "The member whose turn it is to receive the payout.",
+            "Validated in-handler: beneficiary_member.tanda == tanda.key()",
+            "beneficiary_member.turn_number == tanda.current_turn"
+          ],
+          "writable": true
+        },
+        {
+          "name": "beneficiary_usdc_ata",
+          "docs": [
+            "Beneficiary's USDC token account."
+          ],
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "Vault — PDA-owned by the tanda account. The CPI will use the tanda PDA as signer."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tanda"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "resolve_dispute",
+      "discriminator": [
+        231,
+        6,
+        202,
+        6,
+        96,
+        103,
+        12,
+        230
+      ],
+      "accounts": [
+        {
+          "name": "resolver",
+          "docs": [
+            "Anyone may call resolve after the voting deadline — it's a public-good crank."
+          ],
+          "signer": true
+        },
+        {
+          "name": "dispute",
+          "writable": true
+        },
+        {
+          "name": "tanda",
+          "docs": [
+            "Must equal dispute.tanda."
+          ],
+          "writable": true
+        },
+        {
+          "name": "program_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "slash_defaulter",
+      "discriminator": [
+        70,
+        94,
+        170,
+        113,
+        252,
+        54,
+        188,
+        174
+      ],
+      "accounts": [
+        {
+          "name": "crank",
+          "docs": [
+            "Must equal program_config.crank_authority."
+          ],
+          "signer": true
+        },
+        {
+          "name": "tanda",
+          "writable": true
+        },
+        {
+          "name": "defaulter_member",
+          "docs": [
+            "The member to slash. Validated in-handler:",
+            "- defaulter_member.tanda == tanda.key()",
+            "- defaulter_member.is_active",
+            "- has missed current turn contribution past grace period"
+          ],
+          "writable": true
+        },
+        {
+          "name": "program_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "Vault PDA — source of the slashed stake."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tanda"
+              }
+            ]
+          }
+        },
+        {
+          "name": "fee_destination_ata",
+          "docs": [
+            "Treasury destination for slashed stake — must be owned by program_config.fee_destination."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "start_tanda",
+      "discriminator": [
+        190,
+        76,
+        73,
+        151,
+        165,
+        180,
+        194,
+        250
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "docs": [
+            "Must be the tanda creator."
+          ],
+          "signer": true,
+          "relations": [
+            "tanda"
+          ]
+        },
+        {
+          "name": "tanda",
+          "writable": true
+        },
+        {
+          "name": "program_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "update_kyc_tier",
+      "discriminator": [
+        40,
+        190,
+        167,
+        168,
+        194,
+        22,
+        51,
+        30
+      ],
+      "accounts": [
+        {
+          "name": "user_profile",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "wallet"
+        },
+        {
+          "name": "program_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "kyc_oracle",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "new_tier",
+          "type": {
+            "defined": {
+              "name": "KycTier"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "vote_dispute",
+      "discriminator": [
+        23,
+        190,
+        211,
+        170,
+        65,
+        223,
+        4,
+        243
+      ],
+      "accounts": [
+        {
+          "name": "voter",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "voter_member",
+          "docs": [
+            "Voter's membership PDA — proves they are an active member of the tanda under dispute."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  109,
+                  98,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "dispute.tanda",
+                "account": "Dispute"
+              },
+              {
+                "kind": "account",
+                "path": "voter"
+              }
+            ]
+          }
+        },
+        {
+          "name": "dispute",
+          "writable": true
+        },
+        {
+          "name": "dispute_vote",
+          "docs": [
+            "DisputeVote PDA — `init` enforces one vote per (dispute, voter) pair.",
+            "A second call with the same voter will fail with AccountAlreadyInitialized."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101,
+                  95,
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "dispute"
+              },
+              {
+                "kind": "account",
+                "path": "voter"
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "continue_tanda",
+          "type": "bool"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Dispute",
+      "discriminator": [
+        36,
+        49,
+        241,
+        67,
+        40,
+        36,
+        241,
+        74
+      ]
+    },
+    {
+      "name": "DisputeVote",
+      "discriminator": [
+        166,
+        202,
+        140,
+        76,
+        65,
+        35,
+        254,
+        149
+      ]
+    },
+    {
+      "name": "Member",
+      "discriminator": [
+        54,
+        19,
+        162,
+        21,
+        29,
+        166,
+        17,
+        198
+      ]
+    },
+    {
+      "name": "ProgramConfig",
+      "discriminator": [
+        196,
+        210,
+        90,
+        231,
+        144,
+        149,
+        140,
+        63
+      ]
+    },
+    {
+      "name": "Tanda",
+      "discriminator": [
+        71,
+        87,
+        147,
+        93,
+        220,
+        59,
+        176,
+        127
+      ]
+    },
+    {
+      "name": "UserProfile",
+      "discriminator": [
+        32,
+        37,
+        119,
+        205,
+        179,
+        180,
+        13,
+        194
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "BadgeMinted",
+      "discriminator": [
+        53,
+        227,
+        68,
+        72,
+        115,
+        78,
+        25,
+        14
+      ]
+    },
+    {
+      "name": "ContributionMade",
+      "discriminator": [
+        81,
+        218,
+        72,
+        109,
+        93,
+        96,
+        131,
+        199
+      ]
+    },
+    {
+      "name": "DisputeOpened",
+      "discriminator": [
+        239,
+        222,
+        102,
+        235,
+        193,
+        85,
+        1,
+        214
+      ]
+    },
+    {
+      "name": "DisputeResolved",
+      "discriminator": [
+        121,
+        64,
+        249,
+        153,
+        139,
+        128,
+        236,
+        187
+      ]
+    },
+    {
+      "name": "DisputeVoted",
+      "discriminator": [
+        246,
+        199,
+        201,
+        173,
+        194,
+        194,
+        97,
+        73
+      ]
+    },
+    {
+      "name": "KycTierUpdated",
+      "discriminator": [
+        217,
+        213,
+        50,
+        55,
+        252,
+        253,
+        63,
+        29
+      ]
+    },
+    {
+      "name": "MemberJoined",
+      "discriminator": [
+        156,
+        199,
+        149,
+        88,
+        193,
+        203,
+        191,
+        210
+      ]
+    },
+    {
+      "name": "MemberSlashed",
+      "discriminator": [
+        124,
+        72,
+        4,
+        248,
+        87,
+        145,
+        200,
+        136
+      ]
+    },
+    {
+      "name": "PayoutExecuted",
+      "discriminator": [
+        88,
+        83,
+        101,
+        64,
+        188,
+        233,
+        117,
+        185
+      ]
+    },
+    {
+      "name": "TandaCompleted",
+      "discriminator": [
+        218,
+        223,
+        124,
+        177,
+        60,
+        155,
+        0,
+        53
+      ]
+    },
+    {
+      "name": "TandaCreated",
+      "discriminator": [
+        254,
+        98,
+        155,
+        123,
+        122,
+        3,
+        122,
+        189
+      ]
+    },
+    {
+      "name": "TandaStarted",
+      "discriminator": [
+        160,
+        63,
+        223,
+        151,
+        15,
+        136,
+        81,
+        166
+      ]
+    },
+    {
+      "name": "UserProfileInitialized",
+      "discriminator": [
+        38,
+        145,
+        75,
+        59,
+        10,
+        141,
+        71,
+        218
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InsufficientKyc",
+      "msg": "Insufficient KYC tier for this action"
+    },
+    {
+      "code": 6001,
+      "name": "TandaNotForming",
+      "msg": "Tanda is not in Forming state"
+    },
+    {
+      "code": 6002,
+      "name": "TandaNotActive",
+      "msg": "Tanda is not Active"
+    },
+    {
+      "code": 6003,
+      "name": "TandaPaused",
+      "msg": "Tanda is paused due to dispute"
+    },
+    {
+      "code": 6004,
+      "name": "TandaFull",
+      "msg": "Tanda is full"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidMemberCount",
+      "msg": "Tanda member count must be between 3 and 20"
+    },
+    {
+      "code": 6006,
+      "name": "TurnAlreadyTaken",
+      "msg": "Turn number already taken"
+    },
+    {
+      "code": 6007,
+      "name": "AlreadyContributed",
+      "msg": "Member has already contributed this turn"
+    },
+    {
+      "code": 6008,
+      "name": "PayoutNotReady",
+      "msg": "Payout time has not been reached"
+    },
+    {
+      "code": 6009,
+      "name": "MissingContributions",
+      "msg": "All members must contribute before payout"
+    },
+    {
+      "code": 6010,
+      "name": "DisputeStillOpen",
+      "msg": "Dispute voting window has not closed"
+    },
+    {
+      "code": 6011,
+      "name": "AlreadyVoted",
+      "msg": "User has already voted on this dispute"
+    },
+    {
+      "code": 6012,
+      "name": "NotAMember",
+      "msg": "Caller is not a member of this tanda"
+    },
+    {
+      "code": 6013,
+      "name": "NotCreator",
+      "msg": "Caller is not the tanda creator"
+    },
+    {
+      "code": 6014,
+      "name": "Unauthorized",
+      "msg": "Caller is not authorized"
+    },
+    {
+      "code": 6015,
+      "name": "ProgramPaused",
+      "msg": "Program is paused"
+    },
+    {
+      "code": 6016,
+      "name": "MathOverflow",
+      "msg": "Math overflow"
+    },
+    {
+      "code": 6017,
+      "name": "InvalidStake",
+      "msg": "Stake amount must be greater than zero"
+    },
+    {
+      "code": 6018,
+      "name": "InvalidFeeBps",
+      "msg": "fee_bps must be <= 10000 (100%)"
+    },
+    {
+      "code": 6019,
+      "name": "InvalidKycLimits",
+      "msg": "kyc_limits[0] must be > 0 and the array must be monotonic non-decreasing"
+    },
+    {
+      "code": 6020,
+      "name": "InvalidFrequency",
+      "msg": "frequency_seconds must be at least 86400 (24 hours)"
+    },
+    {
+      "code": 6021,
+      "name": "KycInsufficientForAmount",
+      "msg": "KYC tier insufficient for the requested contribution + stake amount"
+    },
+    {
+      "code": 6022,
+      "name": "MemberInactive",
+      "msg": "Member is not active (slashed)"
+    },
+    {
+      "code": 6023,
+      "name": "AlreadyPaidOut",
+      "msg": "Beneficiary has already received their payout"
+    },
+    {
+      "code": 6024,
+      "name": "NotImplemented",
+      "msg": "Payout order mode not yet implemented; use JoinOrder"
+    },
+    {
+      "code": 6025,
+      "name": "DisputeNotOpen",
+      "msg": "Dispute is not in Open state"
+    },
+    {
+      "code": 6026,
+      "name": "DisputeExpired",
+      "msg": "Dispute voting window has expired"
+    },
+    {
+      "code": 6027,
+      "name": "DisputeNotExpired",
+      "msg": "Dispute voting window has not expired yet"
+    },
+    {
+      "code": 6028,
+      "name": "MemberNotDefaulted",
+      "msg": "Member has not defaulted (contributions up to date or grace period not elapsed)"
+    },
+    {
+      "code": 6029,
+      "name": "MaxDisputesReached",
+      "msg": "Maximum number of disputes per tanda reached"
+    }
+  ],
+  "types": [
+    {
+      "name": "BadgeMinted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "badge_type",
+            "type": "u8"
+          },
+          {
+            "name": "source",
+            "type": "pubkey"
+          },
+          {
+            "name": "value",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ContributionMade",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tanda",
+            "type": "pubkey"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "turn",
+            "type": "u8"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreateTandaParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tanda_id",
+            "type": "u64"
+          },
+          {
+            "name": "name_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "member_target",
+            "type": "u8"
+          },
+          {
+            "name": "contribution_amount",
+            "type": "u64"
+          },
+          {
+            "name": "stake_amount",
+            "type": "u64"
+          },
+          {
+            "name": "frequency_seconds",
+            "type": "u32"
+          },
+          {
+            "name": "payout_order_mode",
+            "type": {
+              "defined": {
+                "name": "PayoutOrder"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Dispute",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tanda",
+            "type": "pubkey"
+          },
+          {
+            "name": "dispute_id",
+            "type": "u8"
+          },
+          {
+            "name": "opener",
+            "type": "pubkey"
+          },
+          {
+            "name": "reason_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "opened_at",
+            "type": "i64"
+          },
+          {
+            "name": "deadline_ts",
+            "type": "i64"
+          },
+          {
+            "name": "votes_continue",
+            "type": "u8"
+          },
+          {
+            "name": "votes_cancel",
+            "type": "u8"
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "DisputeState"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeOpened",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dispute",
+            "type": "pubkey"
+          },
+          {
+            "name": "tanda",
+            "type": "pubkey"
+          },
+          {
+            "name": "opener",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeResolved",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dispute",
+            "type": "pubkey"
+          },
+          {
+            "name": "continue_tanda",
+            "type": "bool"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeState",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Resolved"
+          },
+          {
+            "name": "Expired"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeVote",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dispute",
+            "type": "pubkey"
+          },
+          {
+            "name": "voter",
+            "type": "pubkey"
+          },
+          {
+            "name": "continue_tanda",
+            "type": "bool"
+          },
+          {
+            "name": "voted_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeVoted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dispute",
+            "type": "pubkey"
+          },
+          {
+            "name": "voter",
+            "type": "pubkey"
+          },
+          {
+            "name": "continue_tanda",
+            "type": "bool"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitConfigParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "kyc_oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "crank_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "fee_destination",
+            "type": "pubkey"
+          },
+          {
+            "name": "kyc_limits",
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "KycTier",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "T0Demo"
+          },
+          {
+            "name": "T1Lite"
+          },
+          {
+            "name": "T2Standard"
+          },
+          {
+            "name": "T3Pro"
+          }
+        ]
+      }
+    },
+    {
+      "name": "KycTierUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_tier",
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Member",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tanda",
+            "type": "pubkey"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "turn_number",
+            "type": "u8"
+          },
+          {
+            "name": "contributions_made",
+            "type": "u8"
+          },
+          {
+            "name": "last_contribution_ts",
+            "type": "i64"
+          },
+          {
+            "name": "stake_locked",
+            "type": "u64"
+          },
+          {
+            "name": "is_active",
+            "type": "bool"
+          },
+          {
+            "name": "has_received_payout",
+            "type": "bool"
+          },
+          {
+            "name": "joined_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MemberJoined",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tanda",
+            "type": "pubkey"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "turn_number",
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MemberSlashed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tanda",
+            "type": "pubkey"
+          },
+          {
+            "name": "member",
+            "type": "pubkey"
+          },
+          {
+            "name": "stake_lost",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PayoutExecuted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tanda",
+            "type": "pubkey"
+          },
+          {
+            "name": "beneficiary",
+            "type": "pubkey"
+          },
+          {
+            "name": "turn",
+            "type": "u8"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PayoutOrder",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "JoinOrder"
+          },
+          {
+            "name": "CreatorSet"
+          },
+          {
+            "name": "Random"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProgramConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "kyc_oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "crank_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "fee_destination",
+            "type": "pubkey"
+          },
+          {
+            "name": "kyc_limits",
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Tanda",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "tanda_id",
+            "type": "u64"
+          },
+          {
+            "name": "name_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "usdc_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "member_target",
+            "type": "u8"
+          },
+          {
+            "name": "member_current",
+            "type": "u8"
+          },
+          {
+            "name": "contribution_amount",
+            "type": "u64"
+          },
+          {
+            "name": "stake_amount",
+            "type": "u64"
+          },
+          {
+            "name": "frequency_seconds",
+            "type": "u32"
+          },
+          {
+            "name": "total_turns",
+            "type": "u8"
+          },
+          {
+            "name": "current_turn",
+            "type": "u8"
+          },
+          {
+            "name": "contributions_this_turn",
+            "docs": [
+              "Running count of contributions received for the current turn.",
+              "Incremented by `contribute`, reset to 0 after each `payout`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "disputes_opened",
+            "docs": [
+              "Running count of disputes opened against this tanda (max 5)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "TandaState"
+              }
+            }
+          },
+          {
+            "name": "payout_order_mode",
+            "type": {
+              "defined": {
+                "name": "PayoutOrder"
+              }
+            }
+          },
+          {
+            "name": "next_payout_ts",
+            "type": "i64"
+          },
+          {
+            "name": "started_at",
+            "type": "i64"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "vault_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TandaCompleted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tanda",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TandaCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tanda",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "member_target",
+            "type": "u8"
+          },
+          {
+            "name": "contribution_amount",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TandaStarted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tanda",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TandaState",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Forming"
+          },
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Paused"
+          },
+          {
+            "name": "Completed"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UserProfile",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "phone_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "country_code",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "kyc_tier",
+            "type": {
+              "defined": {
+                "name": "KycTier"
+              }
+            }
+          },
+          {
+            "name": "reputation_score",
+            "type": "u32"
+          },
+          {
+            "name": "tandas_completed",
+            "type": "u16"
+          },
+          {
+            "name": "tandas_defaulted",
+            "type": "u16"
+          },
+          {
+            "name": "tandas_created",
+            "type": "u64"
+          },
+          {
+            "name": "loans_repaid",
+            "type": "u16"
+          },
+          {
+            "name": "loans_defaulted",
+            "type": "u16"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UserProfileInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "phone_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "country_code",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    }
+  ]
+}
