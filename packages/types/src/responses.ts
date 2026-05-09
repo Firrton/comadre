@@ -251,3 +251,63 @@ export const ConfirmTransferResponse = z.object({
   explorerUrl: z.string().url(),
 });
 export type ConfirmTransferResponse = z.infer<typeof ConfirmTransferResponse>;
+
+// ---------------------------------------------------------------------------
+// Guardadito — USDC savings
+// ---------------------------------------------------------------------------
+
+export const WalletBalanceResponse = z.object({
+  wallet: SolanaPubkey,
+  usdc: z.string().regex(/^\d+(\.\d{1,6})?$/),
+  microUsdc: AtomicAmountString,
+});
+export type WalletBalanceResponse = z.infer<typeof WalletBalanceResponse>;
+
+export const GuardaditoSummaryResponse = z.object({
+  provider: z.enum(["mock", "kamino"]),
+  strategyId: z.string(),
+  available: z.object({
+    usdc: z.string().regex(/^\d+(\.\d{1,6})?$/),
+    microUsdc: AtomicAmountString,
+  }),
+  saved: z.object({
+    usdc: z.string().regex(/^\d+(\.\d{1,6})?$/),
+    microUsdc: AtomicAmountString,
+  }),
+  suggested: z.object({
+    shouldSuggest: z.boolean(),
+    amountUsdc: z.string().regex(/^\d+(\.\d{1,6})?$/),
+    microUsdc: AtomicAmountString,
+    liquidReserveUsdc: z.string().regex(/^\d+(\.\d{1,6})?$/),
+    reason: z.string(),
+  }),
+  copy: z.object({
+    short: z.string(),
+    risk: z.string(),
+  }),
+});
+export type GuardaditoSummaryResponse = z.infer<typeof GuardaditoSummaryResponse>;
+
+export const GuardaditoActionResponse = z.object({
+  actionId: z.string().uuid(),
+  type: z.enum(["deposit", "withdraw"]),
+  provider: z.enum(["mock", "kamino"]),
+  strategyId: z.string(),
+  amount: z.object({
+    usdc: z.string().regex(/^\d+(\.\d{1,6})?$/),
+    microUsdc: AtomicAmountString,
+  }),
+  status: z.enum(["pending", "confirmed", "cancelled", "expired", "failed"]),
+  expiresAt: z.string().datetime(),
+  unsignedTxBase64: z.string().regex(/^[A-Za-z0-9+/]+=*$/).optional(),
+  summary: z.string(),
+});
+export type GuardaditoActionResponse = z.infer<typeof GuardaditoActionResponse>;
+
+export const ConfirmGuardaditoActionResponse = z.object({
+  actionId: z.string().uuid(),
+  status: z.literal("confirmed"),
+  signature: z.string().optional(),
+  explorerUrl: z.string().url().optional(),
+});
+export type ConfirmGuardaditoActionResponse = z.infer<typeof ConfirmGuardaditoActionResponse>;

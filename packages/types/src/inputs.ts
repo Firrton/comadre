@@ -178,3 +178,20 @@ export const CreateTransferInput = z.object({
   note: z.string().max(280).optional(),
 });
 export type CreateTransferInput = z.infer<typeof CreateTransferInput>;
+
+// ---------------------------------------------------------------------------
+// Guardadito — USDC savings
+// ---------------------------------------------------------------------------
+
+export const GuardaditoActionAmountInput = z.object({
+  amountUsdc: z
+    .string()
+    .regex(/^\d+(\.\d{1,6})?$/, "Amount must be a non-negative decimal with ≤6 places (e.g. 10.50)")
+    .refine((v) => parseFloat(v) > 0, "Amount must be positive"),
+});
+export type GuardaditoActionAmountInput = z.infer<typeof GuardaditoActionAmountInput>;
+
+export const GuardaditoActionIdInput = z.object({
+  id: z.string().uuid(),
+});
+export type GuardaditoActionIdInput = z.infer<typeof GuardaditoActionIdInput>;

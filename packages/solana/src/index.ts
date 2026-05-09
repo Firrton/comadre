@@ -22,3 +22,5 @@ export { buildUnsignedTx } from "./txBuilder";
 export type { BuildUnsignedTxParams, UnsignedTxResult } from "./txBuilder";
 export { submitWithRetry } from "./retry";
 export type { SubmitOptions, SubmitResult } from "./retry";
+export { getUsdcBalanceMicro } from "./usdcBalance";
+export type { GetUsdcBalanceParams } from "./usdcBalance";

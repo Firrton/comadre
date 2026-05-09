@@ -40,6 +40,7 @@ import { lookupByPhone } from "../lib/phoneLookup.js";
 import { enforceKycLimit, KycLimitExceededError, type KycTier } from "../lib/kycLimits.js";
 import { buildUsdcTransferIxs, usdcToMicro, microToUsdc } from "../lib/usdcTransfer.js";
 import { signWithPrivy } from "../lib/privySigner.js";
+import { createSavingsNudge } from "../lib/savings/nudges.js";
 import type { AuthUser } from "../middlewares/auth.js";
 
 export const transfersRouter = new Hono();
@@ -354,6 +355,16 @@ transfersRouter.post("/:id/confirm", async (c) => {
     .update(transfers)
     .set({ status: "confirmed", txSignature: signature, confirmedAt: new Date() })
     .where(eq(transfers.id, transferId));
+
+  if (row.recipientWallet) {
+    await createSavingsNudge({
+      userWallet: row.recipientWallet,
+      source: "p2p_transfer",
+      sourceRef: transferId,
+      amountMicroUsdc: row.amountMicroUsdc,
+      sendIfPossible: true,
+    }).catch(() => undefined);
+  }
 
   // Cleanup Redis (best-effort)
   try {

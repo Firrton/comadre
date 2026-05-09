@@ -85,6 +85,30 @@ export const badgeTypeEnum = pgEnum("badge_type", [
 /** Communication channel for the agent conversation */
 export const channelEnum = pgEnum("channel", ["whatsapp", "web"]);
 
+/** Guardadito strategy provider */
+export const savingsProviderEnum = pgEnum("savings_provider", ["mock", "kamino"]);
+
+/** Guardadito position lifecycle */
+export const savingsPositionStatusEnum = pgEnum("savings_position_status", [
+  "active",
+  "closed",
+]);
+
+/** Guardadito action kind */
+export const savingsActionTypeEnum = pgEnum("savings_action_type", [
+  "deposit",
+  "withdraw",
+]);
+
+/** Guardadito action lifecycle */
+export const savingsActionStatusEnum = pgEnum("savings_action_status", [
+  "pending",
+  "confirmed",
+  "cancelled",
+  "expired",
+  "failed",
+]);
+
 /** On/off ramp direction */
 export const rampDirectionEnum = pgEnum("ramp_direction", [
   "onramp",
@@ -531,5 +555,108 @@ export const transfers = pgTable(
     index("transfers_recipient_phone_idx").on(t.recipientPhoneHash),
     index("transfers_status_idx").on(t.status),
     index("transfers_expires_idx").on(t.expiresAt),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Guardadito — USDC savings positions, actions, nudges, and encrypted contacts
+//
+// v1 is strategy-adapter based:
+//   - provider="mock" is the default for demo/tests
+//   - provider="kamino" is enabled only by env and external adapter config
+//
+// Phone numbers are not stored in clear text. `phone_ciphertext` carries an
+// encrypted E.164 number so indexer/API can send opt-in proactive WhatsApp
+// nudges without leaking PII in the database.
+// ---------------------------------------------------------------------------
+
+export const contactRoutes = pgTable(
+  "contact_routes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userWallet: text("user_wallet")
+      .notNull()
+      .references(() => users.wallet, { onDelete: "cascade" }),
+    phoneHash: text("phone_hash").notNull(),
+    phoneCiphertext: text("phone_ciphertext").notNull(),
+    channel: channelEnum("channel").notNull().default("whatsapp"),
+    createdAt: tsNow("created_at").notNull(),
+    updatedAt: tsNow("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("contact_routes_wallet_channel_uidx").on(t.userWallet, t.channel),
+    index("contact_routes_phone_hash_idx").on(t.phoneHash),
+  ]
+);
+
+export const savingsPositions = pgTable(
+  "savings_positions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userWallet: text("user_wallet")
+      .notNull()
+      .references(() => users.wallet, { onDelete: "cascade" }),
+    provider: savingsProviderEnum("provider").notNull().default("mock"),
+    strategyId: text("strategy_id").notNull(),
+    depositedMicroUsdc: bigint("deposited_micro_usdc", { mode: "bigint" }).notNull().$default(() => BigInt(0)),
+    shareAmount: text("share_amount").notNull().default("0"),
+    lastKnownUnderlyingMicroUsdc: bigint("last_known_underlying_micro_usdc", {
+      mode: "bigint",
+    }).notNull().$default(() => BigInt(0)),
+    status: savingsPositionStatusEnum("status").notNull().default("active"),
+    createdAt: tsNow("created_at").notNull(),
+    updatedAt: tsNow("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("savings_positions_wallet_strategy_uidx").on(t.userWallet, t.provider, t.strategyId),
+    index("savings_positions_wallet_idx").on(t.userWallet),
+  ]
+);
+
+export const savingsActions = pgTable(
+  "savings_actions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userWallet: text("user_wallet")
+      .notNull()
+      .references(() => users.wallet, { onDelete: "cascade" }),
+    provider: savingsProviderEnum("provider").notNull().default("mock"),
+    strategyId: text("strategy_id").notNull(),
+    type: savingsActionTypeEnum("type").notNull(),
+    amountMicroUsdc: bigint("amount_micro_usdc", { mode: "bigint" }).notNull(),
+    status: savingsActionStatusEnum("status").notNull().default("pending"),
+    txSignature: text("tx_signature"),
+    unsignedTxKey: text("unsigned_tx_key"),
+    failureReason: text("failure_reason"),
+    createdAt: tsNow("created_at").notNull(),
+    confirmedAt: ts("confirmed_at"),
+    expiresAt: ts("expires_at").notNull(),
+  },
+  (t) => [
+    index("savings_actions_wallet_idx").on(t.userWallet),
+    index("savings_actions_status_idx").on(t.status),
+    index("savings_actions_expires_idx").on(t.expiresAt),
+  ]
+);
+
+export const savingsNudges = pgTable(
+  "savings_nudges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userWallet: text("user_wallet")
+      .notNull()
+      .references(() => users.wallet, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    sourceRef: text("source_ref").notNull(),
+    amountMicroUsdc: bigint("amount_micro_usdc", { mode: "bigint" }).notNull(),
+    status: text("status").notNull().default("pending"),
+    message: text("message"),
+    createdAt: tsNow("created_at").notNull(),
+    sentAt: ts("sent_at"),
+  },
+  (t) => [
+    uniqueIndex("savings_nudges_source_ref_uidx").on(t.source, t.sourceRef),
+    index("savings_nudges_wallet_idx").on(t.userWallet),
+    index("savings_nudges_status_idx").on(t.status),
   ]
 );

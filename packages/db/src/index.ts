@@ -21,6 +21,10 @@ export {
   ramps,
   kycSessions,
   transfers,
+  contactRoutes,
+  savingsPositions,
+  savingsActions,
+  savingsNudges,
 } from "./schema.js";
 
 // Enums (Drizzle pgEnum objects — useful for .notInArray / .inArray helpers)
@@ -31,6 +35,10 @@ export {
   disputeStateEnum,
   badgeTypeEnum,
   channelEnum,
+  savingsProviderEnum,
+  savingsPositionStatusEnum,
+  savingsActionTypeEnum,
+  savingsActionStatusEnum,
   rampDirectionEnum,
   rampStatusEnum,
   loanStateEnum,

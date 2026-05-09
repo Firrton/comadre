@@ -556,6 +556,220 @@ export const cancelarTransferExecute: ToolExecutor = async (args, context) => {
 };
 
 // --------------------------------------------------------------------------
+// 14. iniciar_onboarding (no userWallet — uses senderPhone from context)
+// --------------------------------------------------------------------------
+export const iniciarOnboardingDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "iniciar_onboarding",
+    description:
+      "Crea la billetera Solana del usuario actual usando su número de teléfono (Privy embedded wallet). Llamala SOLO después de consentimiento explícito del usuario. No tiene parámetros — usa el phone del contexto.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+};
+export const iniciarOnboardingExecute: ToolExecutor = async (_args, context) => {
+  if (!context.senderPhone) {
+    return {
+      type: "error",
+      error: "iniciar_onboarding requires senderPhone in context",
+    };
+  }
+  const data = await apiCall<{
+    walletAddress: string;
+    walletId: string;
+    privyUserId: string;
+    alreadyExisted: boolean;
+  }>({
+    method: "POST",
+    path: "/api/v1/onboarding/init",
+    userWallet: "",
+    idempotencyKey: newIdempotencyKey(),
+    body: { phone: context.senderPhone },
+  });
+  return {
+    type: "data",
+    data,
+    summary: data.alreadyExisted
+      ? `Ya tenías un wallet: ${data.walletAddress.slice(0, 4)}...${data.walletAddress.slice(-4)}`
+      : `Wallet creada: ${data.walletAddress.slice(0, 4)}...${data.walletAddress.slice(-4)}`,
+  };
+};
+
+// --------------------------------------------------------------------------
+// Guardadito tools — user-facing savings flow
+// --------------------------------------------------------------------------
+
+export const consultarGuardaditoDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "consultar_guardadito",
+    description:
+      "Consulta el Guardadito del usuario: USDC disponible, USDC guardado, y sugerencia segura. Usá lenguaje simple; no digas staking/yield/vault.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+};
+export const consultarGuardaditoExecute: ToolExecutor = async (_args, context) => {
+  const data = await apiCall<{
+    available: { usdc: string };
+    saved: { usdc: string };
+    suggested: { shouldSuggest: boolean; amountUsdc: string; liquidReserveUsdc: string };
+    copy: { short: string; risk: string };
+  }>({
+    method: "GET",
+    path: "/api/v1/savings/summary",
+    userWallet: context.userWallet,
+  });
+  return {
+    type: "data",
+    data,
+    summary: data.suggested.shouldSuggest
+      ? `Puede sugerirse Guardadito por ${data.suggested.amountUsdc} USDC, dejando ${data.suggested.liquidReserveUsdc} USDC disponibles.`
+      : `Guardadito consultado: disponible ${data.available.usdc} USDC, guardado ${data.saved.usdc} USDC.`,
+  };
+};
+
+export const prepararGuardaditoDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "preparar_guardadito",
+    description:
+      "Prepara guardar USDC en el Guardadito. SOLO llamá después de que el usuario acepte y diga el monto. Después pedí confirmación explícita antes de confirmar_guardadito.",
+    parameters: {
+      type: "object",
+      properties: {
+        amount_usdc: {
+          type: "string",
+          description: "Monto en USDC como string decimal con hasta 6 decimales. Ej: '30'.",
+        },
+      },
+      required: ["amount_usdc"],
+      additionalProperties: false,
+    },
+  },
+};
+export const prepararGuardaditoExecute: ToolExecutor = async (args, context) => {
+  const { amount_usdc } = args as { amount_usdc: string };
+  const idempotencyKey = context.idempotencyKey ?? newIdempotencyKey();
+  const data = await apiCall<{
+    actionId: string;
+    amount: { usdc: string };
+    status: "pending";
+    summary: string;
+  }>({
+    method: "POST",
+    path: "/api/v1/savings/deposits",
+    body: { amountUsdc: amount_usdc },
+    userWallet: context.userWallet,
+    idempotencyKey,
+  });
+  return {
+    type: "data",
+    data,
+    summary: `Guardadito preparado por ${data.amount.usdc} USDC. Pedí confirmación antes de llamar confirmar_guardadito.`,
+  };
+};
+
+export const confirmarGuardaditoDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "confirmar_guardadito",
+    description:
+      "Confirma una acción de Guardadito pendiente. SOLO llamá si el usuario dijo 'sí', 'confirmo' o 'dale' explícitamente.",
+    parameters: {
+      type: "object",
+      properties: {
+        action_id: { type: "string", description: "UUID devuelto por preparar_guardadito o retirar_guardadito." },
+      },
+      required: ["action_id"],
+      additionalProperties: false,
+    },
+  },
+};
+export const confirmarGuardaditoExecute: ToolExecutor = async (args, context) => {
+  const { action_id } = args as { action_id: string };
+  const idempotencyKey = context.idempotencyKey ?? newIdempotencyKey();
+  const data = await apiCall<{ actionId: string; status: "confirmed"; explorerUrl?: string }>({
+    method: "POST",
+    path: `/api/v1/savings/actions/${encodeURIComponent(action_id)}/confirm`,
+    body: {},
+    userWallet: context.userWallet,
+    idempotencyKey,
+  });
+  return {
+    type: "data",
+    data,
+    summary: data.explorerUrl
+      ? `Guardadito confirmado. Tx: ${data.explorerUrl}`
+      : "Guardadito confirmado.",
+  };
+};
+
+export const retirarGuardaditoDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "retirar_guardadito",
+    description:
+      "Prepara retirar USDC del Guardadito. SOLO llamá cuando el usuario pida sacar un monto. Después pedí confirmación explícita.",
+    parameters: {
+      type: "object",
+      properties: {
+        amount_usdc: {
+          type: "string",
+          description: "Monto en USDC como string decimal con hasta 6 decimales. Ej: '10'.",
+        },
+      },
+      required: ["amount_usdc"],
+      additionalProperties: false,
+    },
+  },
+};
+export const retirarGuardaditoExecute: ToolExecutor = async (args, context) => {
+  const { amount_usdc } = args as { amount_usdc: string };
+  const idempotencyKey = context.idempotencyKey ?? newIdempotencyKey();
+  const data = await apiCall<{ actionId: string; amount: { usdc: string }; status: "pending" }>({
+    method: "POST",
+    path: "/api/v1/savings/withdrawals",
+    body: { amountUsdc: amount_usdc },
+    userWallet: context.userWallet,
+    idempotencyKey,
+  });
+  return {
+    type: "data",
+    data,
+    summary: `Retiro del Guardadito preparado por ${data.amount.usdc} USDC. Pedí confirmación antes de llamar confirmar_guardadito.`,
+  };
+};
+
+export const cancelarGuardaditoDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "cancelar_guardadito",
+    description:
+      "Cancela una acción de Guardadito pendiente cuando el usuario dice no, cancelar o cambia de opinión.",
+    parameters: {
+      type: "object",
+      properties: {
+        action_id: { type: "string", description: "UUID de la acción pendiente." },
+      },
+      required: ["action_id"],
+      additionalProperties: false,
+    },
+  },
+};
+export const cancelarGuardaditoExecute: ToolExecutor = async (args, context) => {
+  const { action_id } = args as { action_id: string };
+  const idempotencyKey = context.idempotencyKey ?? newIdempotencyKey();
+  const data = await apiCall<{ actionId: string; status: "cancelled" }>({
+    method: "POST",
+    path: `/api/v1/savings/actions/${encodeURIComponent(action_id)}/cancel`,
+    body: {},
+    userWallet: context.userWallet,
+    idempotencyKey,
+  });
+  return { type: "data", data, summary: "Acción de Guardadito cancelada." };
+};
+
+// --------------------------------------------------------------------------
 // Registry
 // --------------------------------------------------------------------------
 export const ALL_TOOLS: readonly ToolDefinition[] = [
@@ -572,6 +786,12 @@ export const ALL_TOOLS: readonly ToolDefinition[] = [
   iniciarTransferDefinition,
   confirmarTransferDefinition,
   cancelarTransferDefinition,
+  iniciarOnboardingDefinition,
+  consultarGuardaditoDefinition,
+  prepararGuardaditoDefinition,
+  confirmarGuardaditoDefinition,
+  retirarGuardaditoDefinition,
+  cancelarGuardaditoDefinition,
 ];
 
 export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
@@ -588,6 +808,12 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   iniciar_transfer: iniciarTransferExecute,
   confirmar_transfer: confirmarTransferExecute,
   cancelar_transfer: cancelarTransferExecute,
+  iniciar_onboarding: iniciarOnboardingExecute,
+  consultar_guardadito: consultarGuardaditoExecute,
+  preparar_guardadito: prepararGuardaditoExecute,
+  confirmar_guardadito: confirmarGuardaditoExecute,
+  retirar_guardadito: retirarGuardaditoExecute,
+  cancelar_guardadito: cancelarGuardaditoExecute,
 };
 
 export async function executeTool(name: string, args: unknown, context: ToolContext): Promise<ToolResult> {

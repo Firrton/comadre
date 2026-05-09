@@ -32,6 +32,9 @@ import { kycRouter } from "./routes/kyc.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { rampsRouter } from "./routes/ramps.js";
 import { transfersRouter } from "./routes/transfers.js";
+import { onboardingRouter } from "./routes/onboarding.js";
+import { walletRouter } from "./routes/wallet.js";
+import { savingsRouter } from "./routes/savings.js";
 
 const app = new Hono();
 
@@ -51,18 +54,33 @@ app.get("/health", (c) =>
 // ── Webhooks (public — own auth via HMAC / Privy signature) ──────────────────
 app.route("/webhooks", webhooksRouter);
 
+// ── Onboarding (public — user has no Privy JWT yet) ──────────────────────────
+// Mounted BEFORE the /api/* middleware chain so unregistered phones can register.
+app.route("/api/v1/onboarding", onboardingRouter);
+
 // ── Authenticated routes ──────────────────────────────────────────────────────
-app.use("/api/*", rateLimitMiddleware);
-app.use("/api/*", authMiddleware);
+const ONBOARDING_PREFIX = "/api/v1/onboarding";
+
+app.use("/api/*", async (c, next) => {
+  if (c.req.path.startsWith(ONBOARDING_PREFIX)) return next();
+  return rateLimitMiddleware(c, next);
+});
+app.use("/api/*", async (c, next) => {
+  if (c.req.path.startsWith(ONBOARDING_PREFIX)) return next();
+  return authMiddleware(c, next);
+});
 
 // Idempotency — POST routes only (after auth so userId is available)
 app.use("/api/*", async (c, next) => {
   if (c.req.method !== "POST") return next();
+  if (c.req.path.startsWith(ONBOARDING_PREFIX)) return next();
   return idempotencyMiddleware(c, next);
 });
 
 // Mount routers
 app.route("/api/v1/users", usersRouter);
+app.route("/api/v1/wallet", walletRouter);
+app.route("/api/v1/savings", savingsRouter);
 app.route("/api/v1/tandas", tandasRouter);
 app.route("/api/v1/transfers", transfersRouter);
 app.route("/api/v1", disputesRouter);

@@ -1,5 +1,15 @@
 import { z } from "zod";
 
+const optionalNonEmpty = z.preprocess(
+  (v) => (v === "" ? undefined : v),
+  z.string().min(1).optional(),
+);
+
+const optionalSecret = z.preprocess(
+  (v) => (v === "" ? undefined : v),
+  z.string().min(32).optional(),
+);
+
 // -----------------------------------------------------------------------
 // Solana
 // -----------------------------------------------------------------------
@@ -130,6 +140,19 @@ const internalAuthSchema = z.object({
 });
 
 // -----------------------------------------------------------------------
+// Guardadito — USDC savings strategy
+// -----------------------------------------------------------------------
+const guardaditoSchema = z.object({
+  YIELD_STRATEGY_PROVIDER: z.enum(["mock", "kamino"]).default("mock"),
+  GUARDADITO_MIN_LIQUID_USDC: z.coerce.number().min(0).default(20),
+  GUARDADITO_MIN_SUGGEST_USDC: z.coerce.number().min(0).default(25),
+  KAMINO_MARKET: optionalNonEmpty,
+  KAMINO_USDC_RESERVE: optionalNonEmpty,
+  KAMINO_USDC_MINT: optionalNonEmpty,
+  CONTACT_ENCRYPTION_KEY: optionalSecret,
+});
+
+// -----------------------------------------------------------------------
 // Service URLs — internal mesh
 // -----------------------------------------------------------------------
 const serviceUrlsSchema = z.object({
@@ -181,6 +204,7 @@ const baseSchema = solanaSchema
   .merge(postgresSchema)
   .merge(upstashSchema)
   .merge(internalAuthSchema)
+  .merge(guardaditoSchema)
   .merge(serviceUrlsSchema)
   .merge(observabilitySchema)
   .merge(devToolingSchema)

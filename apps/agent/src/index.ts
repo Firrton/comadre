@@ -3,8 +3,11 @@ import { logger } from "hono/logger";
 import pino from "pino";
 import { z } from "zod";
 
-import { runAgent, type ChatMessage } from "./agentLoop.js";
+import { runAgent } from "./agentLoop.js";
 import { loadHistory, saveHistory } from "./lib/conversationStore.js";
+import { normalizePhoneE164 } from "./lib/phoneNormalize.js";
+import { loadSavingsContext } from "./lib/savingsContext.js";
+import { resolveUserFromTwilio } from "./lib/userResolver.js";
 
 const log = pino({ name: "agent" });
 
@@ -17,14 +20,8 @@ const processBodySchema = z.object({
 const app = new Hono();
 app.use("*", logger());
 
-// ---------------------------------------------------------------------------
-// GET /health
-// ---------------------------------------------------------------------------
 app.get("/health", (c) => c.json({ ok: true, service: "agent" }));
 
-// ---------------------------------------------------------------------------
-// POST /process — main entrypoint from the WhatsApp service
-// ---------------------------------------------------------------------------
 app.post("/process", async (c) => {
   let parsedBody: unknown;
   try {
@@ -45,20 +42,42 @@ app.post("/process", async (c) => {
   const start = Date.now();
 
   try {
+    let userWallet: string | null = null;
+    try {
+      const resolved = await resolveUserFromTwilio(from);
+      userWallet = resolved?.wallet ?? null;
+    } catch (resolveErr) {
+      log.error({ err: resolveErr, from }, "user resolve failed");
+    }
+
     const history = await loadHistory(conversationKey);
+    const financialContext = userWallet
+      ? await loadSavingsContext(userWallet)
+      : null;
 
-    const userMessage: ChatMessage = { role: "user", content: body };
-    const result = await runAgent([...history, userMessage]);
+    // Extract + normalize phone from "whatsapp:+5218116346072" → "+528116346072"
+    const senderPhone = normalizePhoneE164(
+      from.replace(/^whatsapp:/, "").trim(),
+    );
 
-    // Persist history (trim to last N happens inside saveHistory)
-    await saveHistory(conversationKey, [
-      ...history,
-      userMessage,
-      ...result.updatedMessages.slice(-1),
-    ]);
+    const result = await runAgent({
+      history,
+      userMessage: body,
+      userWallet,
+      senderPhone,
+      financialContext,
+    });
+
+    await saveHistory(conversationKey, [...history, ...result.newMessages]);
 
     log.info(
-      { from, latencyMs: Date.now() - start, len: result.reply.length },
+      {
+        from,
+        userWallet: userWallet ?? "unregistered",
+        latencyMs: Date.now() - start,
+        len: result.reply.length,
+        newMessageCount: result.newMessages.length,
+      },
       "agent processed",
     );
 

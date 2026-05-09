@@ -17,11 +17,12 @@
 
 ## ¿Qué es Comadre?
 
-**Comadre** es un agente de WhatsApp que ayuda a familias y comunidades en LATAM a manejar plata en USDC sobre Solana, con tres features core:
+**Comadre** es un agente de WhatsApp que ayuda a familias y comunidades en LATAM a manejar plata en USDC sobre Solana, con cuatro features core:
 
 1. **Phone-to-phone USDC transfers** — manda 10 USDC a un número de teléfono (registrado o no — onboarding implícito).
 2. **Tandas** — grupos rotativos de ahorro on-chain (3-20 personas aportan, cada turno una se lleva el pot).
-3. **Crédito comunitario** — préstamos con cosigners (Phase 2).
+3. **Guardadito USDC** — ahorro con bóveda: mock seguro por default, Kamino detrás de flag/env.
+4. **Crédito comunitario** — préstamos con cosigners (Phase 2).
 
 El bot vive en WhatsApp; la inteligencia es **Kimi K2** (Moonshot/Groq) con tool-use; la plata es **USDC en Solana**; las wallets son embedded **Privy** (custodial-feel, controlled por phone OTP).
 
@@ -102,7 +103,7 @@ bun run dev
 - **PayoutOrder MVP**: solo `JoinOrder` (CreatorSet/Random hard-rejected hasta VRF)
 - **Backend paga rent + tx fees** (descontados del fee 0.5%)
 - **Crank híbrido**: `apps/cron` interno + callable por anyone (resiliencia)
-- **Yield USDC vault**: mock (Kamino post-hackathon)
+- **Guardadito USDC**: strategy adapter híbrido (`mock` default, `kamino` detrás de env)
 - **Tx signing**: 100% server-side (Privy `walletApi.solana.signTransaction`)
 - **Lock model en transfers diferidos**: earmark off-chain (no on-chain escrow PDA por scope hackathon)
 
@@ -169,10 +170,11 @@ Para más detalle de cada servicio (puerto, middlewares, routers, env vars consu
 
 ### Lo que está completo
 - ✅ Anchor program completo: 15 instructions, 9 state structs, 14 events, ~28 errors, 10 PDA seeds. Deployado a devnet (`BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh`).
-- ✅ Packages base: `@comadre/{config, types, db, cache, anchor-client, solana, agent-tools}`. 14 tools en el registry.
+- ✅ Packages base: `@comadre/{config, types, db, cache, anchor-client, solana, agent-tools}`. 19 tools en el registry.
 - ✅ `apps/api`: 8 routers, 5 middlewares (auth Privy, idempotency, rate limit, Pino logger, error handler), 4 lib helpers (phoneLookup, kycLimits, usdcTransfer, privySigner).
 - ✅ `apps/whatsapp`: Twilio webhook + reply HMAC.
-- ✅ `apps/agent`: tool-use loop (max 5 iters) con onboarding via Privy.
+- ✅ `apps/agent`: tool-use loop (max 5 iters) con onboarding via Privy y contexto Guardadito.
+- ✅ Guardadito v1: savings API, mock adapter, Kamino boundary, nudges por Twilio y detección Helius de ingresos USDC.
 - ✅ `apps/cron`: 4 jobs scheduled.
 - ✅ Repo tidy completo (PR #21): apps con `lib/` + `__tests__/`, docs consolidados.
 

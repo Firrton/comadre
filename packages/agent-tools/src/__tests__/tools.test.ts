@@ -26,16 +26,22 @@ afterEach(() => {
 const ctx = { userWallet: "BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh" };
 
 describe("tool registry", () => {
-  it("exposes 13 tools", () => {
-    expect(ALL_TOOLS.length).toBe(13);
+  it("exposes 19 tools", () => {
+    expect(ALL_TOOLS.length).toBe(19);
   });
 
-  it("includes the 4 phone-to-phone transfer tools", () => {
+  it("includes transfer and onboarding tools", () => {
     const names = ALL_TOOLS.map((t) => t.function.name);
     expect(names).toContain("consultar_balance");
     expect(names).toContain("iniciar_transfer");
     expect(names).toContain("confirmar_transfer");
     expect(names).toContain("cancelar_transfer");
+    expect(names).toContain("iniciar_onboarding");
+    expect(names).toContain("consultar_guardadito");
+    expect(names).toContain("preparar_guardadito");
+    expect(names).toContain("confirmar_guardadito");
+    expect(names).toContain("retirar_guardadito");
+    expect(names).toContain("cancelar_guardadito");
   });
 
   it("every tool name maps to an executor", () => {
@@ -188,6 +194,98 @@ describe("phone-to-phone transfer tools (PR D)", () => {
     const result = await executeTool("cancelar_transfer", { transfer_id: "uuid-1" }, ctx);
     expect(result.type).toBe("data");
     expect(lastRequest?.url).toContain("/api/v1/transfers/uuid-1/cancel");
+  });
+});
+
+describe("phone onboarding tool", () => {
+  it("requires senderPhone in context", async () => {
+    const result = await executeTool("iniciar_onboarding", {}, { userWallet: "" });
+    expect(result.type).toBe("error");
+    if (result.type === "error") {
+      expect(result.error).toContain("senderPhone");
+    }
+  });
+
+  it("POSTs to /api/v1/onboarding/init with phone and internal auth", async () => {
+    globalThis.fetch = makeMockFetch({
+      walletAddress: "BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh",
+      walletId: "wallet-id",
+      privyUserId: "did:privy:user",
+      alreadyExisted: false,
+    });
+
+    const result = await executeTool("iniciar_onboarding", {}, {
+      userWallet: "",
+      senderPhone: "+528116346072",
+    });
+
+    expect(result.type).toBe("data");
+    expect(lastRequest?.url).toContain("/api/v1/onboarding/init");
+    expect(lastRequest?.init?.method).toBe("POST");
+
+    const headers = lastRequest?.init?.headers as Record<string, string>;
+    expect(headers["X-Internal-Signature"]).toMatch(/^[0-9a-f]{64}$/);
+    expect(headers["X-Internal-Timestamp"]).toMatch(/^\d+$/);
+    expect(headers["X-Idempotency-Key"]).toBeString();
+
+    const body = JSON.parse((lastRequest?.init?.body as string) ?? "{}");
+    expect(body.phone).toBe("+528116346072");
+  });
+});
+
+describe("Guardadito tools", () => {
+  it("consultar_guardadito GETs /api/v1/savings/summary", async () => {
+    globalThis.fetch = makeMockFetch({
+      available: { usdc: "50", microUsdc: "50000000" },
+      saved: { usdc: "0", microUsdc: "0" },
+      suggested: {
+        shouldSuggest: true,
+        amountUsdc: "30",
+        microUsdc: "30000000",
+        liquidReserveUsdc: "20",
+        reason: "ok",
+      },
+      copy: { short: "Mija...", risk: "Puede variar." },
+    });
+
+    const result = await executeTool("consultar_guardadito", {}, ctx);
+    expect(result.type).toBe("data");
+    expect(lastRequest?.url).toContain("/api/v1/savings/summary");
+    expect(lastRequest?.init?.method).toBe("GET");
+  });
+
+  it("preparar_guardadito POSTs deposit amount", async () => {
+    globalThis.fetch = makeMockFetch({
+      actionId: "00000000-0000-0000-0000-000000000001",
+      type: "deposit",
+      provider: "mock",
+      strategyId: "guardadito-mock-usdc",
+      amount: { usdc: "30", microUsdc: "30000000" },
+      status: "pending",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      summary: "ok",
+    });
+
+    const result = await executeTool("preparar_guardadito", { amount_usdc: "30" }, ctx);
+    expect(result.type).toBe("data");
+    expect(lastRequest?.url).toContain("/api/v1/savings/deposits");
+    const body = JSON.parse((lastRequest?.init?.body as string) ?? "{}");
+    expect(body.amountUsdc).toBe("30");
+  });
+
+  it("confirmar_guardadito POSTs action confirmation", async () => {
+    globalThis.fetch = makeMockFetch({
+      actionId: "00000000-0000-0000-0000-000000000001",
+      status: "confirmed",
+    });
+
+    const result = await executeTool(
+      "confirmar_guardadito",
+      { action_id: "00000000-0000-0000-0000-000000000001" },
+      ctx,
+    );
+    expect(result.type).toBe("data");
+    expect(lastRequest?.url).toContain("/api/v1/savings/actions/00000000-0000-0000-0000-000000000001/confirm");
   });
 });
 

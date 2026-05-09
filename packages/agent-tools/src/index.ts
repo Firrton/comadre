@@ -52,4 +52,17 @@ export {
   iniciarTransferExecute,
   confirmarTransferExecute,
   cancelarTransferExecute,
+  // Onboarding
+  iniciarOnboardingDefinition,
+  iniciarOnboardingExecute,
+  consultarGuardaditoDefinition,
+  prepararGuardaditoDefinition,
+  confirmarGuardaditoDefinition,
+  retirarGuardaditoDefinition,
+  cancelarGuardaditoDefinition,
+  consultarGuardaditoExecute,
+  prepararGuardaditoExecute,
+  confirmarGuardaditoExecute,
+  retirarGuardaditoExecute,
+  cancelarGuardaditoExecute,
 } from "./tools";

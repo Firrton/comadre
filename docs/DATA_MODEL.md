@@ -34,7 +34,7 @@ pub enum PayoutOrder { JoinOrder, CreatorSet, Random }
 | Rent del backend | Sí en MVP | Invisible al user, descontado del fee |
 | Crank | Híbrido | Backend cron + callable por cualquiera (resiliencia) |
 | Fee del protocolo | En `payout` | Más visible para el user |
-| Yield USDC vault | Mock en MVP | Kamino integration post-hackathon |
+| Guardadito USDC | Adapter híbrido | `mock` default para demo; `kamino` detrás de env/flag |
 
 ## Postgres tables (materializadas por indexer + escritas por apps/api)
 
@@ -55,8 +55,12 @@ pub enum PayoutOrder { JoinOrder, CreatorSet, Random }
 | `ramps` | off-chain only | user_wallet, direction (`onramp`/`offramp`), provider, fiat_currency, fiat_amount_cents, usdc_amount, status (`pending`/`quoted`/`confirmed`/`completed`/`failed`), provider_ref |
 | `kyc_sessions` | off-chain only | user_wallet, applicant_id (Sumsub), level_name, status (`init`/`pending`/`approved`/`rejected`/`on_hold`), review_answer (GREEN/RED) |
 | **`transfers`** | **off-chain ledger** | **id (uuid pk), sender_wallet (FK users), sender_phone_hash, recipient_phone_hash, recipient_wallet (nullable for awaiting_recipient), amount_micro_usdc (u64), note, status (`pending`/`awaiting_recipient`/`confirmed`/`expired`/`cancelled`/`failed`), tx_signature, failure_reason, created_at, confirmed_at, expires_at (5min pending / 7d awaiting). Source-of-truth para P2P USDC transfers — no hay event Anchor (es SPL Token Transfer estándar)** |
+| `contact_routes` | off-chain only | Ruta WhatsApp cifrada por usuario (`phone_ciphertext`) para avisos proactivos sin guardar teléfono plano |
+| `savings_positions` | off-chain strategy ledger | Posición Guardadito por provider/strategy (`mock` o `kamino`), monto depositado, shares y valor conocido |
+| `savings_actions` | off-chain action ledger | Acciones pendientes/confirmadas de guardar o retirar USDC; para `mock` confirma contablemente, para `kamino` referencia tx |
+| `savings_nudges` | off-chain notification ledger | Dedupe de sugerencias Guardadito originadas por transferencias internas o Helius USDC incoming |
 
-**On-chain (Anchor) es la verdad para tandas/loans/disputes/badges.** Si Postgres se corrompe, reindexamos desde slot 0 (excepto las 5 tablas off-chain only: `conversations`, `idempotency_keys`, `ramps`, `kyc_sessions`, `transfers`, que son ledgers operacionales).
+**On-chain (Anchor) es la verdad para tandas/loans/disputes/badges.** Si Postgres se corrompe, reindexamos desde slot 0 (excepto las tablas off-chain only como `conversations`, `transfers` y `savings_*`, que son ledgers operacionales).
 
 ## Costos estimados (mainnet)
 

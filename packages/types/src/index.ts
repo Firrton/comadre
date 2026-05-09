@@ -24,6 +24,8 @@ export {
   E164Phone,
   LookupPhoneInput,
   CreateTransferInput,
+  GuardaditoActionAmountInput,
+  GuardaditoActionIdInput,
 } from "./inputs.js";
 
 // --- Responses (API response bodies) ---
@@ -35,6 +37,10 @@ export {
   LookupResponse,
   TransferResponse,
   ConfirmTransferResponse,
+  WalletBalanceResponse,
+  GuardaditoSummaryResponse,
+  GuardaditoActionResponse,
+  ConfirmGuardaditoActionResponse,
 } from "./responses.js";
 
 // Plain types (enums without a Zod schema value at the top level)
