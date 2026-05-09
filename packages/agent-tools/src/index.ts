@@ -43,4 +43,13 @@ export {
   votarDisputaExecute,
   solicitarKycExecute,
   iniciarOnrampExecute,
+  // Phone-to-phone transfers (PR D)
+  consultarBalanceDefinition,
+  iniciarTransferDefinition,
+  confirmarTransferDefinition,
+  cancelarTransferDefinition,
+  consultarBalanceExecute,
+  iniciarTransferExecute,
+  confirmarTransferExecute,
+  cancelarTransferExecute,
 } from "./tools";
