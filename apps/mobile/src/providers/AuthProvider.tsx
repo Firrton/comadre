@@ -96,7 +96,7 @@ export function useAuthContext(): AuthContextValue {
 // ---------------------------------------------------------------------------
 
 function AuthStateProvider({ children }: { children: React.ReactNode }) {
-  const { user: privyUser, ready, getAccessToken, logout: privyLogout } = usePrivy();
+  const { user: privyUser, getAccessToken, logout: privyLogout } = usePrivy();
   const { sendCode, loginWithCode, state: smsState } = useLoginWithSMS();
 
   const [authState, setAuthState] = useState<AuthState>("idle");
@@ -129,9 +129,9 @@ function AuthStateProvider({ children }: { children: React.ReactNode }) {
   // Derive auth state from Privy SDK state (real mode only)
   useEffect(() => {
     if (USE_MOCK) return; // mock mode handles state separately
-    if (!ready) {
-      setAuthState("idle");
-      return;
+    // privyUser === undefined means SDK is still initializing
+    if (privyUser === undefined) {
+      return; // keep current state while loading
     }
     if (privyUser) {
       // Store JWT when user is authenticated
@@ -145,9 +145,9 @@ function AuthStateProvider({ children }: { children: React.ReactNode }) {
       setAuthState("authenticated");
       return;
     }
-    // User is not authenticated but SDK is ready
+    // privyUser is null — SDK ready but not authenticated
     setAuthState("idle");
-  }, [ready, privyUser, getAccessToken]);
+  }, [privyUser, getAccessToken]);
 
   // Build user object from Privy user
   const user: AuthUser | null = useMemo(() => {
@@ -155,8 +155,8 @@ function AuthStateProvider({ children }: { children: React.ReactNode }) {
 
     // Try to find the Solana wallet from linked accounts
     let walletAddress: string | null = storedWallet;
-    if (!walletAddress && privyUser.linkedAccounts) {
-      for (const account of privyUser.linkedAccounts) {
+    if (!walletAddress && privyUser.linked_accounts) {
+      for (const account of privyUser.linked_accounts) {
         const a = account as Record<string, unknown>;
         if (
           a["type"] === "wallet" &&
@@ -181,15 +181,16 @@ function AuthStateProvider({ children }: { children: React.ReactNode }) {
 
   // High-level gate state
   const gateState: AuthGateState = useMemo(() => {
-    // Mock mode: skip Privy ready check (SDK may never become ready)
+    // Mock mode: skip Privy init check
     if (USE_MOCK) {
       if (authState === "authenticated") return "authenticated";
       return "unauthenticated";
     }
-    if (!ready) return "loading";
+    // privyUser === undefined means SDK is initializing
+    if (privyUser === undefined) return "loading";
     if (authState === "authenticated") return "authenticated";
     return "unauthenticated";
-  }, [ready, authState]);
+  }, [privyUser, authState]);
 
   // login(phone) — send OTP
   const login = useCallback(

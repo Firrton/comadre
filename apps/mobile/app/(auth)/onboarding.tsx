@@ -63,7 +63,7 @@ if (USE_MOCK) {
   mockRegistry.set(
     "POST:/onboarding/init",
     (): OnboardingInitResponse => ({
-      walletAddress: "DEV_WALLET_ADDRESS",
+      walletAddress: "7yLR...64bS",
       walletId: "mock-wallet-id",
       alreadyExisted: false,
     }),
@@ -122,18 +122,6 @@ export default function OnboardingScreen() {
       }
     }
   }, [authState, errorMessage, step]);
-
-  // After successful OTP verification → initialize backend
-  useEffect(() => {
-    if (
-      step === "otp" &&
-      authState === "authenticated" &&
-      !initDone.current
-    ) {
-      initDone.current = true;
-      handleOnboardingInit();
-    }
-  }, [authState, step, handleOnboardingInit]);
 
   // -----------------------------------------------------------------------
   // Phone handlers
@@ -228,6 +216,18 @@ export default function OnboardingScreen() {
     // Navigate to home — the auth gate will see "authenticated" on next mount
     router.replace("/(tabs)");
   }, [phone]);
+
+  // After successful OTP verification → initialize backend
+  useEffect(() => {
+    if (
+      step === "otp" &&
+      authState === "authenticated" &&
+      !initDone.current
+    ) {
+      initDone.current = true;
+      handleOnboardingInit();
+    }
+  }, [authState, step, handleOnboardingInit]);
 
   // -----------------------------------------------------------------------
   // Focus hidden OTP input on tap
