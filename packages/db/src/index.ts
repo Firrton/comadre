@@ -20,6 +20,7 @@ export {
   idempotencyKeys,
   ramps,
   kycSessions,
+  transfers,
 } from "./schema.js";
 
 // Enums (Drizzle pgEnum objects — useful for .notInArray / .inArray helpers)
@@ -34,6 +35,7 @@ export {
   rampStatusEnum,
   loanStateEnum,
   kycSessionStatusEnum,
+  transferStatusEnum,
 } from "./schema.js";
 
 // Client
