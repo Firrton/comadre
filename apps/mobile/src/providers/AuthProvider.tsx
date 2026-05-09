@@ -24,7 +24,12 @@ import React, {
 import { PrivyProvider, usePrivy, useLoginWithSMS } from "@privy-io/expo";
 import * as SecureStore from "expo-secure-store";
 
-import { PRIVY_APP_ID, SECURE_STORE_TOKEN_KEY, SECURE_STORE_WALLET_KEY } from "../lib/constants";
+import {
+  PRIVY_APP_ID,
+  SECURE_STORE_TOKEN_KEY,
+  SECURE_STORE_WALLET_KEY,
+  USE_MOCK,
+} from "../lib/constants";
 import { setOnUnauthorized } from "../api/client";
 
 // ---------------------------------------------------------------------------
@@ -107,8 +112,23 @@ function AuthStateProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {});
   }, []);
 
-  // Derive auth state from Privy SDK state
+  // Mock session restoration — check stored token on mount
   useEffect(() => {
+    if (!USE_MOCK) return;
+    SecureStore.getItemAsync(SECURE_STORE_TOKEN_KEY)
+      .then((token) => {
+        if (token) {
+          setAuthState("authenticated");
+        } else {
+          setAuthState("idle");
+        }
+      })
+      .catch(() => setAuthState("idle"));
+  }, []);
+
+  // Derive auth state from Privy SDK state (real mode only)
+  useEffect(() => {
+    if (USE_MOCK) return; // mock mode handles state separately
     if (!ready) {
       setAuthState("idle");
       return;
@@ -161,6 +181,11 @@ function AuthStateProvider({ children }: { children: React.ReactNode }) {
 
   // High-level gate state
   const gateState: AuthGateState = useMemo(() => {
+    // Mock mode: skip Privy ready check (SDK may never become ready)
+    if (USE_MOCK) {
+      if (authState === "authenticated") return "authenticated";
+      return "unauthenticated";
+    }
     if (!ready) return "loading";
     if (authState === "authenticated") return "authenticated";
     return "unauthenticated";
@@ -170,6 +195,13 @@ function AuthStateProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(
     async (phone: string) => {
       setErrorMessage(null);
+
+      // Mock mode: skip real Privy OTP send
+      if (USE_MOCK) {
+        setAuthState("otp_sent");
+        return;
+      }
+
       setAuthState("sending_otp");
       try {
         await sendCode({ phone });
@@ -187,6 +219,23 @@ function AuthStateProvider({ children }: { children: React.ReactNode }) {
   const verifyOtp = useCallback(
     async (code: string) => {
       setErrorMessage(null);
+
+      // Mock mode: accept any 6-digit code, store mock token
+      if (USE_MOCK) {
+        if (code.length < 6) {
+          setErrorMessage("Código incorrecto");
+          setAuthState("otp_sent");
+          return;
+        }
+        try {
+          await SecureStore.setItemAsync(SECURE_STORE_TOKEN_KEY, "mock-jwt");
+        } catch {
+          // secure-store unavailable — non-fatal
+        }
+        setAuthState("authenticated");
+        return;
+      }
+
       setAuthState("verifying");
       try {
         await loginWithCode({ code });
