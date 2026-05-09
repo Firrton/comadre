@@ -31,6 +31,7 @@ import { disputesRouter } from "./routes/disputes.js";
 import { kycRouter } from "./routes/kyc.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { rampsRouter } from "./routes/ramps.js";
+import { transfersRouter } from "./routes/transfers.js";
 
 const app = new Hono();
 
@@ -63,6 +64,7 @@ app.use("/api/*", async (c, next) => {
 // Mount routers
 app.route("/api/v1/users", usersRouter);
 app.route("/api/v1/tandas", tandasRouter);
+app.route("/api/v1/transfers", transfersRouter);
 app.route("/api/v1", disputesRouter);
 app.route("/api/v1/kyc", kycRouter);
 app.route("/api/v1", rampsRouter);
