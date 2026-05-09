@@ -8,6 +8,13 @@ Pero sí sabe algo muy duro: cada mes cobra su renta, guarda lo que puede “par
 
 Esa plata que duerme bajo el colchón no está quieta: **está perdiendo vida**.
 
+Por eso Comadre no le habla a la abuela con palabras raras ni pantallas difíciles. Le habla de algo que sí entiende:
+
+> “Mija, podemos dejar tu dinerito en el colchón… o ponerlo en el chanchito.”
+
+Pero este no es el chanchito quieto de cerámica. **Es un chanchito que corre, trabaja y cuida tu platita por vos.**<br>
+Chau inflación. Hola, Comadre.
+
 **Comadre** nace para cambiar eso. No como un banco frío. No como una app llena de gráficos. Sino como esa tía o abuela latinoamericana que te habla suave, te cuida, te pregunta dos veces antes de mover tu dinero y te dice:
 
 > “Tranquila, mija. Yo te ayudo. Tu dinero va a estar en buenas manos.”
@@ -22,11 +29,31 @@ Comadre vive donde la gente ya está: **WhatsApp**. Y también se integra con **
 |---|---|---|
 | **Mandar dinero** | “Comadre, mandale $50 a mi hija.” | Transferencias por número de teléfono y WhatsApp, sin copiar direcciones largas. |
 | **Recibir o cobrar** | “Recuérdale a Juan que me debe.” | Pedir, recibir y ordenar cobros con una conversación natural. |
-| **Guardar y hacer crecer tu plata** | “Guardame un poquito cada mes.” | Staking invisible: conectar el ahorro a vaults seleccionadas dentro de Solana, sin explicar la cocina técnica. |
+| **Guardar en el Chanchito** | “Comadre, guardame un poquito.” | Guardadito USDC: Comadre te aconseja cuánto dejar disponible y cuánto poner a trabajar, sin explicar la cocina técnica. |
 | **Crear tandas** | “Hagamos una tanda con mis primas.” | Grupos de ahorro rotativo: todos aportan, y en cada turno una persona recibe el pozo. |
 | **Comprar o buscar mejores precios** | “¿Dónde está más barata esta medicina?” | Tío Memo ayuda a buscar, comparar y volver con una respuesta clara. |
 
 La promesa es simple: **Comadre hace que la plata de la familia se mueva, se cuide y trabaje mejor.**
+
+---
+
+## Guardadito: el chanchito que trabaja por vos
+
+La pregunta de Comadre es sencilla:
+
+> “¿Querés dejar tu dinerito en el colchón, o preferís que el chanchito lo cuide y lo ponga a trabajar?”
+
+El **Guardadito** es ese chanchito. No se presenta como una inversión complicada ni como una pantalla llena de porcentajes. Comadre mira tu dinero disponible, te aconseja con calma y siempre deja algo para tus gastos.
+
+Ejemplo:
+
+| Si recibís | Comadre puede sugerir |
+|---:|---|
+| `50 USDC` | “Guardamos 30 en el chanchito y dejamos 20 listos para tus gastos.” |
+
+Nada se mueve sin permiso. Primero Comadre explica, después pregunta, y recién si respondés “sí” prepara el Guardadito.
+
+> “Puede ayudar a que tu platita no se quede quieta, mija. No es magia ni promesa fija: puede variar, por eso te confirmo antes.”
 
 ---
 
@@ -71,7 +98,7 @@ Todavía estamos afinando los números, pero la dirección es clara: Comadre tie
 
 | Línea | Idea inicial |
 |---|---|
-| Ahorro automático / staking invisible | Cuando una persona mete dinero en Comadre, parte del valor puede trabajar en vaults seleccionadas con criterios de seguridad. Comadre cobra una comisión pequeña sobre el rendimiento generado. |
+| Guardadito / Chanchito | Cuando una persona acepta guardar dinero, Comadre puede poner una parte a trabajar en estrategias seleccionadas. La comisión futura sería pequeña y ligada al valor generado, nunca a confundir al usuario. |
 | Tandas | Comisión baja por crear, administrar y proteger la tanda: recordatorios, reglas claras y ejecución transparente. |
 | Compras asistidas | Comisión por compras realizadas mediante integraciones como `pay.sh` cuando Comadre ayuda a encontrar, comparar y pagar. |
 | Servicios financieros futuros | Pagos de facturas, comida, despensa, recargas y pagos cotidianos dentro de la misma conversación. |
@@ -112,7 +139,7 @@ Hacer que Comadre sea útil todos los días:
 - mandar dinero por número;
 - recibir y cobrar;
 - crear tandas familiares;
-- guardar dinero automáticamente;
+- guardar dinero con permiso en el Chanchito;
 - explicar cada paso con calma.
 
 ### 3. Vida diaria dentro de Comadre
@@ -192,6 +219,17 @@ Ilustración pequeña tipo tarjeta de Tío Memo, un tío latinoamericano amable 
 Ilustración simple de una tanda familiar: cuatro personas sentadas alrededor de una mesa cálida, cada una aporta una pequeña ficha o sobre, y una recibe el pozo del turno. Estilo acuarela suave, trazos de tinta, papel cálido #eee8d2, verde nopal #7c8c4f, barro #a86b3c, miel #d49a4a. Debe sentirse familiar, comunitario y seguro. No mostrar bancos, no mostrar blockchain, no mostrar monedas cripto.
 ```
 
+### ⬜ Chanchito Guardadito
+
+**Dónde iría:** sección “Guardadito: el chanchito que trabaja por vos”.<br>
+**Objetivo:** convertir el ahorro con rendimiento en una metáfora cálida, memorable y nada cripto.
+
+**Prompt sugerido:**
+
+```txt
+Ilustración cálida para README de Comadre: un chanchito alcancía pequeño, tierno y trabajador, corriendo suavemente con una bolsita de monedas y una plantita creciendo sobre su lomo, como símbolo de “tu platita trabajando”. Debe sentirse como cuento latinoamericano, acuarela sobre papel cálido #eee8d2, trazos finos color hoja #1f2e1c, acentos verde nopal #7c8c4f, miel #d49a4a y barro #a86b3c. El chanchito no debe verse corporativo ni caricatura infantil exagerada: debe ser dulce, ágil, confiable y protector. Incluir sensación de movimiento amable, no velocidad agresiva. Sin logos cripto, sin gráficos financieros, sin neón, sin estética fintech. Frase opcional integrada a mano: “Chau inflación. Hola, Comadre.”
+```
+
 ### ⬜ Solana program card
 
 **Dónde iría:** sección técnica final.  
@@ -268,9 +306,10 @@ BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh
 | Solana program | Rust + Anchor 0.31 |
 | Backend runtime | Bun 1.2+ |
 | API | Hono 4 |
-| Agent | Kimi K2 via Moonshot or Groq |
+| Agent | Kimi K2 via Moonshot |
 | WhatsApp | Twilio |
 | Wallets/Auth | Privy embedded Solana wallets |
+| Guardadito | Mock strategy by default; Kamino adapter behind env |
 | Database | Postgres / Supabase |
 | Cache | Upstash Redis REST |
 | RPC | Helius |
@@ -333,6 +372,7 @@ For deploy, `init_config`, IDL upload and devnet USDC setup, read [`docs/RUNBOOK
 | Anchor program | ✅ Deployed to devnet |
 | WhatsApp agent services | ✅ Implemented |
 | P2P transfer path | ✅ Implemented with Privy + USDC devnet flow |
+| Guardadito / Chanchito | ✅ Mock flow + agent tools + Twilio nudges; Kamino adapter boundary behind env |
 | Tandas on-chain | ⚠️ Program exists; `init_config`/IDL/codegen still needed for full devnet flow |
 | KYC / Sumsub | ⚠️ Stubbed / Phase 2 |
 | Mainnet | ❌ Not deployed |
