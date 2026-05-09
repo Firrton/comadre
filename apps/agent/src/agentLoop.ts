@@ -53,6 +53,11 @@ const UNREGISTERED_TOOL_ERROR =
 const ONBOARDING_CONSENT_REQUIRED_ERROR =
   "CONSENT_REQUIRED: antes de crear la billetera, pedile al usuario que confirme con 'sí', 'dale' o 'registrame'.";
 
+export function toolsForWalletState(userWallet: string | null): typeof ALL_TOOLS {
+  if (userWallet === null) return [...ALL_TOOLS];
+  return ALL_TOOLS.filter((tool) => tool.function.name !== "iniciar_onboarding");
+}
+
 function hasExplicitOnboardingConsent(message: string): boolean {
   const normalized = message
     .toLocaleLowerCase("es")
@@ -98,7 +103,7 @@ export async function runAgent({
     const completion = await llmClient.chat.completions.create({
       model: env.KIMI_MODEL,
       messages,
-      tools: [...ALL_TOOLS],
+      tools: toolsForWalletState(effectiveUserWallet),
       tool_choice: "auto",
       temperature: 1,
       max_tokens: 4000,
