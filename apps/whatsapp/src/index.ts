@@ -7,8 +7,8 @@ import { z } from "zod";
 
 import { env } from "@comadre/config";
 
-import { sendWhatsAppMessage } from "./sendMessage.js";
-import { verifyTwilioSignature } from "./verifySignature.js";
+import { sendWhatsAppMessage } from "./lib/sendMessage.js";
+import { verifyTwilioSignature } from "./lib/verifySignature.js";
 
 const log = pino({ name: "whatsapp" });
 

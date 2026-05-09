@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { app } from "./index.js";
+import { app } from "../index.js";
 
 describe("agent service", () => {
   test("GET /health returns 200", async () => {
