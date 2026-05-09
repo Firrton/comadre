@@ -59,10 +59,14 @@ app.post("/process", async (c) => {
 
     const history = await loadHistory(conversationKey);
 
+    // Extract E.164 phone from "whatsapp:+5218116346072"
+    const senderPhone = from.replace(/^whatsapp:/, "").trim();
+
     const result = await runAgent({
       history,
       userMessage: body,
       userWallet,
+      senderPhone,
     });
 
     // Persist the new messages (user + assistant turn(s) + tool messages).

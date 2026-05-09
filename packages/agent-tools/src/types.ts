@@ -7,8 +7,18 @@
  */
 
 export interface ToolContext {
-  /** The Solana wallet (base58 pubkey) of the user this tool acts on behalf of. */
+  /**
+   * The Solana wallet (base58 pubkey) of the user this tool acts on behalf of.
+   * For onboarding-only tools (e.g. `iniciar_onboarding`) where the user is
+   * not yet registered, this MAY be an empty string.
+   */
   userWallet: string;
+  /**
+   * E.164 phone number of the user (e.g. "+5218116346072"), set by the agent
+   * service from the Twilio "From" header. Required by `iniciar_onboarding`
+   * to bind the new Privy user to the right phone.
+   */
+  senderPhone?: string;
   /** Optional idempotency key. If absent, the tool generates one (UUID v4). */
   idempotencyKey?: string;
 }

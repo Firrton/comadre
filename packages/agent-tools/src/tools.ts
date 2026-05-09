@@ -556,6 +556,65 @@ export const cancelarTransferExecute: ToolExecutor = async (args, context) => {
 };
 
 // --------------------------------------------------------------------------
+// 14. iniciar_onboarding (no userWallet — uses senderPhone from context)
+// --------------------------------------------------------------------------
+//
+// Creates a Privy user + Solana embedded wallet for the sender's phone.
+// Idempotent: if the phone is already onboarded, returns the existing wallet.
+//
+// Tools that require a wallet (transfers, tandas, etc.) will refuse to run
+// when the user is not yet onboarded — the LLM should call `iniciar_onboarding`
+// FIRST in that case, then continue.
+//
+// SECURITY: this tool does NOT require auth, the assumption is that the agent
+// service has already validated the Twilio webhook signature (proving the
+// user controls the phone). Acceptable for sandbox/hackathon. Mainnet → add
+// explicit OTP verification.
+export const iniciarOnboardingDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "iniciar_onboarding",
+    description:
+      "Crea la cuenta y el wallet Solana del usuario actual usando su número de teléfono. Llamala cuando otra tool falle con UNREGISTERED o cuando el usuario diga 'quiero registrarme'. No tiene parámetros — usa el phone del contexto.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+};
+
+export const iniciarOnboardingExecute: ToolExecutor = async (_args, context) => {
+  if (!context.senderPhone) {
+    return {
+      type: "error",
+      error: "iniciar_onboarding requires senderPhone in context (set by agent service).",
+    };
+  }
+
+  // The onboarding endpoint is HMAC-only (no user JWT) since by definition the
+  // user is not yet registered. apiCall sends X-Internal-Signature regardless,
+  // and the route bypasses authMiddleware. We pass an empty userWallet to
+  // satisfy ApiCallParams; it ends up in X-Dev-Wallet which the route ignores.
+  const data = await apiCall<{
+    walletAddress: string;
+    walletId: string;
+    privyUserId: string;
+    alreadyExisted: boolean;
+  }>({
+    method: "POST",
+    path: "/api/v1/onboarding/init",
+    userWallet: "",
+    idempotencyKey: newIdempotencyKey(),
+    body: { phone: context.senderPhone },
+  });
+
+  return {
+    type: "data",
+    data,
+    summary: data.alreadyExisted
+      ? `Ya tenías un wallet registrado: ${data.walletAddress.slice(0, 4)}...${data.walletAddress.slice(-4)}`
+      : `Listo, te creé tu wallet: ${data.walletAddress.slice(0, 4)}...${data.walletAddress.slice(-4)}`,
+  };
+};
+
+// --------------------------------------------------------------------------
 // Registry
 // --------------------------------------------------------------------------
 export const ALL_TOOLS: readonly ToolDefinition[] = [
@@ -572,6 +631,7 @@ export const ALL_TOOLS: readonly ToolDefinition[] = [
   iniciarTransferDefinition,
   confirmarTransferDefinition,
   cancelarTransferDefinition,
+  iniciarOnboardingDefinition,
 ];
 
 export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
@@ -588,6 +648,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   iniciar_transfer: iniciarTransferExecute,
   confirmar_transfer: confirmarTransferExecute,
   cancelar_transfer: cancelarTransferExecute,
+  iniciar_onboarding: iniciarOnboardingExecute,
 };
 
 export async function executeTool(name: string, args: unknown, context: ToolContext): Promise<ToolResult> {

@@ -42,10 +42,18 @@ export interface RunAgentArgs {
   userMessage: string;
   /**
    * The Solana wallet of the user we're acting for. `null` if the phone is
-   * not yet registered in `users` table — tools will be rejected.
+   * not yet registered — only `iniciar_onboarding` is allowed in that case.
    */
   userWallet: string | null;
+  /**
+   * E.164 phone number of the user (e.g. "+5218116346072"), required so the
+   * onboarding tool can bind the new Privy user to the right phone.
+   */
+  senderPhone: string;
 }
+
+/** Tools that don't require a registered userWallet (used for onboarding). */
+const TOOLS_ALLOWED_WITHOUT_WALLET = new Set<string>(["iniciar_onboarding"]);
 
 export interface RunAgentResult {
   /** Final assistant text to send back to the user. */
@@ -60,12 +68,13 @@ export interface RunAgentResult {
 const MAX_TOOL_ITERATIONS = 5;
 
 const UNREGISTERED_TOOL_ERROR =
-  "Usuario no registrado en Comadre. No puedo ejecutar transacciones. Pedile al usuario que se registre primero.";
+  "UNREGISTERED: el usuario no tiene wallet todavia. LLAMA `iniciar_onboarding` PRIMERO para crearle el wallet, luego reintenta esta accion.";
 
 export async function runAgent({
   history,
   userMessage,
   userWallet,
+  senderPhone,
 }: RunAgentArgs): Promise<RunAgentResult> {
   // Working message buffer — what we send to the LLM each iteration.
   const userTurnMsg: ChatMessage = { role: "user", content: userMessage };
@@ -129,8 +138,13 @@ export async function runAgent({
         continue;
       }
 
-      // If user is not registered, refuse the tool with a friendly message
-      if (userWallet === null) {
+      // If user is not registered, only allow whitelisted tools (onboarding).
+      // For everything else, return a structured error so the LLM knows to call
+      // `iniciar_onboarding` first.
+      if (
+        userWallet === null &&
+        !TOOLS_ALLOWED_WITHOUT_WALLET.has(call.function.name)
+      ) {
         const errorMsg: ChatCompletionToolMessageParam = {
           role: "tool",
           tool_call_id: call.id,
@@ -165,7 +179,11 @@ export async function runAgent({
         continue;
       }
 
-      const toolContext: ToolContext = { userWallet };
+      const toolContext: ToolContext = {
+        // Onboarding tools may run with empty wallet; everything else passes through real wallet
+        userWallet: userWallet ?? "",
+        senderPhone,
+      };
 
       let result: ToolResult;
       try {
