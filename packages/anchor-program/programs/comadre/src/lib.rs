@@ -8,7 +8,7 @@ pub mod state;
 
 use instructions::*;
 
-declare_id!("CMDRxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
+declare_id!("BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh");
 
 #[program]
 pub mod comadre {

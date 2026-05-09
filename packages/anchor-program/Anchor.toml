@@ -4,10 +4,10 @@ skip-lint = false
 resolution = true
 
 [programs.localnet]
-comadre = "CMDRxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+comadre = "BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh"
 
 [programs.devnet]
-comadre = "CMDRxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+comadre = "BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh"
 
 [registry]
 url = "https://api.apr.dev"
