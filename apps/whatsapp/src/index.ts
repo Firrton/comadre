@@ -66,9 +66,9 @@ app.post("/webhook", async (c) => {
     "inbound whatsapp",
   );
 
-  // Forward to agent service
+  // Forward to agent service /process endpoint
   try {
-    const res = await fetch(env.AGENT_URL, {
+    const res = await fetch(`${env.AGENT_URL}/process`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ from, body, conversationKey: from }),
