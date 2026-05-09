@@ -52,4 +52,7 @@ export {
   iniciarTransferExecute,
   confirmarTransferExecute,
   cancelarTransferExecute,
+  // Onboarding
+  iniciarOnboardingDefinition,
+  iniciarOnboardingExecute,
 } from "./tools";

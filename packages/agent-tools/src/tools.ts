@@ -556,6 +556,46 @@ export const cancelarTransferExecute: ToolExecutor = async (args, context) => {
 };
 
 // --------------------------------------------------------------------------
+// 14. iniciar_onboarding (no userWallet — uses senderPhone from context)
+// --------------------------------------------------------------------------
+export const iniciarOnboardingDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "iniciar_onboarding",
+    description:
+      "Crea la billetera Solana del usuario actual usando su número de teléfono (Privy embedded wallet). Llamala SOLO después de consentimiento explícito del usuario. No tiene parámetros — usa el phone del contexto.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+};
+export const iniciarOnboardingExecute: ToolExecutor = async (_args, context) => {
+  if (!context.senderPhone) {
+    return {
+      type: "error",
+      error: "iniciar_onboarding requires senderPhone in context",
+    };
+  }
+  const data = await apiCall<{
+    walletAddress: string;
+    walletId: string;
+    privyUserId: string;
+    alreadyExisted: boolean;
+  }>({
+    method: "POST",
+    path: "/api/v1/onboarding/init",
+    userWallet: "",
+    idempotencyKey: newIdempotencyKey(),
+    body: { phone: context.senderPhone },
+  });
+  return {
+    type: "data",
+    data,
+    summary: data.alreadyExisted
+      ? `Ya tenías un wallet: ${data.walletAddress.slice(0, 4)}...${data.walletAddress.slice(-4)}`
+      : `Wallet creada: ${data.walletAddress.slice(0, 4)}...${data.walletAddress.slice(-4)}`,
+  };
+};
+
+// --------------------------------------------------------------------------
 // Registry
 // --------------------------------------------------------------------------
 export const ALL_TOOLS: readonly ToolDefinition[] = [
@@ -572,6 +612,7 @@ export const ALL_TOOLS: readonly ToolDefinition[] = [
   iniciarTransferDefinition,
   confirmarTransferDefinition,
   cancelarTransferDefinition,
+  iniciarOnboardingDefinition,
 ];
 
 export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
@@ -588,6 +629,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   iniciar_transfer: iniciarTransferExecute,
   confirmar_transfer: confirmarTransferExecute,
   cancelar_transfer: cancelarTransferExecute,
+  iniciar_onboarding: iniciarOnboardingExecute,
 };
 
 export async function executeTool(name: string, args: unknown, context: ToolContext): Promise<ToolResult> {
