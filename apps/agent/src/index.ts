@@ -3,8 +3,9 @@ import { logger } from "hono/logger";
 import pino from "pino";
 import { z } from "zod";
 
-import { runAgent, type ChatMessage } from "./agentLoop.js";
+import { runAgent } from "./agentLoop.js";
 import { loadHistory, saveHistory } from "./conversationStore.js";
+import { resolveUserFromTwilio } from "./userResolver.js";
 
 const log = pino({ name: "agent" });
 
@@ -45,20 +46,36 @@ app.post("/process", async (c) => {
   const start = Date.now();
 
   try {
+    // Resolve the user's wallet from the Twilio "From" identifier.
+    // null = unregistered — the tool-use loop will refuse all tool calls.
+    let userWallet: string | null = null;
+    try {
+      const resolved = await resolveUserFromTwilio(from);
+      userWallet = resolved?.wallet ?? null;
+    } catch (resolveErr) {
+      log.error({ err: resolveErr, from }, "user resolve failed");
+      // Continue with userWallet=null — agent will explain registration is needed.
+    }
+
     const history = await loadHistory(conversationKey);
 
-    const userMessage: ChatMessage = { role: "user", content: body };
-    const result = await runAgent([...history, userMessage]);
+    const result = await runAgent({
+      history,
+      userMessage: body,
+      userWallet,
+    });
 
-    // Persist history (trim to last N happens inside saveHistory)
-    await saveHistory(conversationKey, [
-      ...history,
-      userMessage,
-      ...result.updatedMessages.slice(-1),
-    ]);
+    // Persist the new messages (user + assistant turn(s) + tool messages).
+    await saveHistory(conversationKey, [...history, ...result.newMessages]);
 
     log.info(
-      { from, latencyMs: Date.now() - start, len: result.reply.length },
+      {
+        from,
+        userWallet: userWallet ?? "unregistered",
+        latencyMs: Date.now() - start,
+        len: result.reply.length,
+        newMessageCount: result.newMessages.length,
+      },
       "agent processed",
     );
 
