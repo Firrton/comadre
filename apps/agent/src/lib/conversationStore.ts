@@ -2,7 +2,7 @@ import { Redis } from "@upstash/redis";
 
 import { env } from "@comadre/config";
 
-import type { ChatMessage } from "./agentLoop.js";
+import type { ChatMessage } from "../agentLoop.js";
 
 const redis = new Redis({
   url: env.UPSTASH_REDIS_REST_URL,

@@ -2,8 +2,8 @@ import type { ChatCompletionMessageParam } from "openai/resources/chat/completio
 
 import { env } from "@comadre/config";
 
-import { llmClient } from "./moonshotClient.js";
-import { COMADRE_SYSTEM_PROMPT } from "./systemPrompt.js";
+import { llmClient } from "./lib/moonshotClient.js";
+import { COMADRE_SYSTEM_PROMPT } from "./lib/systemPrompt.js";
 
 export type ChatMessage = ChatCompletionMessageParam;
 

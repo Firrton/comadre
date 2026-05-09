@@ -4,7 +4,7 @@ import pino from "pino";
 import { z } from "zod";
 
 import { runAgent, type ChatMessage } from "./agentLoop.js";
-import { loadHistory, saveHistory } from "./conversationStore.js";
+import { loadHistory, saveHistory } from "./lib/conversationStore.js";
 
 const log = pino({ name: "agent" });
 
