@@ -474,3 +474,62 @@ export const kycSessions = pgTable(
     index("kyc_sessions_user_wallet_idx").on(t.userWallet),
   ]
 );
+
+// ---------------------------------------------------------------------------
+// Phone-to-phone USDC transfers
+//
+// Off-chain ledger of P2P transfer intents. The on-chain operation is a
+// standard SPL Token Transfer — this table tracks the agent-led flow:
+//   pending → confirmed   (immediate path: recipient registered)
+//   awaiting_recipient → pending → confirmed   (deferred path: recipient
+//                                              accepts via WhatsApp)
+//
+// Locking model is intentionally OFF-CHAIN (earmark only). The sender's USDC
+// stays liquid until they sign the confirm step. Trade-off documented in the
+// plan: a sender who spends elsewhere mid-flow will see status="failed" with
+// failure_reason="insufficient balance at confirm time".
+// ---------------------------------------------------------------------------
+
+export const transferStatusEnum = pgEnum("transfer_status", [
+  "pending",
+  "awaiting_recipient",
+  "confirmed",
+  "expired",
+  "cancelled",
+  "failed",
+]);
+
+export const transfers = pgTable(
+  "transfers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    senderWallet: text("sender_wallet")
+      .notNull()
+      .references(() => users.wallet, { onDelete: "cascade" }),
+    senderPhoneHash: text("sender_phone_hash").notNull(),
+    recipientPhoneHash: text("recipient_phone_hash").notNull(),
+    /** Null while status="awaiting_recipient" (recipient hasn't accepted yet). */
+    recipientWallet: text("recipient_wallet"),
+    amountMicroUsdc: bigint("amount_micro_usdc", { mode: "bigint" }).notNull(),
+    /** User-provided memo (e.g. "almuerzo"). Max 280 chars enforced at API layer. */
+    note: text("note"),
+    status: transferStatusEnum("status").notNull().default("pending"),
+    /** Populated when status="confirmed". */
+    txSignature: text("tx_signature"),
+    failureReason: text("failure_reason"),
+    createdAt: tsNow("created_at").notNull(),
+    confirmedAt: ts("confirmed_at"),
+    /**
+     * 5 minutes for status="pending" (sender hasn't said "sí"); 7 days for
+     * status="awaiting_recipient" (recipient onboarding window). Cron job
+     * sweeps and marks expired rows.
+     */
+    expiresAt: ts("expires_at").notNull(),
+  },
+  (t) => [
+    index("transfers_sender_idx").on(t.senderWallet),
+    index("transfers_recipient_phone_idx").on(t.recipientPhoneHash),
+    index("transfers_status_idx").on(t.status),
+    index("transfers_expires_idx").on(t.expiresAt),
+  ]
+);

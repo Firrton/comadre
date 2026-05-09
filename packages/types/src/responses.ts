@@ -161,3 +161,93 @@ export const UnsignedTransactionResponse = z.object({
 export type UnsignedTransactionResponse = z.infer<
   typeof UnsignedTransactionResponse
 >;
+
+// ---------------------------------------------------------------------------
+// Phone-to-phone USDC transfers
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/v1/transfers/lookup?phone=+...
+ *
+ * Resolves an E.164 phone to wallet info. Used by the agent before showing
+ * the confirmation prompt to the sender. The phone hash is returned so the
+ * client can correlate without exposing PII back through logs.
+ */
+export const LookupResponse = z.object({
+  phone: z.string(),
+  /** SHA-256 hex of the E.164 phone (matches users.phone_hash). */
+  phoneHash: z.string().regex(/^[0-9a-f]{64}$/),
+  registered: z.boolean(),
+  /** Present only when registered=true. */
+  wallet: SolanaPubkey.optional(),
+  /** Last 4 chars of wallet, e.g. "...J4yX". UI-friendly preview. */
+  walletPreview: z.string().optional(),
+  /** Present only when registered=true. */
+  kycTier: KycTier.optional(),
+});
+export type LookupResponse = z.infer<typeof LookupResponse>;
+
+/**
+ * Discriminated union returned by POST /api/v1/transfers and GET /:id.
+ *
+ * `mode="immediate"` — recipient is registered, returns `unsignedTxBase64` for
+ * the sender to sign. `expiresAt` is now+5min (sender must confirm or the
+ * transfer expires).
+ *
+ * `mode="deferred"` — recipient is NOT registered. Comadre WhatsApp's the
+ * recipient with the "aceptar" message; the sender's intent is held with
+ * `expiresAt` of now+7d. NO unsigned tx is returned yet — when the recipient
+ * accepts and onboards, the sender is re-prompted to confirm and the immediate
+ * path is taken at that point.
+ */
+const TransferRecipientImmediate = z.object({
+  registered: z.literal(true),
+  phone: z.string(),
+  wallet: SolanaPubkey,
+  walletPreview: z.string(),
+});
+
+const TransferRecipientDeferred = z.object({
+  registered: z.literal(false),
+  phone: z.string(),
+});
+
+const TransferAmountString = z.object({
+  /** Display amount as decimal string, e.g. "10.50" */
+  usdc: z.string().regex(/^\d+(\.\d{1,6})?$/),
+  /** Atomic units (USDC has 6 decimals); decimal-string form for JSON safety */
+  microUsdc: z.string().regex(/^[0-9]+$/),
+});
+
+export const TransferResponse = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("immediate"),
+    transferId: z.string().uuid(),
+    recipient: TransferRecipientImmediate,
+    amount: TransferAmountString,
+    /** Sender must sign + broadcast within `expiresAt` (now+5min). */
+    unsignedTxBase64: z.string().regex(/^[A-Za-z0-9+/]+=*$/, "Must be base64"),
+    expiresAt: z.string().datetime(),
+  }),
+  z.object({
+    mode: z.literal("deferred"),
+    transferId: z.string().uuid(),
+    recipient: TransferRecipientDeferred,
+    amount: TransferAmountString,
+    /** Recipient onboarding window (now+7d). Cron sweeps expired rows. */
+    expiresAt: z.string().datetime(),
+    /** Copy of the WhatsApp message Comadre sent to the recipient. */
+    message: z.string(),
+  }),
+]);
+export type TransferResponse = z.infer<typeof TransferResponse>;
+
+/**
+ * POST /api/v1/transfers/:id/confirm — broadcast result.
+ */
+export const ConfirmTransferResponse = z.object({
+  signature: z.string(),
+  status: z.literal("confirmed"),
+  explorerUrl: z.string().url(),
+});
+export type ConfirmTransferResponse = z.infer<typeof ConfirmTransferResponse>;

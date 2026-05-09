@@ -21,6 +21,9 @@ export {
   OpenDisputeInput,
   VoteDisputeInput,
   CreateUserProfileInput,
+  E164Phone,
+  LookupPhoneInput,
+  CreateTransferInput,
 } from "./inputs.js";
 
 // --- Responses (API response bodies) ---
@@ -29,6 +32,9 @@ export {
   TandaResponse,
   UserProfileResponse,
   UnsignedTransactionResponse,
+  LookupResponse,
+  TransferResponse,
+  ConfirmTransferResponse,
 } from "./responses.js";
 
 // Plain types (enums without a Zod schema value at the top level)
