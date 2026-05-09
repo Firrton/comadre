@@ -32,6 +32,7 @@ import { kycRouter } from "./routes/kyc.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { rampsRouter } from "./routes/ramps.js";
 import { transfersRouter } from "./routes/transfers.js";
+import { onboardingRouter } from "./routes/onboarding.js";
 
 const app = new Hono();
 
@@ -51,13 +52,29 @@ app.get("/health", (c) =>
 // ── Webhooks (public — own auth via HMAC / Privy signature) ──────────────────
 app.route("/webhooks", webhooksRouter);
 
+// ── Onboarding (no Privy JWT — user has no identity yet) ─────────────────────
+// Mounted BEFORE rateLimit/auth so unregistered phones can register.
+// Trust model: caller (agent service) has the Twilio webhook signature already
+// verifying phone ownership. For mainnet add HMAC + per-IP rate limit.
+app.route("/api/v1/onboarding", onboardingRouter);
+
 // ── Authenticated routes ──────────────────────────────────────────────────────
-app.use("/api/*", rateLimitMiddleware);
-app.use("/api/*", authMiddleware);
+// Skip rateLimit + auth on /api/v1/onboarding/* because the user has no identity yet.
+const ONBOARDING_PREFIX = "/api/v1/onboarding";
+
+app.use("/api/*", async (c, next) => {
+  if (c.req.path.startsWith(ONBOARDING_PREFIX)) return next();
+  return rateLimitMiddleware(c, next);
+});
+app.use("/api/*", async (c, next) => {
+  if (c.req.path.startsWith(ONBOARDING_PREFIX)) return next();
+  return authMiddleware(c, next);
+});
 
 // Idempotency — POST routes only (after auth so userId is available)
 app.use("/api/*", async (c, next) => {
   if (c.req.method !== "POST") return next();
+  if (c.req.path.startsWith(ONBOARDING_PREFIX)) return next();
   return idempotencyMiddleware(c, next);
 });
 
