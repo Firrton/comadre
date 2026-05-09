@@ -384,6 +384,178 @@ export const iniciarOnrampExecute: ToolExecutor = async (args, context) => {
 };
 
 // --------------------------------------------------------------------------
+// Phone-to-phone transfers (4 tools — see plan v2)
+// --------------------------------------------------------------------------
+
+// 10. consultar_balance
+export const consultarBalanceDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "consultar_balance",
+    description:
+      "Consulta el saldo actual del usuario (USDC + stats). Usa esta tool antes de iniciar una transferencia para verificar si tiene suficiente.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+};
+export const consultarBalanceExecute: ToolExecutor = async (_args, context) => {
+  // For MVP we surface user profile stats; balance read from on-chain ATA is
+  // a follow-up endpoint. The agent presents reputation_score + tier as proxy.
+  const data = await apiCall<unknown>({
+    method: "GET",
+    path: "/api/v1/users/me",
+    userWallet: context.userWallet,
+  });
+  return { type: "data", data, summary: "Perfil + stats cargados" };
+};
+
+// 11. iniciar_transfer
+export const iniciarTransferDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "iniciar_transfer",
+    description:
+      "Inicia una transferencia de USDC a un número de WhatsApp. SIEMPRE pedile confirmación EXPLÍCITA al usuario antes de llamar `confirmar_transfer`. Si el destinatario no está registrado, Comadre le manda un mensaje pidiéndole que escriba 'aceptar'.",
+    parameters: {
+      type: "object",
+      properties: {
+        to_phone: {
+          type: "string",
+          description: "Número del destinatario en formato E.164. Ej: +5218116346072",
+        },
+        amount_usdc: {
+          type: "string",
+          description: "Monto en USDC como string decimal con hasta 6 decimales. Ej: '10.50' = $10.50.",
+        },
+        note: {
+          type: "string",
+          maxLength: 280,
+          description: "Nota opcional del remitente (ej: 'almuerzo').",
+        },
+      },
+      required: ["to_phone", "amount_usdc"],
+      additionalProperties: false,
+    },
+  },
+};
+
+interface IniciarTransferArgs {
+  to_phone: string;
+  amount_usdc: string;
+  note?: string;
+}
+
+export const iniciarTransferExecute: ToolExecutor = async (args, context) => {
+  const a = args as IniciarTransferArgs;
+  const idempotencyKey = context.idempotencyKey ?? newIdempotencyKey();
+  const result = await apiCall<{
+    mode: "immediate" | "deferred";
+    transferId: string;
+    recipient: { registered: boolean; phone: string; wallet?: string; walletPreview?: string };
+    amount: { usdc: string; microUsdc: string };
+    expiresAt: string;
+    unsignedTxBase64?: string;
+    message?: string;
+  }>({
+    method: "POST",
+    path: "/api/v1/transfers",
+    body: {
+      toPhone: a.to_phone,
+      amountUsdc: a.amount_usdc,
+      ...(a.note ? { note: a.note } : {}),
+    },
+    userWallet: context.userWallet,
+    idempotencyKey,
+  });
+
+  // Surface different summaries depending on the mode so the LLM can adjust
+  // its response to the user (confirm vs explain deferred path).
+  if (result.mode === "deferred") {
+    return {
+      type: "data",
+      data: result,
+      summary: `Destinatario ${a.to_phone} no está registrado. Comadre le mandó: "${result.message}". Cuando acepte, te aviso.`,
+    };
+  }
+  return {
+    type: "data",
+    data: result,
+    summary: `Transferencia preparada: ${a.amount_usdc} USDC a ${a.to_phone} (wallet ${result.recipient.walletPreview}). Pedile confirmación al usuario antes de llamar confirmar_transfer.`,
+  };
+};
+
+// 12. confirmar_transfer
+export const confirmarTransferDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "confirmar_transfer",
+    description:
+      "Ejecuta una transferencia previamente iniciada. SOLO llamá esta tool DESPUÉS de que el usuario diga 'sí'/'confirmo'/'dale' explícitamente. Devuelve la signature on-chain.",
+    parameters: {
+      type: "object",
+      properties: {
+        transfer_id: { type: "string", description: "UUID de la transferencia (devuelto por iniciar_transfer)." },
+      },
+      required: ["transfer_id"],
+      additionalProperties: false,
+    },
+  },
+};
+export const confirmarTransferExecute: ToolExecutor = async (args, context) => {
+  const { transfer_id } = args as { transfer_id: string };
+  const idempotencyKey = context.idempotencyKey ?? newIdempotencyKey();
+  const result = await apiCall<{
+    signature: string;
+    status: "confirmed";
+    explorerUrl: string;
+  }>({
+    method: "POST",
+    path: `/api/v1/transfers/${encodeURIComponent(transfer_id)}/confirm`,
+    body: {},
+    userWallet: context.userWallet,
+    idempotencyKey,
+  });
+  return {
+    type: "data",
+    data: result,
+    summary: `✅ Transferencia confirmada on-chain. Tx: ${result.explorerUrl}`,
+  };
+};
+
+// 13. cancelar_transfer
+export const cancelarTransferDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "cancelar_transfer",
+    description:
+      "Cancela una transferencia que esté pendiente (status pending o awaiting_recipient). Usá si el usuario dice 'no', 'cancelar', o cambia de opinión antes de confirmar.",
+    parameters: {
+      type: "object",
+      properties: {
+        transfer_id: { type: "string", description: "UUID de la transferencia." },
+      },
+      required: ["transfer_id"],
+      additionalProperties: false,
+    },
+  },
+};
+export const cancelarTransferExecute: ToolExecutor = async (args, context) => {
+  const { transfer_id } = args as { transfer_id: string };
+  const idempotencyKey = context.idempotencyKey ?? newIdempotencyKey();
+  const result = await apiCall<{ status: "cancelled"; transferId: string }>({
+    method: "POST",
+    path: `/api/v1/transfers/${encodeURIComponent(transfer_id)}/cancel`,
+    body: {},
+    userWallet: context.userWallet,
+    idempotencyKey,
+  });
+  return {
+    type: "data",
+    data: result,
+    summary: `Transferencia ${result.transferId} cancelada.`,
+  };
+};
+
+// --------------------------------------------------------------------------
 // Registry
 // --------------------------------------------------------------------------
 export const ALL_TOOLS: readonly ToolDefinition[] = [
@@ -396,6 +568,10 @@ export const ALL_TOOLS: readonly ToolDefinition[] = [
   votarDisputaDefinition,
   solicitarKycDefinition,
   iniciarOnrampDefinition,
+  consultarBalanceDefinition,
+  iniciarTransferDefinition,
+  confirmarTransferDefinition,
+  cancelarTransferDefinition,
 ];
 
 export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
@@ -408,6 +584,10 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   votar_disputa: votarDisputaExecute,
   solicitar_kyc: solicitarKycExecute,
   iniciar_onramp: iniciarOnrampExecute,
+  consultar_balance: consultarBalanceExecute,
+  iniciar_transfer: iniciarTransferExecute,
+  confirmar_transfer: confirmarTransferExecute,
+  cancelar_transfer: cancelarTransferExecute,
 };
 
 export async function executeTool(name: string, args: unknown, context: ToolContext): Promise<ToolResult> {

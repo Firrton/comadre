@@ -26,8 +26,16 @@ afterEach(() => {
 const ctx = { userWallet: "BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh" };
 
 describe("tool registry", () => {
-  it("exposes 9 tools", () => {
-    expect(ALL_TOOLS.length).toBe(9);
+  it("exposes 13 tools", () => {
+    expect(ALL_TOOLS.length).toBe(13);
+  });
+
+  it("includes the 4 phone-to-phone transfer tools", () => {
+    const names = ALL_TOOLS.map((t) => t.function.name);
+    expect(names).toContain("consultar_balance");
+    expect(names).toContain("iniciar_transfer");
+    expect(names).toContain("confirmar_transfer");
+    expect(names).toContain("cancelar_transfer");
   });
 
   it("every tool name maps to an executor", () => {
@@ -113,6 +121,73 @@ describe("HMAC signature", () => {
     await executeTool("consultar_tanda", { tanda_id: "x" }, ctx);
     const sig2 = (lastRequest?.init?.headers as Record<string, string>)["X-Internal-Signature"];
     expect(sig1).not.toBe(sig2);
+  });
+});
+
+describe("phone-to-phone transfer tools (PR D)", () => {
+  const validResp = {
+    mode: "immediate",
+    transferId: "uuid-1",
+    recipient: { registered: true, phone: "+5218116346072", wallet: "Ag4...J4yX", walletPreview: "...J4yX" },
+    amount: { usdc: "10.50", microUsdc: "10500000" },
+    expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+    unsignedTxBase64: "AAAA",
+  };
+
+  it("iniciar_transfer POSTs to /api/v1/transfers with toPhone/amountUsdc/note", async () => {
+    globalThis.fetch = makeMockFetch(validResp);
+    const result = await executeTool(
+      "iniciar_transfer",
+      { to_phone: "+5218116346072", amount_usdc: "10.50", note: "almuerzo" },
+      ctx
+    );
+    expect(result.type).toBe("data");
+    expect(lastRequest?.url).toContain("/api/v1/transfers");
+    const body = JSON.parse((lastRequest?.init?.body as string) ?? "{}");
+    expect(body.toPhone).toBe("+5218116346072");
+    expect(body.amountUsdc).toBe("10.50");
+    expect(body.note).toBe("almuerzo");
+  });
+
+  it("iniciar_transfer surfaces 'deferred' summary when recipient unregistered", async () => {
+    globalThis.fetch = makeMockFetch({
+      mode: "deferred",
+      transferId: "uuid-2",
+      recipient: { registered: false, phone: "+5218116346072" },
+      amount: { usdc: "10.50", microUsdc: "10500000" },
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString(),
+      message: "María te quiere mandar 10.5 USDC. Para reclamar...",
+    });
+    const result = await executeTool(
+      "iniciar_transfer",
+      { to_phone: "+5218116346072", amount_usdc: "10.50" },
+      ctx
+    );
+    expect(result.type).toBe("data");
+    if (result.type === "data") {
+      expect(result.summary).toMatch(/no está registrado/);
+    }
+  });
+
+  it("confirmar_transfer POSTs to /api/v1/transfers/:id/confirm", async () => {
+    globalThis.fetch = makeMockFetch({
+      signature: "5kx7abc",
+      status: "confirmed",
+      explorerUrl: "https://explorer.solana.com/tx/5kx7abc?cluster=devnet",
+    });
+    const result = await executeTool("confirmar_transfer", { transfer_id: "uuid-1" }, ctx);
+    expect(result.type).toBe("data");
+    expect(lastRequest?.url).toContain("/api/v1/transfers/uuid-1/confirm");
+    if (result.type === "data") {
+      expect(result.summary).toContain("✅");
+    }
+  });
+
+  it("cancelar_transfer POSTs to /api/v1/transfers/:id/cancel", async () => {
+    globalThis.fetch = makeMockFetch({ status: "cancelled", transferId: "uuid-1" });
+    const result = await executeTool("cancelar_transfer", { transfer_id: "uuid-1" }, ctx);
+    expect(result.type).toBe("data");
+    expect(lastRequest?.url).toContain("/api/v1/transfers/uuid-1/cancel");
   });
 });
 
