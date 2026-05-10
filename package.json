@@ -2,7 +2,7 @@
   "name": "comadre",
   "version": "0.0.1",
   "private": true,
-  "description": "AI Agent Tía de LATAM — tandas, crédito social y ahorro en USDC",
+  "description": "AI Agent T\u00eda de LATAM \u2014 tandas, cr\u00e9dito social y ahorro en USDC",
   "workspaces": [
     "apps/api",
     "apps/agent",
@@ -31,7 +31,8 @@
     "turbo": "^2.3.0",
     "typescript": "^5.7.0",
     "@types/bun": "latest",
-    "prettier": "^3.4.0"
+    "prettier": "^3.4.0",
+    "babel-preset-expo": "~14.0.4"
   },
   "engines": {
     "bun": ">=1.2.0"
