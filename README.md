@@ -45,6 +45,24 @@ La promesa es simple: **Comadre hace que la plata de la familia se mueva, se cui
 
 ---
 
+## Demo real por WhatsApp
+
+Para el hackathon estamos usando **Twilio Sandbox for WhatsApp** como puente rápido y confiable. Por eso, en las capturas todavía aparece “Twilio” arriba: no es la marca final, es el carril técnico que nos dejó probar Comadre desde WhatsApp real sin esperar aprobaciones comerciales.
+
+La experiencia que queremos conservar es esta: una conversación sencilla, con confirmaciones claras, donde Comadre crea tandas y prepara Guardadito sin obligar al usuario a entender infraestructura.
+
+<p align="center">
+  <img src="docs/assets/demo/whatsapp-tandas-demo.png" alt="Demo de Comadre por WhatsApp creando una tanda desde Twilio Sandbox" width="92%" />
+</p>
+
+<p align="center">
+  <img src="docs/assets/demo/whatsapp-guardadito-demo.png" alt="Demo de Comadre por WhatsApp guardando USDC en el chanchito desde Twilio Sandbox" width="92%" />
+</p>
+
+**Roadmap de marca:** pasar de Twilio Sandbox a un **WhatsApp Business oficial de Comadre**, con nombre, foto de Tía Vera, número propio y plantillas aprobadas para recordatorios, tandas y Guardadito.
+
+---
+
 ## Guardadito: el chanchito que trabaja por vos
 
 La pregunta de Comadre es sencilla:
@@ -158,6 +176,8 @@ Hacer que Comadre sea útil todos los días:
 - guardar dinero con permiso en el Chanchito;
 - explicar cada paso con calma.
 
+Durante el hackathon usamos Twilio para mover rápido. El siguiente paso de producto es abrir el **WhatsApp Business oficial de Comadre**, con identidad visual propia y mensajes aprobados para producción.
+
 ### 3. Vida diaria dentro de Comadre
 
 Integrar pagos y compras con USDC:
@@ -187,8 +207,10 @@ Ya no son referencias rotas: estos assets viven en [`docs/assets/branding`](docs
 | Tía Vera avatar | [`avatar-tia-vera.png`](docs/assets/branding/avatar-tia-vera.png) | Sección “La familia Comadre”: cara principal del producto. |
 | Tío Memo mini-card | [`tio-memo-minicard.png`](docs/assets/branding/tio-memo-minicard.png) | Búsqueda, compras y comparación de precios. |
 | Programa Solana | [`programa-solana.png`](docs/assets/branding/programa-solana.png) | Sección técnica final para reviewers. |
+| Demo WhatsApp — tandas | [`whatsapp-tandas-demo.png`](docs/assets/demo/whatsapp-tandas-demo.png) | Prueba real de conversación creando una tanda desde Twilio Sandbox. |
+| Demo WhatsApp — Guardadito | [`whatsapp-guardadito-demo.png`](docs/assets/demo/whatsapp-guardadito-demo.png) | Prueba real de conversación guardando USDC en el chanchito. |
 
-**Pendientes visuales:** chat mockup de WhatsApp y chanchito Guardadito corriendo. Esos dos todavía pueden sumarse después sin cambiar la estructura del README.
+**Pendientes visuales:** chanchito Guardadito corriendo y, si queremos reemplazar las capturas de hackathon, un mockup propio de WhatsApp con avatar de Tía Vera y número oficial de Comadre.
 
 ---
 
@@ -260,7 +282,7 @@ BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh
 | Backend runtime | Bun 1.2+ |
 | API | Hono 4 |
 | Agent | Kimi K2 via Moonshot |
-| WhatsApp | Twilio |
+| WhatsApp | Twilio Sandbox for hackathon; WhatsApp Business oficial en roadmap |
 | Wallets/Auth | WhatsApp auth-by-channel + custodial demo keypairs |
 | Guardadito | Mock strategy by default; Kamino adapter behind env |
 | Database | Postgres / Supabase |
@@ -323,7 +345,7 @@ For deploy, `init_config`, IDL upload and devnet USDC setup, read [`docs/RUNBOOK
 |---|---|
 | Public repo | ✅ `Firrton/comadre` |
 | Anchor program | ✅ Deployed to devnet |
-| WhatsApp agent services | ✅ Implemented |
+| WhatsApp agent services | ✅ Implemented via Twilio Sandbox for hackathon |
 | P2P transfer path | ✅ Implemented with custodial signer + USDC devnet flow |
 | Guardadito / Chanchito | ✅ Mock flow + agent tools + Twilio nudges; Kamino adapter boundary behind env |
 | Tandas on-chain | ✅ Create/join backend path restored; full production hardening still pending |
