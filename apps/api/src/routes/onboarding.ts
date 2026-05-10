@@ -100,8 +100,6 @@ onboardingRouter.post(
       return c.json(
         {
           walletAddress: result.walletAddress,
-          walletId: result.walletId,
-          privyUserId: result.privyUserId,
           alreadyExisted: result.alreadyExisted,
         },
         200,

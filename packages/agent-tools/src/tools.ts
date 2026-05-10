@@ -109,12 +109,12 @@ export const crearTandaDefinition: ToolDefinition = {
         contribution_amount_cents: {
           type: "integer",
           minimum: 100,
-          description: "Aporte por turno en centavos USD. Ej: 5000 = $50.",
+          description: "Aporte por turno en centavos USD para la herramienta. NO menciones centavos al usuario; si dice 50 USDC, usa 5000.",
         },
         frequency_days: {
           type: "integer",
           minimum: 1,
-          description: "Días entre payouts. Ej: 7 = semanal, 30 = mensual.",
+          description: "Días entre turnos/pagos. NO digas payouts al usuario. Ej: 7 = semanal, 30 = mensual.",
         },
         payout_order_mode: {
           type: "string",
@@ -141,7 +141,13 @@ export const crearTandaExecute: ToolExecutor = async (args, context) => {
   const a = args as CrearTandaArgs;
   const idempotencyKey = context.idempotencyKey ?? newIdempotencyKey();
   const atomic = centsToAtomic(a.contribution_amount_cents);
-  const result = await apiCall<{ unsigned_tx: string; idempotency_key: string }>({
+  const result = await apiCall<{
+    unsigned_tx?: string;
+    idempotency_key?: string;
+    tanda_id?: string;
+    signature?: string;
+    explorer_url?: string;
+  }>({
     method: "POST",
     path: "/api/v1/tandas",
     body: {
@@ -157,11 +163,19 @@ export const crearTandaExecute: ToolExecutor = async (args, context) => {
     idempotencyKey,
   });
   const dollars = (a.contribution_amount_cents / 100).toFixed(2);
+  if (result.signature) {
+    return {
+      type: "data",
+      data: result,
+      summary: `Tanda "${a.name}" creada: ${a.member_target} miembros, ${dollars} USDC cada ${a.frequency_days} días.`,
+    };
+  }
+
   return {
     type: "unsigned_tx",
-    unsigned_tx_base64: result.unsigned_tx,
+    unsigned_tx_base64: result.unsigned_tx ?? "",
     idempotency_key: result.idempotency_key ?? idempotencyKey,
-    summary: `Tanda "${a.name}" lista para crear: ${a.member_target} miembros, $${dollars} cada ${a.frequency_days} días.`,
+    summary: `Tanda "${a.name}" lista para crear: ${a.member_target} miembros, ${dollars} USDC cada ${a.frequency_days} días.`,
   };
 };
 
@@ -187,7 +201,13 @@ export const unirseTandaDefinition: ToolDefinition = {
 export const unirseTandaExecute: ToolExecutor = async (args, context) => {
   const { tanda_id } = args as { tanda_id: string };
   const idempotencyKey = context.idempotencyKey ?? newIdempotencyKey();
-  const result = await apiCall<{ unsigned_tx: string; idempotency_key: string }>({
+  const result = await apiCall<{
+    unsigned_tx?: string;
+    idempotency_key?: string;
+    tanda_id?: string;
+    signature?: string;
+    explorer_url?: string;
+  }>({
     method: "POST",
     path: `/api/v1/tandas/${encodeURIComponent(tanda_id)}/join`,
     body: {},
@@ -196,7 +216,7 @@ export const unirseTandaExecute: ToolExecutor = async (args, context) => {
   });
   return {
     type: "unsigned_tx",
-    unsigned_tx_base64: result.unsigned_tx,
+    unsigned_tx_base64: result.unsigned_tx ?? "",
     idempotency_key: result.idempotency_key ?? idempotencyKey,
     summary: `Listo para unirte a la tanda ${tanda_id}. Firma para confirmar.`,
   };
@@ -224,7 +244,13 @@ export const aportarTurnoDefinition: ToolDefinition = {
 export const aportarTurnoExecute: ToolExecutor = async (args, context) => {
   const { tanda_id } = args as { tanda_id: string };
   const idempotencyKey = context.idempotencyKey ?? newIdempotencyKey();
-  const result = await apiCall<{ unsigned_tx: string; idempotency_key: string }>({
+  const result = await apiCall<{
+    unsigned_tx?: string;
+    idempotency_key?: string;
+    tanda_id?: string;
+    signature?: string;
+    explorer_url?: string;
+  }>({
     method: "POST",
     path: `/api/v1/tandas/${encodeURIComponent(tanda_id)}/contribute`,
     body: {},
@@ -233,7 +259,7 @@ export const aportarTurnoExecute: ToolExecutor = async (args, context) => {
   });
   return {
     type: "unsigned_tx",
-    unsigned_tx_base64: result.unsigned_tx,
+    unsigned_tx_base64: result.unsigned_tx ?? "",
     idempotency_key: result.idempotency_key ?? idempotencyKey,
     summary: `Aporte del turno actual listo. Firma para confirmar.`,
   };
@@ -266,7 +292,13 @@ export const abrirDisputaDefinition: ToolDefinition = {
 export const abrirDisputaExecute: ToolExecutor = async (args, context) => {
   const { tanda_id, reason } = args as { tanda_id: string; reason: string };
   const idempotencyKey = context.idempotencyKey ?? newIdempotencyKey();
-  const result = await apiCall<{ unsigned_tx: string; idempotency_key: string }>({
+  const result = await apiCall<{
+    unsigned_tx?: string;
+    idempotency_key?: string;
+    tanda_id?: string;
+    signature?: string;
+    explorer_url?: string;
+  }>({
     method: "POST",
     path: `/api/v1/tandas/${encodeURIComponent(tanda_id)}/disputes`,
     body: { reason },
@@ -275,7 +307,7 @@ export const abrirDisputaExecute: ToolExecutor = async (args, context) => {
   });
   return {
     type: "unsigned_tx",
-    unsigned_tx_base64: result.unsigned_tx,
+    unsigned_tx_base64: result.unsigned_tx ?? "",
     idempotency_key: result.idempotency_key ?? idempotencyKey,
     summary: `Disputa lista para abrir en ${tanda_id}. Firma para confirmar.`,
   };
@@ -303,7 +335,13 @@ export const votarDisputaDefinition: ToolDefinition = {
 export const votarDisputaExecute: ToolExecutor = async (args, context) => {
   const { dispute_id, continue_tanda } = args as { dispute_id: string; continue_tanda: boolean };
   const idempotencyKey = context.idempotencyKey ?? newIdempotencyKey();
-  const result = await apiCall<{ unsigned_tx: string; idempotency_key: string }>({
+  const result = await apiCall<{
+    unsigned_tx?: string;
+    idempotency_key?: string;
+    tanda_id?: string;
+    signature?: string;
+    explorer_url?: string;
+  }>({
     method: "POST",
     path: `/api/v1/disputes/${encodeURIComponent(dispute_id)}/vote`,
     body: { continue_tanda },
@@ -312,7 +350,7 @@ export const votarDisputaExecute: ToolExecutor = async (args, context) => {
   });
   return {
     type: "unsigned_tx",
-    unsigned_tx_base64: result.unsigned_tx,
+    unsigned_tx_base64: result.unsigned_tx ?? "",
     idempotency_key: result.idempotency_key ?? idempotencyKey,
     summary: `Voto ${continue_tanda ? "a favor de seguir" : "a favor de cancelar"} listo. Firma para confirmar.`,
   };

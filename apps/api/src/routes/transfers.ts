@@ -39,7 +39,7 @@ import { getUsdcMint } from "@comadre/anchor-client";
 import { lookupByPhone } from "../lib/phoneLookup.js";
 import { enforceKycLimit, KycLimitExceededError, type KycTier } from "../lib/kycLimits.js";
 import { buildUsdcTransferIxs, usdcToMicro, microToUsdc } from "../lib/usdcTransfer.js";
-import { signWithPrivy } from "../lib/privySigner.js";
+import { signWithUserKeypair } from "../lib/userSigner.js";
 import { createSavingsNudge } from "../lib/savings/nudges.js";
 import type { AuthUser } from "../middlewares/auth.js";
 
@@ -52,20 +52,6 @@ const REDIS_TX_KEY_PREFIX = "transfer:tx:";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Extract the Solana embedded wallet ID from Privy linked accounts. */
-function extractPrivyWalletId(user: AuthUser): string | null {
-  const accounts = user.linkedAccounts as Array<{
-    type?: string;
-    chainType?: string;
-    id?: string;
-    address?: string;
-  }>;
-  const solanaWallet = accounts.find(
-    (a) => a.type === "wallet" && (a.chainType === "solana" || a.chainType === undefined)
-  );
-  return solanaWallet?.id ?? null;
-}
 
 /** Build the explorer URL based on env.SOLANA_CLUSTER. */
 function explorerUrlFor(signature: string): string {
@@ -315,23 +301,17 @@ transfersRouter.post("/:id/confirm", async (c) => {
 
   const tx = VersionedTransaction.deserialize(Buffer.from(unsignedTxBase64, "base64"));
 
-  // Privy server-side sign with the user's embedded Solana wallet
-  const walletId = extractPrivyWalletId(user);
-  if (!walletId) {
-    return c.json({ error: "NO_WALLET", message: "No se encontró un Solana embedded wallet" }, 400);
-  }
-
+  // Custodial sign with the user's backend-managed keypair
   let signedTx: VersionedTransaction;
   try {
-    const result = await signWithPrivy({ walletId, transaction: tx });
-    signedTx = result.signedTransaction;
+    signedTx = await signWithUserKeypair({ walletAddress: user.walletAddress, transaction: tx });
   } catch (err) {
     await db
       .update(transfers)
-      .set({ status: "failed", failureReason: `privy-sign: ${err instanceof Error ? err.message : String(err)}` })
+      .set({ status: "failed", failureReason: `sign: ${err instanceof Error ? err.message : String(err)}` })
       .where(eq(transfers.id, transferId));
     return c.json(
-      { error: "PRIVY_SIGN_FAILED", message: err instanceof Error ? err.message : "Sign failed" },
+      { error: "SIGN_FAILED", message: err instanceof Error ? err.message : "Sign failed" },
       502
     );
   }

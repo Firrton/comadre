@@ -1,100 +1,40 @@
 /**
- * Onboarding helper — creates Privy user + Solana embedded wallet for a phone.
- *
- * Trust model: caller (agent service) has already verified phone ownership via
- * Twilio webhook signature. This is "auth-by-channel" for hackathon.
- *
- * Idempotent: existing phones return their current wallet.
+ * Onboarding helper — backend-custodial model.
+ * Generates a server-managed Solana keypair per user. WhatsApp ownership
+ * (verified via Twilio webhook signature upstream) IS the auth.
  */
-import { PrivyClient } from "@privy-io/server-auth";
-import { db, users } from "@comadre/db";
-import { hashPhone } from "@comadre/cache";
+import { Keypair } from "@solana/web3.js";
+import bs58 from "bs58";
 import { eq } from "drizzle-orm";
-
+import { db, users, userKeypairs } from "@comadre/db";
+import { hashPhone } from "@comadre/cache";
 import { normalizePhoneE164 } from "./phoneNormalize.js";
+import { bootstrapOnChainProfile, airdropIfNeeded } from "./anchorBootstrap.js";
 
 interface OnboardResult {
   walletAddress: string;
-  walletId: string;
-  privyUserId: string;
   alreadyExisted: boolean;
 }
 
-let _privy: PrivyClient | null = null;
-function getPrivy(): PrivyClient {
-  if (_privy !== null) return _privy;
-  const appId = process.env["PRIVY_APP_ID"];
-  const appSecret = process.env["PRIVY_APP_SECRET"];
-  if (!appId || !appSecret) {
-    throw new Error("[onboarding] PRIVY_APP_ID and PRIVY_APP_SECRET are required");
-  }
-  _privy = new PrivyClient(appId, appSecret);
-  return _privy;
-}
-
-interface PrivyEmbeddedWallet {
-  type: string;
-  chainType?: string;
-  walletClientType?: string;
-  address?: string;
-  id?: string;
-}
-
-function findSolanaEmbeddedWallet(linkedAccounts: unknown[]): PrivyEmbeddedWallet | null {
-  for (const account of linkedAccounts) {
-    const a = account as PrivyEmbeddedWallet;
-    if (a.type === "wallet" && a.chainType === "solana" && a.walletClientType === "privy") {
-      return a;
-    }
-  }
-  return null;
-}
+const LAMPORTS_PER_SOL = 1_000_000_000;
 
 export async function onboardPhone(phoneRaw: string): Promise<OnboardResult> {
-  if (!phoneRaw.startsWith("+")) {
-    throw new Error(`[onboarding] phone must be E.164, got: ${phoneRaw}`);
-  }
+  if (!phoneRaw.startsWith("+")) throw new Error(`phone must be E.164, got: ${phoneRaw}`);
   const phoneE164 = normalizePhoneE164(phoneRaw);
-
-  const privy = getPrivy();
-  let privyUser = await privy.getUserByPhoneNumber(phoneE164);
-  const alreadyExisted = privyUser !== null;
-
-  if (privyUser === null) {
-    privyUser = await privy.importUser({
-      linkedAccounts: [{ type: "phone", number: phoneE164 }],
-      createSolanaWallet: true,
-    });
-  }
-
-  let solWallet = findSolanaEmbeddedWallet(privyUser.linkedAccounts);
-  if (solWallet === null) {
-    privyUser = await privy.createWallets({
-      userId: privyUser.id,
-      createSolanaWallet: true,
-    });
-    solWallet = findSolanaEmbeddedWallet(privyUser.linkedAccounts);
-  }
-
-  if (!solWallet || !solWallet.address || !solWallet.id) {
-    throw new Error(
-      `[onboarding] failed to obtain Solana embedded wallet for ${phoneE164}`,
-    );
-  }
-
-  const walletAddress = solWallet.address;
-  const walletId = solWallet.id;
   const phoneHash = await hashPhone(phoneE164);
   const now = new Date();
 
-  const existing = await db
-    .select({ wallet: users.wallet })
-    .from(users)
-    .where(eq(users.wallet, walletAddress))
-    .limit(1);
+  const existing = await db.select({ wallet: users.wallet }).from(users).where(eq(users.phoneHash, phoneHash)).limit(1);
+  if (existing.length > 0) {
+    return { walletAddress: existing[0]!.wallet, alreadyExisted: true };
+  }
 
-  if (existing.length === 0) {
-    await db.insert(users).values({
+  const kp = Keypair.generate();
+  const walletAddress = kp.publicKey.toBase58();
+  const secretKeyB58 = bs58.encode(kp.secretKey);
+
+  await db.transaction(async (tx) => {
+    await tx.insert(users).values({
       wallet: walletAddress,
       phoneHash,
       kycTier: "t0_demo",
@@ -107,7 +47,30 @@ export async function onboardPhone(phoneRaw: string): Promise<OnboardResult> {
       createdAt: now,
       updatedAt: now,
     });
+    await tx.insert(userKeypairs).values({
+      wallet: walletAddress,
+      secretKeyB58,
+      createdAt: now,
+    });
+  });
+
+  // Best-effort on-chain bootstrap — DO NOT swallow errors silently for the demo.
+  // Airdrop SOL FIRST so the user wallet has rent; bootstrap pays from fee_payer
+  // for init_user_profile rent so this is purely defensive.
+  try {
+    await airdropIfNeeded(walletAddress, 0.05 * LAMPORTS_PER_SOL);
+    console.log(`[onboarding] airdropped 0.05 SOL to ${walletAddress}`);
+  } catch (err) {
+    console.error(`[onboarding] airdrop failed for ${walletAddress}:`, err);
   }
 
-  return { walletAddress, walletId, privyUserId: privyUser.id, alreadyExisted };
+  try {
+    await bootstrapOnChainProfile({ walletAddress, phoneHashHex: phoneHash, countryCode: "MX" });
+    console.log(`[onboarding] on-chain profile bootstrapped for ${walletAddress}`);
+    await db.update(users).set({ kycTier: "t1_lite", updatedAt: new Date() }).where(eq(users.wallet, walletAddress));
+  } catch (err) {
+    console.error(`[onboarding] on-chain bootstrap failed for ${walletAddress}:`, err);
+  }
+
+  return { walletAddress, alreadyExisted: false };
 }

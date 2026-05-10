@@ -102,6 +102,28 @@ describe("crear_tanda", () => {
     expect(body.usdc_mint).toBe("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
   });
 
+  it("returns data when API creates the tanda on-chain", async () => {
+    globalThis.fetch = makeMockFetch({
+      tanda_id: "TandaPda1111111111111111111111111111111",
+      signature: "Sig111",
+      explorer_url: "https://solscan.io/tx/Sig111?cluster=devnet",
+    });
+    const result = await executeTool(
+      "crear_tanda",
+      {
+        name: "Ahorros",
+        member_target: 3,
+        contribution_amount_cents: 1000,
+        frequency_days: 7,
+        payout_order_mode: "join_order",
+      },
+      ctx
+    );
+
+    expect(result.type).toBe("data");
+    expect(result.summary).toContain('Tanda "Ahorros" creada');
+  });
+
   it("rejects negative cents (RangeError)", async () => {
     globalThis.fetch = makeMockFetch({ unsigned_tx: "AAA=", idempotency_key: "k1" });
     const result = await executeTool(

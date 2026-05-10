@@ -1,7 +1,7 @@
 /**
  * /api/v1/tandas — tanda lifecycle endpoints
  *
- * POST /api/v1/tandas              — create (stub tx)
+ * POST /api/v1/tandas              — create tanda (on-chain via Anchor)
  * GET  /api/v1/tandas              — list user's tandas (paginated)
  * GET  /api/v1/tandas/:id          — single tanda with members
  * POST /api/v1/tandas/:id/join     — join tanda (stub tx)
@@ -9,19 +9,24 @@
  * POST /api/v1/tandas/:id/contribute — contribute (stub tx)
  */
 
+import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
+import { PublicKey, VersionedTransaction } from "@solana/web3.js";
 import { db, tandas, members } from "@comadre/db";
 import { CreateTandaInput, JoinTandaInput, ContributeInput } from "@comadre/types";
+import { buildUnsignedTx, submitWithRetry } from "@comadre/solana";
 import { makeTxStub } from "../lib/stubs.js";
+import { signWithUserKeypair } from "../lib/userSigner.js";
+import { buildCreateTandaIx } from "../lib/buildTandaIx.js";
 import type { AuthUser } from "../middlewares/auth.js";
 
 export const tandasRouter = new Hono();
 
 // ---------------------------------------------------------------------------
-// POST /api/v1/tandas — create tanda (STUB)
+// POST /api/v1/tandas — create tanda (on-chain)
 // ---------------------------------------------------------------------------
 tandasRouter.post(
   "/",
@@ -33,23 +38,92 @@ tandasRouter.post(
   async (c) => {
     const input = c.req.valid("json");
     const user = (c.get as (k: string) => unknown)("user") as AuthUser;
-    const idempKey = c.req.header("X-Idempotency-Key") ?? crypto.randomUUID();
 
-    const stub = makeTxStub(idempKey, {
-      instruction: "create_tanda",
-      args: {
-        name: input.name,
-        member_target: input.member_target,
-        contribution_amount: input.contribution_amount.toString(),
-        stake_amount: input.stake_amount.toString(),
-        frequency_seconds: input.frequency_seconds,
-        payout_order_mode: input.payout_order_mode,
-        usdc_mint: input.usdc_mint,
-      },
-      accounts: { creator: user.walletAddress },
+    // Determine next tanda_id: count existing tandas by this creator
+    const existingRows = await db
+      .select({ id: tandas.id })
+      .from(tandas)
+      .where(eq(tandas.creatorWallet, user.walletAddress));
+    const tandaId = BigInt(existingRows.length);
+
+    const creatorPubkey = new PublicKey(user.walletAddress);
+
+    // Build the create_tanda instruction
+    const { instruction, tandaPda, vaultPda } = await buildCreateTandaIx({
+      creator: creatorPubkey,
+      name: input.name,
+      memberTarget: input.member_target,
+      contributionAmountAtomic: input.contribution_amount,
+      stakeAmountAtomic: input.stake_amount,
+      frequencySeconds: input.frequency_seconds,
+      payoutOrderMode: input.payout_order_mode,
+      tandaId,
     });
 
-    return c.json(stub, 200);
+    // Build partial-signed tx: fee_payer signs first, creator signs via backend-managed keypair below.
+    const built = await buildUnsignedTx({ instructions: [instruction] });
+    const tx = VersionedTransaction.deserialize(Buffer.from(built.unsignedTxBase64, "base64"));
+
+    // Custodial sign with the backend-managed user keypair created during onboarding.
+    let signedTx: VersionedTransaction;
+    try {
+      signedTx = await signWithUserKeypair({
+        walletAddress: user.walletAddress,
+        transaction: tx,
+      });
+    } catch (err) {
+      return c.json(
+        { error: "SIGN_FAILED", message: err instanceof Error ? err.message : "Sign failed" },
+        502
+      );
+    }
+
+    // Broadcast with retry + confirmation
+    let signature: string;
+    try {
+      const result = await submitWithRetry(signedTx);
+      signature = result.signature;
+    } catch (err) {
+      return c.json(
+        { error: "BROADCAST_FAILED", message: err instanceof Error ? err.message : "Broadcast failed" },
+        502
+      );
+    }
+
+    // Mirror the tanda into the DB so list/get endpoints work pre-indexer
+    const usdcMint = process.env["USDC_MINT"] ?? input.usdc_mint;
+    const nameHash = createHash("sha256").update(input.name).digest("hex");
+    const now = new Date();
+
+    await db.insert(tandas).values({
+      id: tandaPda.toBase58(),
+      creatorWallet: user.walletAddress,
+      tandaId,
+      nameHash,
+      name: input.name,
+      usdcMint,
+      vault: vaultPda.toBase58(),
+      memberTarget: input.member_target,
+      memberCurrent: 0,
+      contributionAmount: input.contribution_amount,
+      stakeAmount: input.stake_amount,
+      frequencySeconds: BigInt(input.frequency_seconds),
+      totalTurns: input.member_target,
+      currentTurn: 0,
+      state: "forming",
+      payoutOrderMode: input.payout_order_mode,
+      createdAt: now,
+      lastSyncedAt: now,
+    });
+
+    return c.json(
+      {
+        tanda_id: tandaPda.toBase58(),
+        signature,
+        explorer_url: `https://solscan.io/tx/${signature}?cluster=devnet`,
+      },
+      200
+    );
   }
 );
 

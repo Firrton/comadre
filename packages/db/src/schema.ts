@@ -187,6 +187,18 @@ export const users = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// 1b. user_keypairs — backend-managed signing keys (custodial-with-consent)
+// HACKATHON ONLY: keys stored as plain base58. For production, encrypt at rest.
+// ---------------------------------------------------------------------------
+export const userKeypairs = pgTable("user_keypairs", {
+  wallet: text("wallet")
+    .primaryKey()
+    .references(() => users.wallet),
+  secretKeyB58: text("secret_key_b58").notNull(),
+  createdAt: tsNow("created_at").notNull(),
+});
+
+// ---------------------------------------------------------------------------
 // 2. tandas — mirrors Tanda on-chain account
 // ---------------------------------------------------------------------------
 export const tandas = pgTable(

@@ -25,4 +25,9 @@ describe("Comadre voice prompt", () => {
     expect(COMADRE_SYSTEM_PROMPT).toContain("guardar en tu chanchito");
     expect(COMADRE_SYSTEM_PROMPT).toContain("No muestres `actionId`, UUIDs");
   });
+
+  test("keeps tanda prompts user-friendly", () => {
+    expect(COMADRE_SYSTEM_PROMPT).toContain("Si falta solo un dato, preguntá SOLO ese dato");
+    expect(COMADRE_SYSTEM_PROMPT).toContain("Nunca digas “centavos”, “payouts”, “tx”");
+  });
 });
