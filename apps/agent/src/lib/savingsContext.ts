@@ -5,6 +5,8 @@ export async function loadSavingsContext(userWallet: string): Promise<string | n
     const summary = await apiCall<{
       available: { usdc: string };
       saved: { usdc: string };
+      apy_percent: number;
+      apy_disclaimer: string;
       suggested: {
         shouldSuggest: boolean;
         amountUsdc: string;
@@ -20,6 +22,7 @@ export async function loadSavingsContext(userWallet: string): Promise<string | n
       "Contexto Guardadito:",
       `Disponible: ${summary.available.usdc} USDC.`,
       `Guardado: ${summary.saved.usdc} USDC.`,
+      `Tasa anual actual del chanchito: ${summary.apy_percent}% (variable, no garantizado).`,
       summary.suggested.shouldSuggest
         ? `Podés sugerir guardar ${summary.suggested.amountUsdc} USDC dejando ${summary.suggested.liquidReserveUsdc} USDC disponibles.`
         : "No sugieras Guardadito proactivamente salvo que el usuario pregunte.",

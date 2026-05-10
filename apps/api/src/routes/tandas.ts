@@ -21,6 +21,7 @@ import { buildUnsignedTx, submitWithRetry } from "@comadre/solana";
 import { makeTxStub } from "../lib/stubs.js";
 import { signWithUserKeypair } from "../lib/userSigner.js";
 import { buildCreateTandaIx } from "../lib/buildTandaIx.js";
+import { buildJoinTandaIx } from "../lib/buildJoinTandaIx.js";
 import type { AuthUser } from "../middlewares/auth.js";
 
 export const tandasRouter = new Hono();
@@ -238,13 +239,59 @@ tandasRouter.post(
       return c.json({ error: "precondition_failed", message: "Tanda is full" }, 422);
     }
 
-    const stub = makeTxStub(idempKey, {
-      instruction: "join_tanda",
-      args: { tanda_id: id },
-      accounts: { member: user.walletAddress, tanda: id },
+    // Build instructions (createATA if needed + join_tanda)
+    const userPubkey = new PublicKey(user.walletAddress);
+    const tandaPubkey = new PublicKey(id);
+
+    const { instructions, memberPda } = await buildJoinTandaIx({
+      user: userPubkey,
+      tanda: tandaPubkey,
     });
 
-    return c.json(stub, 200);
+    // Build unsigned tx (fee_payer pre-signs)
+    const built = await buildUnsignedTx({ instructions });
+    const tx = VersionedTransaction.deserialize(Buffer.from(built.unsignedTxBase64, "base64"));
+
+    // Custodial sign
+    let signedTx: VersionedTransaction;
+    try {
+      signedTx = await signWithUserKeypair({ walletAddress: user.walletAddress, transaction: tx });
+    } catch (err) {
+      return c.json({ error: "SIGN_FAILED", message: err instanceof Error ? err.message : "sign failed" }, 502);
+    }
+
+    // Broadcast
+    let signature: string;
+    try {
+      const result = await submitWithRetry(signedTx);
+      signature = result.signature;
+    } catch (err) {
+      return c.json({ error: "BROADCAST_FAILED", message: err instanceof Error ? err.message : "broadcast failed" }, 502);
+    }
+
+    // Mirror member into DB + bump tanda.member_current
+    const now = new Date();
+    await db.transaction(async (tx2) => {
+      await tx2.insert(members).values({
+        id: memberPda.toBase58(),
+        tandaId: id,
+        userWallet: user.walletAddress,
+        turnNumber: tanda.memberCurrent + 1,
+        contributionsMade: 0,
+        stakeLocked: tanda.stakeAmount,
+        isActive: true,
+        hasReceivedPayout: false,
+        joinedAt: now,
+      });
+      await tx2.update(tandas).set({ memberCurrent: tanda.memberCurrent + 1, lastSyncedAt: now }).where(eq(tandas.id, id));
+    });
+
+    return c.json({
+      tanda_id: id,
+      member: memberPda.toBase58(),
+      signature,
+      explorer_url: `https://solscan.io/tx/${signature}?cluster=devnet`,
+    }, 200);
   }
 );
 

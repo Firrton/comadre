@@ -73,3 +73,37 @@ Tanda de 10 miembros lifecycle completo:
 - **Total: ~0.034 SOL ≈ $5 USD**
 
 Con fee 0.5% sobre $5,000 USD de tanda total = $25 fee → margen 80%.
+
+---
+
+## Custodial signing — `user_keypairs`
+
+Agregada en migración `0003_needy_puff_adder.sql`.
+
+```sql
+CREATE TABLE user_keypairs (
+  wallet          TEXT PRIMARY KEY REFERENCES users(wallet),
+  secret_key_b58  TEXT NOT NULL,    -- 64-byte secret key, base58-encoded
+  created_at      TIMESTAMPTZ DEFAULT now()
+);
+```
+
+### Trade-off de seguridad (leer ANTES de producción)
+
+`secret_key_b58` se guarda como base58 plano. Esto es **intencional** para minimizar complejidad operacional en el hackathon. **Producción requiere:**
+
+- **Encryption-at-rest**: AES-GCM con clave en un KMS (AWS KMS, GCP Cloud KMS o Azure Key Vault).
+- **Idealmente**: las keys nunca dejan un HSM; solo las operaciones de firma se delegan al HSM.
+- **Mínimo aceptable**: encryption a nivel columna con jerarquía de claves DEK/KEK manejada por KMS, con rotación.
+
+**No guardar secret keys plain text en producción.**
+
+### `savings_nudges`
+
+Usada por el nudge gate (`apps/agent/src/lib/nudgeGate.ts`) para enforzar cooldown de 24h en sugerencias proactivas de Guardadito.
+
+```sql
+-- ya existía: schema con (id uuid, user_wallet, source, source_ref, amount_micro_usdc, status, message, created_at)
+```
+
+Una fila se inserta tras entregar una sugerencia. Antes de inyectar el contexto de Guardadito al LLM, el gate consulta esta tabla para verificar que no hay nudge en las últimas 24h.

@@ -422,3 +422,118 @@ sequenceDiagram
 | `DisputeExpired` en vote | `now > deadline_ts` | 400; ventana de votación cerrada |
 | `DisputeNotExpired` en resolve | Cron corrió antes del deadline | Instrucción rechazada; cron reintenta |
 | Tanda → Cancelled por empate | `votes_cancel >= votes_continue` | Members deben reclamar stakes via `claim_stake` (pendiente de implementar) |
+
+---
+
+## Flujos custodial (post-pivot)
+
+### Onboarding (primer consentimiento)
+
+Disparado cuando un user sin fila en DB manda su primer "sí".
+
+```
+WhatsApp "sí"
+     │
+     ▼
+comadre-whatsapp
+  valida firma Twilio
+     │
+     ▼
+comadre-agent
+  toolsForWalletState(null)  ← wallet no en DB
+  → iniciar_onboarding en toolset
+  LLM llama tool: iniciar_onboarding
+     │
+     ▼
+comadre-api  POST /api/v1/onboarding/init
+  1. Keypair.generate()
+  2. INSERT user_keypairs (wallet, secret_key_b58)
+  3. INSERT users (wallet, phone_hash, kyc_tier=t0_demo)
+  4. airdrop 0.05 SOL  fee_payer → user wallet
+  5. Anchor: init_user_profile  payer=fee_payer
+  6. Anchor: update_kyc_tier(t1Lite)  signer=kyc_oracle
+  7. UPDATE users SET kyc_tier='t1_lite'
+     │
+     ▼
+  return { walletAddress, kyc_tier: 't1_lite' }
+     │
+     ▼
+LLM responde con bienvenida al user
+```
+
+Después del onboarding, `toolsForWalletState(wallet)` excluye `iniciar_onboarding` en todos los turnos siguientes.
+
+### Crear tanda
+
+```
+WhatsApp "creá una tanda Demo de 3 personas, 10 USDC por semana"
+     │
+     ▼
+comadre-agent  LLM llama tool: crear_tanda({ name, member_target, contribution_amount_cents, frequency_days, payout_order_mode })
+     │
+     ▼
+comadre-api  POST /api/v1/tandas
+  1. buildCreateTandaIx
+       creator   = user.wallet (PubKey)
+       name_hash = SHA-256(name)
+       amount    = new BN(amount_atomic_usdc)
+  2. construye Anchor create_tanda ix
+  3. fee_payer pre-firma (paga rent + fees)
+  4. signWithUserKeypair(creator) ← backend firma como user
+  5. submitWithRetry(tx)
+  6. INSERT tandas (id=tanda_pda, creator_wallet, ...)
+     │
+     ▼
+  return { tanda_id, signature, explorer_url }
+     │
+     ▼
+crearTandaExecute → { type: "data", data: { ... } }
+     │
+     ▼
+LLM (regla "REGLAS CUANDO UNA TOOL DEVUELVE DATOS REALES"):
+  - relayea explorer_url al user
+  - presenta tanda_id[0..7] como código corto de invitación
+```
+
+### Unirse a tanda
+
+```
+WhatsApp "quiero unirme a la tanda 8jK8UsMv..."
+     │
+     ▼
+comadre-agent  LLM llama tool: unirse_tanda({ tanda_id })
+     │
+     ▼
+comadre-api  POST /api/v1/tandas/:id/join
+  1. buildJoinTandaIx
+     a. createAssociatedTokenAccountInstruction
+          para el ATA USDC del user (si no existe)
+     b. Anchor join_tanda ix
+          signer = user.wallet
+  2. fee_payer pre-firma
+  3. signWithUserKeypair(user.wallet)
+  4. submitWithRetry(tx)
+  5. INSERT members + UPDATE tandas.member_current
+     │
+     ▼
+  return { tanda_id, member, signature, explorer_url }
+     │
+     ▼
+LLM relayea confirmación + explorer_url
+```
+
+### Guardadito — APR + nudge gate
+
+**APR injection** (`apps/agent/src/lib/savingsContext.ts`): en cada turno del agent donde existe wallet, se inyecta al system prompt:
+
+```
+Tasa anual actual del chanchito: X.XX% (variable, no garantizado)
+```
+
+`X.XX` viene de `GET /api/v1/savings/summary` → `mockAdapter.ts`, que devuelve un APY mock determinístico que varía día a día entre 4.5% y 6.5%. La regla del system prompt "PORCENTAJE / GANANCIA — REGLA FUNDAMENTAL" obliga al LLM a usar este número exacto cuando el user pregunta cuánto rinde.
+
+**Nudge gate** (`apps/agent/src/lib/nudgeGate.ts`): sugerencias proactivas de Guardadito disparan solo cuando:
+
+- **Trigger**: el user manda un saludo (`hola`, `buenas`) **O** los últimos 6 mensajes contienen un tool result con `tanda_id` + `signature` (post-tanda).
+- **Guard**: no hay fila en `savings_nudges` para este user en las últimas 24h.
+- Después de entregar la sugerencia, se inserta una fila en `savings_nudges` para arrancar el cooldown de 24h.

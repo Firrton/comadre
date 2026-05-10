@@ -382,40 +382,67 @@ docker rm -f comadre-pg   # destruir y empezar de cero
 
 ---
 
-## 11. Modelo de signing (custodial via Privy)
+## 11. Modelo de signing (custodial backend)
 
-> **CRÍTICO entender esto.** Comadre usa **embedded wallets de Privy** que son **custodial server-side**. El usuario nunca toca la llave privada — Privy la custodia y firma bajo instrucción del backend autenticado.
+> **Reemplazo:** el documento previo describía Privy server-auth para signing. Privy fue removido. Esta sección refleja el modelo actual.
 
-### Cómo funciona en la práctica
+### Resumen
 
-1. **Onboarding** (primera vez): el agent llama `iniciar_onboarding` cuando el usuario consiente por WhatsApp ("sí"). El backend invoca `privy.importUser({ linkedAccounts: [{ type: "phone", number }], createSolanaWallet: true })`. Privy crea un par de keys en su HSM y devuelve `walletId` + `address`. **El usuario nunca ve la seed**.
-2. **Transacciones**: cuando el agent llama `iniciar_transfer` y el usuario confirma con "sí", el backend hace:
-   - `buildUnsignedTx(...)` — fee_payer firma como rent payer
-   - `privy.walletApi.solana.signTransaction({ walletId, transaction })` — Privy agrega la firma del user
-   - `submitWithRetry(tx)` — broadcast a Solana
-3. **El "sí" del usuario** es la **autorización implícita**. No hay PIN, no hay biométrico, no hay 2FA en el MVP. Si alguien spoofea su WhatsApp, podría mover los fondos. Esto es **acceptable para sandbox**, **NO para producción**.
+El backend guarda **un `Keypair` por usuario** en la DB. **No hay servicio externo de signing.** Todas las operaciones con keys ocurren in-process dentro de `comadre-api`.
 
-### Endurecer para producción (post-hackathon)
+### Generación de keys
 
-- **Privy authorization keys**: requerir un secret extra del cliente para autorizar el sign call
-- **Per-tx user confirmation explícita**: en vez de "sí" → mostrar amount + recipient + secret PIN o biométrico
-- **Rate limit + alertas**: max N transfers/hora; alerta a un canal de telemetría si superan threshold
-- **Liveness check**: requerir biometric en wallet propia (no embedded) para amounts grandes
+En el primer consentimiento del onboarding (`apps/api/src/lib/onboarding.ts`):
 
-### Diferencia "mock" vs "real"
+```typescript
+const keypair = Keypair.generate();
+const secretKeyB58 = bs58.encode(keypair.secretKey); // 64 bytes
+await db.insert(userKeypairs).values({
+  wallet: keypair.publicKey.toBase58(),
+  secretKeyB58,
+});
+```
 
-| Componente | Estado |
-|---|---|
-| Privy embedded wallet | ✅ **REAL** — keys reales custodiadas en Privy HSM |
-| Solana on-chain wallet | ✅ **REAL** — pubkey válida, firma cripto-válida |
-| USDC devnet | ✅ **REAL** — devnet faucet de Circle |
-| Transferencias on-chain | ✅ **REAL** — SPL Token Transfer firmado por Privy + broadcast a Solana devnet |
-| Ownership de la wallet | ⚠️ **CUSTODIAL** — Privy controla la key, no el user |
-| KYC tier (T0Demo) | 🟡 **MOCK** — `init_user_profile` aún no se llama on-chain. Solo está en DB Postgres. La tabla `kyc_sessions` está vacía. |
-| Sumsub integration | ❌ **NO** — `solicitar_kyc` tool existe pero retorna stub |
-| Tandas on-chain | 🟡 **PARCIAL** — programa Anchor desplegado a devnet, pero `init_config` no ejecutado todavía → tools de tanda fallan con `AccountDiscriminatorMismatch` o `Account does not exist` hasta que se haga §3 (Bootstrap on-chain) |
+### Firma de transacciones
 
----
+`signWithUserKeypair(walletAddress)` carga la fila, reconstruye el `Keypair` y firma:
+
+```typescript
+const row = await db.query.userKeypairs.findFirst({
+  where: eq(userKeypairs.wallet, walletAddress)
+});
+const keypair = Keypair.fromSecretKey(bs58.decode(row.secretKeyB58));
+transaction.sign([keypair]);
+```
+
+### Airdrop al onboarding
+
+Después de generar las keys, el flujo de onboarding airdropea **0.05 SOL** del `fee_payer` al wallet nuevo. Esto cubre rent para creación de cuentas de tanda. Es un paso devnet-only; en mainnet la plataforma fundearía la primera interacción del user de otra forma.
+
+### Recuperar la public key de un user
+
+```sql
+SELECT wallet FROM users WHERE phone_hash = '<sha256>';
+```
+
+(El número WhatsApp se hashea con SHA-256 antes de buscarlo.)
+
+### Rotación manual de keypair
+
+No hay flujo automatizado de rotación. Para una rotación manual:
+
+1. Generar nuevo `Keypair` off-chain.
+2. Transferir cualquier balance SOL/token de la wallet vieja a la nueva con tx firmada por la key vieja.
+3. Update `user_keypairs` y `users.wallet`.
+4. Update referencias en `tandas.creator_wallet`.
+
+Operación manual de alto riesgo. La ausencia de tooling de rotación es una limitación conocida del hackathon.
+
+### Disaster recovery
+
+- La única source-of-truth para secret keys es la tabla `user_keypairs` en Postgres.
+- Backup diario mínimo de Postgres (`pg_dump`). El VPS no tiene snapshots automáticos configurados al cierre del hackathon.
+- Pérdida de `user_keypairs` = pérdida permanente de acceso a todas las wallets de users y fondos on-chain.
 
 ## 12. Flujo end-to-end: onboarding implícito por WhatsApp
 

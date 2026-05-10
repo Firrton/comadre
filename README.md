@@ -395,3 +395,33 @@ For deploy, `init_config`, IDL upload and devnet USDC setup, read [`docs/RUNBOOK
 ## License
 
 MIT
+
+---
+
+## Cómo funciona técnicamente
+
+> **Tres oraciones núcleo:** El backend tiene cada wallet de usuario. La identidad es el número WhatsApp (verificado por la firma del webhook de Twilio). El usuario confirma cada movimiento por WhatsApp — sin app, sin seed, sin custodia de su lado.
+
+### Modelo de firma — auth-by-channel (custodial)
+
+Al registrarse, el backend genera un `Keypair` Solana server-side y guarda la `secret_key` (base58) en la tabla `user_keypairs`. Toda instrucción on-chain se firma con `signWithUserKeypair`. El usuario nunca ve ni toca una llave; su número WhatsApp es su identidad.
+
+Esto reemplaza el approach inicial con embedded wallets de Privy. El signing server-side de Privy requería authorization keys que no pudimos provisionar en el plazo del hackathon, y agregaba complejidad innecesaria para un demo. El trade-off es explícito: **arquitectura custodial grado-hackathon** — producción requeriría encryption-at-rest (AES-GCM) y un KMS/HSM para las secret keys.
+
+### Componentes on-chain
+
+| Instrucción | Payer | Signer |
+|---|---|---|
+| `init_user_profile` | `fee_payer` (plataforma) | `fee_payer` |
+| `update_kyc_tier` | `fee_payer` | `kyc_oracle` |
+| `create_tanda` | `fee_payer` | `creator` (custodial) |
+| `join_tanda` | `fee_payer` | `user` (custodial) |
+
+### Servicios
+
+Tres systemd-user services corren en un VPS:
+- `comadre-api` — REST API + builder de transacciones Anchor
+- `comadre-agent` — agent loop con LLM (tool-based, wallet-state-aware)
+- `comadre-whatsapp` — recibe webhooks de Twilio y enruta sesiones
+
+Postgres corre nativo en el VPS. Redis es Upstash REST (cloud).

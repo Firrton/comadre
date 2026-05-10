@@ -8,6 +8,7 @@ import { loadHistory, saveHistory } from "./lib/conversationStore.js";
 import { normalizePhoneE164 } from "./lib/phoneNormalize.js";
 import { loadSavingsContext } from "./lib/savingsContext.js";
 import { resolveUserFromTwilio } from "./lib/userResolver.js";
+import { shouldNudgeGuardadito, recordGuardaditoNudge } from "./lib/nudgeGate.js";
 
 const log = pino({ name: "agent" });
 
@@ -51,6 +52,12 @@ app.post("/process", async (c) => {
     }
 
     const history = await loadHistory(conversationKey);
+    const nudgeDecision = userWallet
+      ? await shouldNudgeGuardadito({ userWallet, userMessage: body, history })
+      : { ok: false, source: null as null };
+    // Always load savings context when wallet exists, so the LLM can answer
+    // questions about APR/Guardadito at any time. The nudge gate only governs
+    // whether we PROACTIVELY suggest, not whether the data is available.
     const financialContext = userWallet
       ? await loadSavingsContext(userWallet)
       : null;
@@ -69,6 +76,19 @@ app.post("/process", async (c) => {
     });
 
     await saveHistory(conversationKey, [...history, ...result.newMessages]);
+
+    if (nudgeDecision.ok && userWallet && nudgeDecision.source) {
+      try {
+        await recordGuardaditoNudge({
+          userWallet,
+          source: nudgeDecision.source,
+          amountMicroUsdc: 0n,
+          message: result.reply,
+        });
+      } catch (nudgeErr) {
+        log.error({ err: nudgeErr }, "nudge log failed");
+      }
+    }
 
     log.info(
       {

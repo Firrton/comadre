@@ -205,6 +205,7 @@ export const unirseTandaExecute: ToolExecutor = async (args, context) => {
     unsigned_tx?: string;
     idempotency_key?: string;
     tanda_id?: string;
+    member?: string;
     signature?: string;
     explorer_url?: string;
   }>({
@@ -214,6 +215,13 @@ export const unirseTandaExecute: ToolExecutor = async (args, context) => {
     userWallet: context.userWallet,
     idempotencyKey,
   });
+  if (result.signature) {
+    return {
+      type: "data",
+      data: result,
+      summary: `Te uniste a la tanda. Comprobante: ${result.explorer_url}`,
+    };
+  }
   return {
     type: "unsigned_tx",
     unsigned_tx_base64: result.unsigned_tx ?? "",

@@ -68,6 +68,8 @@ async function buildSummary(c: Context, user: AuthUser) {
     strategyId: strategySummary.strategyId,
     available: formatMicroUsdc(availableMicroUsdc),
     saved: formatMicroUsdc(strategySummary.savedMicroUsdc),
+    apy_percent: strategySummary.apyPercent,
+    apy_disclaimer: "Variable y no garantizado. Cambia con el mercado.",
     suggested: {
       shouldSuggest: suggestion.shouldSuggest,
       ...formatMicroUsdc(suggestion.suggestedMicroUsdc),

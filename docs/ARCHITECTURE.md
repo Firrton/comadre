@@ -141,3 +141,49 @@ Convención: todo log lleva `req_id` (del middleware Hono), `user_id` o `from` (
 - `INTERNAL_HMAC_SECRET` protege las llamadas service-to-service (`/reply`, `/process`). Generar con `openssl rand -hex 32`.
 - Todas las SKs de wallets viven en `.env` durante hackathon. En producción → Doppler/Infisical.
 - El programa Anchor tiene un guard deployer-only en `init_config` para prevenir front-run.
+
+---
+
+## Modelo de signing (actualizado — custodial backend)
+
+> **NOTA**: Este modelo reemplaza el modelo Privy-custodial documentado más arriba en este archivo. La sección anterior se mantiene por contexto histórico.
+
+### Auth-by-channel (custodial)
+
+La autenticación deriva del número de teléfono verificado en cada webhook de Twilio. El backend valida el header `X-Twilio-Signature` en cada request; un mensaje que falla esta verificación se descarta antes de llegar a lógica de negocio. **La posesión del número es el límite de autenticación.**
+
+El manejo de wallets es 100% server-side:
+
+1. Al primer consentimiento ("sí"), `apps/api/src/lib/onboarding.ts` llama a `Keypair.generate()`.
+2. La public key se vuelve la dirección del wallet del user (guardada en `users.wallet`).
+3. La secret key (base58) se guarda en `user_keypairs.secret_key_b58`.
+4. Toda instrucción posterior se firma vía `signWithUserKeypair(walletAddress)`, que carga el secret de la DB, reconstruye el `Keypair` y firma la transacción.
+
+**¿Por qué NO Privy?** El diseño original usaba embedded wallets de Privy. La API server-side de Privy para firma requiere authorization keys que no se pudieron provisionar en el plazo del hackathon. Privy fue removido; su complejidad de signing se reemplaza por custodia directa de keys. **No hay SDK de Privy en el codebase actual.**
+
+### Agente con toolset wallet-state-aware
+
+`apps/agent/src/agentLoop.ts` llama a `toolsForWalletState(userWallet)` antes de cada invocación al LLM. Si el user ya tiene fila en la DB, `iniciar_onboarding` es **excluido** del toolset. El system prompt tiene una "REGLA ABSOLUTA #1" en el tope que le dice al LLM: "si `iniciar_onboarding` no está en tu toolset, el user ya está registrado — no menciones crear billetera".
+
+### Topología de deployment
+
+```
+Internet
+   │  HTTPS (Let's Encrypt vía sslip.io)
+   ▼
+nginx (:443) ─── 158-23-57-124.sslip.io
+   │
+   ├─► :3002  comadre-whatsapp  (recibe webhooks Twilio)
+   │              │
+   │              └─► comadre-agent  (LLM tool loop)
+   │                        │
+   │                        └─► comadre-api  (REST + Anchor ix builder)
+   │                                  │
+   │                          ┌───────┴──────────┐
+   │                        Postgres           Upstash Redis
+   │                       (nativo VPS)        (cloud REST)
+   │
+   └─► Solana Devnet (RPC vía Helius)
+```
+
+VPS: Azure Ubuntu 22.04. Los 3 servicios son units `systemd --user`. TLS via `certbot` (snap).
