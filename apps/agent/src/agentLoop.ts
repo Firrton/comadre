@@ -46,6 +46,7 @@ export interface RunAgentResult {
 }
 
 const MAX_TOOL_ITERATIONS = 5;
+const COMADRE_LLM_TEMPERATURE = 0.3;
 const TOOLS_ALLOWED_WITHOUT_WALLET = new Set<string>(["iniciar_onboarding"]);
 
 const UNREGISTERED_TOOL_ERROR =
@@ -105,7 +106,7 @@ export async function runAgent({
       messages,
       tools: toolsForWalletState(effectiveUserWallet),
       tool_choice: "auto",
-      temperature: 1,
+      temperature: COMADRE_LLM_TEMPERATURE,
       max_tokens: 4000,
     });
 
