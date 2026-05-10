@@ -13,25 +13,36 @@
     "test": "jest"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.31.0",
     "@comadre/anchor-client": "workspace:*",
     "@comadre/types": "workspace:*",
+    "@coral-xyz/anchor": "^0.31.0",
+    "@craftzdog/react-native-buffer": "^6.1.2",
     "@elevenlabs/react-native": "^0.5.0",
-    "@privy-io/expo": "^0.40.0",
+    "@privy-io/expo": "^0.65.3",
     "@solana-mobile/wallet-adapter-mobile": "^2.1.4",
     "@solana/web3.js": "^1.98.0",
     "@tanstack/react-query": "^5.62.0",
-    "expo": "~52.0.0",
-    "expo-router": "~4.0.0",
-    "expo-secure-store": "~14.0.0",
-    "expo-status-bar": "~2.0.0",
-    "nativewind": "^4.1.0",
-    "react": "18.3.1",
-    "react-native": "0.76.0",
-    "tailwindcss": "^3.4.0",
+    "assert": "^2.1.0",
+    "buffer": "^6.0.3",
+    "events": "^3.3.0",
+    "expo": "~54.0.0",
+    "expo-asset": "~12.0.13",
+    "expo-crypto": "~15.0.9",
+    "expo-router": "~6.0.23",
+    "expo-secure-store": "~15.0.8",
+    "expo-status-bar": "~3.0.9",
+    "nativewind": "^4.2.3",
+    "react": "19.1.0",
+    "react-native": "~0.81.5",
+    "react-native-get-random-values": "~1.11.0",
+    "stream-browserify": "^3.0.0",
+    "tailwindcss": "^4.3.0",
+    "twrnc": "^4.16.0",
+    "url": "^0.11.4",
+    "util": "^0.12.5",
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "@types/react": "^19.2.14"
+    "@types/react": "~19.1.10"
   }
 }

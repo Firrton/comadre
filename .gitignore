@@ -74,3 +74,6 @@ temp/
 
 # Claude Code agent worktrees (created on the fly by Agent tool)
 .claude/worktrees/
+
+# Agent Tool LLM registry
+.atl/

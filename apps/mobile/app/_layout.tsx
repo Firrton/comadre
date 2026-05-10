@@ -10,6 +10,8 @@
  * we render our own headers or the screen is full-bleed (onboarding).
  */
 
+import "../global.css";
+
 import { Stack } from "expo-router";
 
 import { QueryProvider } from "../src/providers/QueryProvider";

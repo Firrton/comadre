@@ -21,7 +21,7 @@ import React, {
   useMemo,
   useState,
 } from "react";
-import { PrivyProvider, usePrivy, useLoginWithSMS } from "@privy-io/expo";
+import { PrivyProvider, usePrivy, useLoginWithSMS } from "./PrivyShim";
 import * as SecureStore from "expo-secure-store";
 
 import {
