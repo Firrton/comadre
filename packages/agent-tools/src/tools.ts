@@ -819,6 +819,61 @@ export const cancelarGuardaditoExecute: ToolExecutor = async (args, context) => 
 // --------------------------------------------------------------------------
 // Registry
 // --------------------------------------------------------------------------
+// --------------------------------------------------------------------------
+// buscar_producto — web product search via Firecrawl
+// --------------------------------------------------------------------------
+export const buscarProductoDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "buscar_producto",
+    description:
+      "Busca productos en internet (precios, marcas, dónde comprar) usando un buscador web. Úsalo cuando el usuario pregunte por un producto específico, comparar marcas, ver precios o saber dónde conseguirlo. Devuelve top 5 resultados con título, descripción y URL.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Lo que el usuario quiere comprar. Ej: 'licuadora Oster', 'microondas LG', 'pañales Huggies talla 3'.",
+        },
+        country: {
+          type: "string",
+          enum: ["mx", "ar", "cl", "co", "pe", "us"],
+          description: "País del usuario para refinar la búsqueda. Default mx.",
+        },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+};
+
+interface BuscarProductoArgs {
+  query: string;
+  country?: string;
+}
+
+export const buscarProductoExecute: ToolExecutor = async (args, context) => {
+  const a = args as BuscarProductoArgs;
+  const data = await apiCall<{
+    query: string;
+    country: string;
+    count: number;
+    products: Array<{ title: string; url: string; snippet: string }>;
+  }>({
+    method: "POST",
+    path: "/api/v1/products/search",
+    body: { query: a.query, country: a.country ?? "mx" },
+    userWallet: context.userWallet,
+    idempotencyKey: newIdempotencyKey(),
+  });
+
+  const summary = data.count > 0
+    ? `Encontré ${data.count} opciones para "${a.query}".`
+    : `No encontré resultados para "${a.query}".`;
+
+  return { type: "data", data, summary };
+};
+
 export const ALL_TOOLS: readonly ToolDefinition[] = [
   consultarPerfilDefinition,
   consultarTandaDefinition,
@@ -839,7 +894,10 @@ export const ALL_TOOLS: readonly ToolDefinition[] = [
   confirmarGuardaditoDefinition,
   retirarGuardaditoDefinition,
   cancelarGuardaditoDefinition,
+  buscarProductoDefinition,
 ];
+
+
 
 export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   consultar_perfil: consultarPerfilExecute,
@@ -856,6 +914,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   confirmar_transfer: confirmarTransferExecute,
   cancelar_transfer: cancelarTransferExecute,
   iniciar_onboarding: iniciarOnboardingExecute,
+  buscar_producto: buscarProductoExecute,
   consultar_guardadito: consultarGuardaditoExecute,
   preparar_guardadito: prepararGuardaditoExecute,
   confirmar_guardadito: confirmarGuardaditoExecute,

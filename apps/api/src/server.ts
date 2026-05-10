@@ -27,6 +27,7 @@ import { idempotencyMiddleware } from "./middlewares/idempotency.js";
 
 import { usersRouter } from "./routes/users.js";
 import { tandasRouter } from "./routes/tandas.js";
+import { productsRouter } from "./routes/products.js";
 import { disputesRouter } from "./routes/disputes.js";
 import { kycRouter } from "./routes/kyc.js";
 import { webhooksRouter } from "./routes/webhooks.js";
@@ -82,6 +83,7 @@ app.route("/api/v1/users", usersRouter);
 app.route("/api/v1/wallet", walletRouter);
 app.route("/api/v1/savings", savingsRouter);
 app.route("/api/v1/tandas", tandasRouter);
+app.route("/api/v1/products", productsRouter);
 app.route("/api/v1/transfers", transfersRouter);
 app.route("/api/v1", disputesRouter);
 app.route("/api/v1/kyc", kycRouter);
