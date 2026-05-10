@@ -1,5 +1,9 @@
 # 🌿 Comadre.
 
+<p align="center">
+  <img src="docs/assets/branding/hero-banner.png" alt="Comadre — Tu dinero, en buenas manos" width="100%" />
+</p>
+
 > **Tu vecina de confianza, en tu teléfono.**  
 > Para mandar dinero, guardar tu platita, organizar tandas y comprar lo que necesitás — sin que tengas que entender cripto, wallets ni palabras raras.
 
@@ -32,6 +36,10 @@ Comadre vive donde la gente ya está: **WhatsApp**. Y también se integra con **
 | **Guardar en el Chanchito** | “Comadre, guardame un poquito.” | Guardadito USDC: Comadre te aconseja cuánto dejar disponible y cuánto poner a trabajar, sin explicar la cocina técnica. |
 | **Crear tandas** | “Hagamos una tanda con mis primas.” | Grupos de ahorro rotativo: todos aportan, y en cada turno una persona recibe el pozo. |
 | **Comprar o buscar mejores precios** | “¿Dónde está más barata esta medicina?” | Tío Memo ayuda a buscar, comparar y volver con una respuesta clara. |
+
+<p align="center">
+  <img src="docs/assets/branding/tandas-visual.png" alt="Cómo funciona una tanda: cada quien pone un poquito y una recibe el pozo" width="88%" />
+</p>
 
 La promesa es simple: **Comadre hace que la plata de la familia se mueva, se cuide y trabaje mejor.**
 
@@ -82,11 +90,19 @@ Comadre traduce esa complejidad a una relación humana:
 
 Tía Vera es la cara principal de Comadre: paciente, clara, dulce y práctica. Ella acompaña el dinero del día a día: mandar, recibir, ahorrar, cobrar y organizar tandas.
 
+<p align="center">
+  <img src="docs/assets/branding/avatar-tia-vera.png" alt="Tía Vera — avatar de Comadre en tamaños 200, 140 y 80 px" width="62%" />
+</p>
+
 > “A ver, mija — confirmo el monto y el número antes de mandarlo.”
 
 ### Tío Memo
 
 Tío Memo aparece cuando hay que buscar algo: precios, productos, compras, información o mejores opciones. No reemplaza a Comadre; la ayuda por detrás, como ese tío que siempre averigua antes de recomendar.
+
+<p align="center">
+  <img src="docs/assets/branding/tio-memo-minicard.png" alt="Tío Memo — el que averigua, compara y explica simple" width="66%" />
+</p>
 
 > “Déjame que Memo lo revise con calma y te digo cuál conviene.”
 
@@ -160,86 +176,19 @@ Crecer país por país, respetando lenguaje, confianza y hábitos locales. Comad
 
 ---
 
-## Guía visual del README
+## Assets visuales del README
 
-Todavía no agregamos imágenes para evitar referencias rotas. Cuando generemos assets, estos son los bloques que deberían vestir el README.
+Ya no son referencias rotas: estos assets viven en [`docs/assets/branding`](docs/assets/branding) y siguen la paleta cálida de Comadre.
 
-### ⬜ Hero banner
+| Asset | Archivo | Dónde se usa |
+|---|---|---|
+| Hero banner | [`hero-banner.png`](docs/assets/branding/hero-banner.png) | Apertura del README: primera impresión de marca. |
+| Tandas visual | [`tandas-visual.png`](docs/assets/branding/tandas-visual.png) | Sección “Qué podés hacer”: explica una tanda sin ponerse técnica. |
+| Tía Vera avatar | [`avatar-tia-vera.png`](docs/assets/branding/avatar-tia-vera.png) | Sección “La familia Comadre”: cara principal del producto. |
+| Tío Memo mini-card | [`tio-memo-minicard.png`](docs/assets/branding/tio-memo-minicard.png) | Búsqueda, compras y comparación de precios. |
+| Programa Solana | [`programa-solana.png`](docs/assets/branding/programa-solana.png) | Sección técnica final para reviewers. |
 
-**Dónde iría:** debajo del título principal.  
-**Objetivo:** que cualquier persona entienda en 3 segundos que Comadre es cálida, familiar y financiera sin parecer fintech.
-
-**Prompt sugerido:**
-
-```txt
-Ilustración horizontal tipo banner para una marca llamada “Comadre.”, estilo libro ilustrado sensible como acuarela monocroma, inspiración de cuento clásico latinoamericano sin folclor exagerado. Mostrar a Tía Vera, una tía/abuela latinoamericana amable de 55-70 años, con expresión dulce y protectora, sosteniendo una pequeña libreta y una plantita de ahorro. Fondo papel cálido color #eee8d2, acentos verde nopal #7c8c4f, olivo #43542a, barro #a86b3c y miel #d49a4a. Trazos finos de tinta #1f2e1c, textura acuarela imperfecta, minimalista, mucho espacio negativo. Incluir la frase “Tu dinero, en buenas manos.” Sin logos cripto, sin monedas digitales, sin neón, sin estética futurista.
-```
-
-### ⬜ Chat de WhatsApp
-
-**Dónde iría:** sección “Qué podés hacer con Comadre”.  
-**Objetivo:** mostrar la magia del producto en lenguaje cotidiano.
-
-**Prompt sugerido:**
-
-```txt
-Mockup limpio de conversación de WhatsApp con Comadre, estilo cálido y humano. Avatar circular de Tía Vera en acuarela, fondo papel crema. Conversación breve: Usuario: “Comadre, mandale $50 a mi hija.” Comadre: “A ver, mija — confirmo: $50 al número de María. ¿Va?” Usuario: “Sí.” Comadre: “Listo, ya quedó. Tu dinero llegó bien.” Usar verdes nopal #7c8c4f y hoja #1f2e1c, con acento barro #a86b3c. Diseño legible, no corporativo, no cripto, no futurista.
-```
-
-### ⬜ Tía Vera avatar
-
-**Dónde iría:** sección “La familia Comadre”.  
-**Objetivo:** convertir a Tía Vera en la cara emocional del producto.
-
-**Prompt sugerido:**
-
-```txt
-Retrato circular para avatar de WhatsApp de Tía Vera, una tía/abuela latinoamericana amable, cercana y sabia, estilo acuarela monocroma con trazos finos de tinta, papel cálido #eee8d2, ropa verde nopal #7c8c4f, acentos miel #d49a4a y barro #a86b3c. Expresión protectora, sonrisa suave, mirada tranquila. Minimalista, sensible, sin estereotipos folclóricos exagerados, sin sombreros, sin elementos cripto.
-```
-
-### ⬜ Tío Memo mini-card
-
-**Dónde iría:** junto a la explicación de búsqueda y compras.  
-**Objetivo:** mostrar que la búsqueda web tiene un personaje propio sin fragmentar la experiencia.
-
-**Prompt sugerido:**
-
-```txt
-Ilustración pequeña tipo tarjeta de Tío Memo, un tío latinoamericano amable de 55-70 años, con lentes, bigote suave, sosteniendo una lupa y un periódico, estilo acuarela monocroma de cuento. Paleta azul añil #3d5a7f, mezclilla #1f3650, hueso #ecdfc5, ocre #d4923a, tinta #1a2538. Debe verse curioso, confiable y paciente. Sin estética detective caricaturesca, sin tecnología futurista, sin logos cripto.
-```
-
-### ⬜ Tandas visual
-
-**Dónde iría:** sección “Qué podés hacer”.  
-**Objetivo:** explicar una tanda sin leer una definición larga.
-
-**Prompt sugerido:**
-
-```txt
-Ilustración simple de una tanda familiar: cuatro personas sentadas alrededor de una mesa cálida, cada una aporta una pequeña ficha o sobre, y una recibe el pozo del turno. Estilo acuarela suave, trazos de tinta, papel cálido #eee8d2, verde nopal #7c8c4f, barro #a86b3c, miel #d49a4a. Debe sentirse familiar, comunitario y seguro. No mostrar bancos, no mostrar blockchain, no mostrar monedas cripto.
-```
-
-### ⬜ Chanchito Guardadito
-
-**Dónde iría:** sección “Guardadito: el chanchito que trabaja por vos”.<br>
-**Objetivo:** convertir el ahorro con rendimiento en una metáfora cálida, memorable y nada cripto.
-
-**Prompt sugerido:**
-
-```txt
-Ilustración cálida para README de Comadre: un chanchito alcancía pequeño, tierno y trabajador, corriendo suavemente con una bolsita de monedas y una plantita creciendo sobre su lomo, como símbolo de “tu platita trabajando”. Debe sentirse como cuento latinoamericano, acuarela sobre papel cálido #eee8d2, trazos finos color hoja #1f2e1c, acentos verde nopal #7c8c4f, miel #d49a4a y barro #a86b3c. El chanchito no debe verse corporativo ni caricatura infantil exagerada: debe ser dulce, ágil, confiable y protector. Incluir sensación de movimiento amable, no velocidad agresiva. Sin logos cripto, sin gráficos financieros, sin neón, sin estética fintech. Frase opcional integrada a mano: “Chau inflación. Hola, Comadre.”
-```
-
-### ⬜ Solana program card
-
-**Dónde iría:** sección técnica final.  
-**Objetivo:** cumplir rápido con reviewers técnicos sin romper el tono de marca.
-
-**Prompt sugerido:**
-
-```txt
-Tarjeta visual limpia para README con estilo Comadre, fondo papel #eee8d2, borde verde nopal #7c8c4f, título “Programa Solana”, subtítulo “Rust + Anchor”, y Program ID destacado: BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh. Diseño sobrio, cálido, no futurista. Incluir un pequeño detalle de plantita o libreta, no logos cripto grandes.
-```
+**Pendientes visuales:** chat mockup de WhatsApp y chanchito Guardadito corriendo. Esos dos todavía pueden sumarse después sin cambiar la estructura del README.
 
 ---
 
@@ -288,6 +237,10 @@ La parte técnica está acá abajo a propósito. Primero viene la persona; despu
 
 ## Smart contract / App ID
 
+<p align="center">
+  <img src="docs/assets/branding/programa-solana.png" alt="Programa Solana de Comadre — Rust + Anchor, Program ID devnet" width="82%" />
+</p>
+
 ```txt
 BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh
 ```
@@ -308,7 +261,7 @@ BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh
 | API | Hono 4 |
 | Agent | Kimi K2 via Moonshot |
 | WhatsApp | Twilio |
-| Wallets/Auth | Privy embedded Solana wallets |
+| Wallets/Auth | WhatsApp auth-by-channel + custodial demo keypairs |
 | Guardadito | Mock strategy by default; Kamino adapter behind env |
 | Database | Postgres / Supabase |
 | Cache | Upstash Redis REST |
@@ -371,9 +324,9 @@ For deploy, `init_config`, IDL upload and devnet USDC setup, read [`docs/RUNBOOK
 | Public repo | ✅ `Firrton/comadre` |
 | Anchor program | ✅ Deployed to devnet |
 | WhatsApp agent services | ✅ Implemented |
-| P2P transfer path | ✅ Implemented with Privy + USDC devnet flow |
+| P2P transfer path | ✅ Implemented with custodial signer + USDC devnet flow |
 | Guardadito / Chanchito | ✅ Mock flow + agent tools + Twilio nudges; Kamino adapter boundary behind env |
-| Tandas on-chain | ⚠️ Program exists; `init_config`/IDL/codegen still needed for full devnet flow |
+| Tandas on-chain | ✅ Create/join backend path restored; full production hardening still pending |
 | KYC / Sumsub | ⚠️ Stubbed / Phase 2 |
 | Mainnet | ❌ Not deployed |
 
