@@ -56,7 +56,7 @@ La experiencia que queremos conservar es esta: una conversación sencilla, con c
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo/whatsapp-guardadito-demo.png" alt="Demo de Comadre por WhatsApp guardando USDC en el chanchito desde Twilio Sandbox" width="92%" />
+  <img src="docs/assets/demo/whatsapp-guardadito-demo.png" alt="Demo de Comadre por WhatsApp guardando USDC en el chanchito y explicando APR variable desde Twilio Sandbox" width="92%" />
 </p>
 
 **Roadmap de marca:** pasar de Twilio Sandbox a un **WhatsApp Business oficial de Comadre**, con nombre, foto de Tía Vera, número propio y plantillas aprobadas para recordatorios, tandas y Guardadito.
@@ -208,7 +208,7 @@ Ya no son referencias rotas: estos assets viven en [`docs/assets/branding`](docs
 | Tío Memo mini-card | [`tio-memo-minicard.png`](docs/assets/branding/tio-memo-minicard.png) | Búsqueda, compras y comparación de precios. |
 | Programa Solana | [`programa-solana.png`](docs/assets/branding/programa-solana.png) | Sección técnica final para reviewers. |
 | Demo WhatsApp — tandas | [`whatsapp-tandas-demo.png`](docs/assets/demo/whatsapp-tandas-demo.png) | Prueba real de conversación creando una tanda desde Twilio Sandbox. |
-| Demo WhatsApp — Guardadito | [`whatsapp-guardadito-demo.png`](docs/assets/demo/whatsapp-guardadito-demo.png) | Prueba real de conversación guardando USDC en el chanchito. |
+| Demo WhatsApp — Guardadito/APR | [`whatsapp-guardadito-demo.png`](docs/assets/demo/whatsapp-guardadito-demo.png) | Prueba real guardando USDC en el chanchito y explicando APR variable sin prometer rendimiento fijo. |
 
 **Pendientes visuales:** chanchito Guardadito corriendo y, si queremos reemplazar las capturas de hackathon, un mockup propio de WhatsApp con avatar de Tía Vera y número oficial de Comadre.
 
