@@ -21,9 +21,9 @@
     "anchor:build": "cd packages/anchor-program && anchor build",
     "anchor:test": "cd packages/anchor-program && anchor test",
     "anchor:deploy:devnet": "cd packages/anchor-program && anchor deploy --provider.cluster devnet",
-    "db:generate": "cd packages/db && drizzle-kit generate",
-    "db:migrate": "cd packages/db && drizzle-kit migrate",
-    "db:studio": "cd packages/db && drizzle-kit studio",
+    "db:generate": "cd packages/db && bunx drizzle-kit generate",
+    "db:migrate": "cd packages/db && bun --env-file=../../.env --env-file=../../.env.local run scripts/migrate.ts",
+    "db:studio": "cd packages/db && bunx drizzle-kit studio",
     "codegen:client": "bash scripts/codegen-client.sh"
   },
   "devDependencies": {

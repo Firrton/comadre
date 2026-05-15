@@ -26,6 +26,10 @@ export {
   savingsPositions,
   savingsActions,
   savingsNudges,
+  smartWallets,
+  sessionKeys,
+  authSessions,
+  elevatedIntents,
 } from "./schema.js";
 
 // Enums (Drizzle pgEnum objects — useful for .notInArray / .inArray helpers)
@@ -45,6 +49,10 @@ export {
   loanStateEnum,
   kycSessionStatusEnum,
   transferStatusEnum,
+  sessionKeyStatusEnum,
+  sessionKeyKindEnum,
+  authSessionStatusEnum,
+  elevatedIntentStatusEnum,
 } from "./schema.js";
 
 // Client

@@ -144,6 +144,35 @@ export const kycSessionStatusEnum = pgEnum("kyc_session_status", [
   "on_hold",
 ]);
 
+/** Session key lifecycle (encrypted ZeroDev permission validator) */
+export const sessionKeyStatusEnum = pgEnum("session_key_status", [
+  "active",
+  "expired",
+  "revoked",
+]);
+
+/** Session key permission tier — daily (low cap) or elevated (OOB-gated). */
+export const sessionKeyKindEnum = pgEnum("session_key_kind", [
+  "daily",
+  "elevated",
+]);
+
+/** Magic-link onboarding session status */
+export const authSessionStatusEnum = pgEnum("auth_session_status", [
+  "pending",
+  "completed",
+  "expired",
+  "cancelled",
+]);
+
+/** OOB-confirmed elevated intent status */
+export const elevatedIntentStatusEnum = pgEnum("elevated_intent_status", [
+  "pending",
+  "approved",
+  "expired",
+  "consumed",
+]);
+
 // ---------------------------------------------------------------------------
 // Helper: shared timestamp helper
 // ---------------------------------------------------------------------------
@@ -670,5 +699,148 @@ export const savingsNudges = pgTable(
     uniqueIndex("savings_nudges_source_ref_uidx").on(t.source, t.sourceRef),
     index("savings_nudges_wallet_idx").on(t.userWallet),
     index("savings_nudges_status_idx").on(t.status),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Monad Account Abstraction tables (per docs/WALLET_SECURITY.md §8)
+//
+// These coexist with the existing Solana custodial path during the migration
+// window. `user_keypairs` (plaintext) is deprecated and will be dropped only
+// after every signing path on the API has moved to session keys.
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per user — the Kernel v3.1 smart contract wallet on Monad.
+ *
+ * Owner = the Privy embedded EVM wallet (`owner_address`). The agent never
+ * holds the owner private key; Privy custodies it on behalf of the user.
+ */
+export const smartWallets = pgTable(
+  "smart_wallets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userWallet: text("user_wallet")
+      .notNull()
+      .references(() => users.wallet, { onDelete: "cascade" }),
+    privyUserId: text("privy_user_id").notNull(),
+    ownerAddress: text("owner_address").notNull(),
+    smartWalletAddress: text("smart_wallet_address").notNull(),
+    chainId: integer("chain_id").notNull(),
+    kernelVersion: text("kernel_version").notNull().default("v3.1"),
+    /** True once we've observed the wallet's bytecode on-chain (post first UserOp). */
+    deployedOnChain: boolean("deployed_on_chain").notNull().default(false),
+    createdAt: tsNow("created_at").notNull(),
+    updatedAt: tsNow("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("smart_wallets_user_wallet_uidx").on(t.userWallet),
+    uniqueIndex("smart_wallets_address_chain_uidx").on(
+      t.smartWalletAddress,
+      t.chainId
+    ),
+    index("smart_wallets_privy_user_idx").on(t.privyUserId),
+  ]
+);
+
+/**
+ * Encrypted ZeroDev session keys.
+ *
+ * `ciphertext` = AES-256-GCM(JSON.stringify({ blob, sessionPrivateKey }), DEK, iv)
+ * `dek_ciphertext` = KMS-wrapped DEK (envelope encryption).
+ * Layout, IV length, and version are all checked in `@comadre/wallet-infra/kms`.
+ *
+ * `policies_json` carries the exact policy config used at install time — needed
+ * to rebuild the same permission plugin for on-chain revocation, since
+ * `permissionId` is deterministic from (signer + policies).
+ */
+export const sessionKeys = pgTable(
+  "session_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    smartWalletId: uuid("smart_wallet_id")
+      .notNull()
+      .references(() => smartWallets.id, { onDelete: "cascade" }),
+    kind: sessionKeyKindEnum("kind").notNull(),
+    sessionAddress: text("session_address").notNull(),
+    permissionId: text("permission_id").notNull(),
+    ciphertext: text("ciphertext").notNull(),
+    dekCiphertext: text("dek_ciphertext").notNull(),
+    iv: text("iv").notNull(),
+    encryptionVersion: text("encryption_version").notNull(),
+    policiesJson: jsonb("policies_json").notNull(),
+    /** Per-call cap in micro-USDC (fast pre-check before KMS decrypt). */
+    perCallCapMicroUsdc: bigint("per_call_cap_micro_usdc", {
+      mode: "bigint",
+    }).notNull(),
+    allowedContracts: jsonb("allowed_contracts").notNull(),
+    allowedRecipients: jsonb("allowed_recipients").notNull().default([]),
+    validUntil: ts("valid_until").notNull(),
+    status: sessionKeyStatusEnum("status").notNull().default("active"),
+    lastUsedAt: ts("last_used_at"),
+    createdAt: tsNow("created_at").notNull(),
+  },
+  (t) => [
+    index("session_keys_smart_wallet_idx").on(t.smartWalletId),
+    index("session_keys_valid_until_idx").on(t.validUntil),
+    index("session_keys_status_idx").on(t.status),
+    uniqueIndex("session_keys_address_uidx").on(t.sessionAddress),
+  ]
+);
+
+/**
+ * Short-lived magic-link onboarding sessions.
+ *
+ * Flow: WhatsApp asks Comadre to register → backend issues a token here →
+ * Twilio SMS link → user opens browser page → Privy auth → callback fills
+ * `privy_user_id` + `owner_address` → backend marks `completed` and writes
+ * the matching `smart_wallets` + `session_keys` rows.
+ */
+export const authSessions = pgTable(
+  "auth_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    phoneHash: text("phone_hash").notNull(),
+    magicToken: text("magic_token").notNull(),
+    status: authSessionStatusEnum("status").notNull().default("pending"),
+    privyUserId: text("privy_user_id"),
+    ownerAddress: text("owner_address"),
+    expiresAt: ts("expires_at").notNull(),
+    completedAt: ts("completed_at"),
+    createdAt: tsNow("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("auth_sessions_token_uidx").on(t.magicToken),
+    index("auth_sessions_phone_idx").on(t.phoneHash),
+    index("auth_sessions_expires_idx").on(t.expiresAt),
+  ]
+);
+
+/**
+ * OOB-confirmed elevated intents.
+ *
+ * Created when the user requests an operation over the daily session cap.
+ * The row holds a Twilio Verify SID and the action descriptor; once the user
+ * supplies a valid OTP, status flips to `approved` and the backend may
+ * decrypt the elevated session key once (then mark `consumed`).
+ */
+export const elevatedIntents = pgTable(
+  "elevated_intents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    smartWalletId: uuid("smart_wallet_id")
+      .notNull()
+      .references(() => smartWallets.id, { onDelete: "cascade" }),
+    actionPayload: jsonb("action_payload").notNull(),
+    twilioVerifySid: text("twilio_verify_sid").notNull(),
+    status: elevatedIntentStatusEnum("status").notNull().default("pending"),
+    expiresAt: ts("expires_at").notNull(),
+    createdAt: tsNow("created_at").notNull(),
+    consumedAt: ts("consumed_at"),
+  },
+  (t) => [
+    index("elevated_intents_smart_wallet_idx").on(t.smartWalletId),
+    index("elevated_intents_expires_idx").on(t.expiresAt),
+    index("elevated_intents_status_idx").on(t.status),
   ]
 );

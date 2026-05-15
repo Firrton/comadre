@@ -643,6 +643,133 @@ export const iniciarOnboardingExecute: ToolExecutor = async (_args, context) => 
 };
 
 // --------------------------------------------------------------------------
+// 15. iniciar_cuenta_segura (Monad onboarding via magic link / SMS)
+// --------------------------------------------------------------------------
+export const iniciarCuentaSeguraDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "iniciar_cuenta_segura",
+    description:
+      "Inicia el proceso de creación de cuenta segura para el usuario en Monad. El agente envía un link único por SMS al teléfono del usuario; el usuario hace tap, confirma con un código que le llega y vuelve a WhatsApp. Usar ESTE tool en lugar de iniciar_onboarding para usuarios NUEVOS desde la migración a Monad.",
+    parameters: {
+      type: "object",
+      properties: {
+        telefono: {
+          type: "string",
+          description: "Número de teléfono del usuario en formato E.164 (ej. +5491112345678)",
+        },
+      },
+      required: ["telefono"],
+    },
+  },
+};
+export const iniciarCuentaSeguraExecute: ToolExecutor = async (args) => {
+  const { telefono } = args as { telefono: string };
+  try {
+    const data = await apiCall<{ ok: true; magicLink?: string }>({
+      method: "POST",
+      path: "/api/v1/onboarding/monad/start",
+      userWallet: "",
+      idempotencyKey: newIdempotencyKey(),
+      body: { phone: telefono },
+    });
+    const summary = data.magicLink
+      ? `Listo, te paso el link de seguridad — abrílo, confirmá con el código por SMS y volvés acá: ${data.magicLink}`
+      : "Listo, ya te mandé un SMS con el link. Abrílo en el celu, confirmá con el código y volvés a esta charla.";
+    return { type: "data", data, summary };
+  } catch {
+    return { type: "error", error: "Tuve un problema arrancando tu cuenta. ¿Probamos de nuevo en un minuto?" };
+  }
+};
+
+// --------------------------------------------------------------------------
+// 16. enviar_plata (Monad single-step USDC transfer via session key)
+// --------------------------------------------------------------------------
+export const enviarPlataDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "enviar_plata",
+    description:
+      "Envía USDC al WhatsApp del destinatario usando la cuenta Monad del usuario. Llamar SOLO después de que el usuario haya confirmado EXPLÍCITAMENTE el monto y el destinatario en el chat (ej: 'sí, mandalo'). El límite es 50 USDC por operación — para montos mayores hay que pasar por confirmación por SMS aparte (no implementado en este tool). El contrato on-chain rechaza cualquier intento por encima del límite.",
+    parameters: {
+      type: "object",
+      properties: {
+        to_phone: {
+          type: "string",
+          description: "Destinatario en E.164 (ej. +5491112345678).",
+        },
+        amount_usdc: {
+          type: "string",
+          description: "Monto en USDC como string decimal (hasta 6 decimales).",
+        },
+        note: {
+          type: "string",
+          maxLength: 280,
+          description: "Nota opcional para el destinatario.",
+        },
+      },
+      required: ["to_phone", "amount_usdc"],
+    },
+  },
+};
+
+interface EnviarPlataArgs {
+  to_phone: string;
+  amount_usdc: string;
+  note?: string;
+}
+
+export const enviarPlataExecute: ToolExecutor = async (args, context) => {
+  const a = args as EnviarPlataArgs;
+  try {
+    const data = await apiCall<{
+      ok: true;
+      deferred: boolean;
+      transferId: string;
+      txHash?: string;
+      amountUsdc: string;
+      message?: string;
+    }>({
+      method: "POST",
+      path: "/api/v1/transfers-monad",
+      userWallet: "",
+      idempotencyKey: context.idempotencyKey ?? newIdempotencyKey(),
+      body: {
+        senderPhone: context.senderPhone,
+        toPhone: a.to_phone,
+        amountUsdc: a.amount_usdc,
+        ...(a.note ? { note: a.note } : {}),
+      },
+    });
+    const summary = data.deferred
+      ? `El contacto ${a.to_phone} no tiene cuenta todavía. Le mandé un aviso por WhatsApp; cuando se registre, recibe los ${a.amount_usdc} USDC.`
+      : `Mandé ${a.amount_usdc} USDC a ${a.to_phone} ✅`;
+    return { type: "data", data, summary };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/cap_exceeded|CAP_EXCEEDED/i.test(message)) {
+      return {
+        type: "error",
+        error: "Esa cantidad supera el límite por operación (50 USDC). Para más grande te paso un código por SMS, pero esa función todavía no está lista.",
+      };
+    }
+    if (/no_session|NO_SESSION/i.test(message)) {
+      return {
+        type: "error",
+        error: "Tu sesión expiró. Llamá a `iniciar_cuenta_segura` para renovarla.",
+      };
+    }
+    if (/sender_not_onboarded|SENDER_NOT_ONBOARDED/i.test(message)) {
+      return {
+        type: "error",
+        error: "Todavía no tenés cuenta. Te paso `iniciar_cuenta_segura` para crearla.",
+      };
+    }
+    return { type: "error", error: "No pude completar la transferencia. ¿Probamos de nuevo?" };
+  }
+};
+
+// --------------------------------------------------------------------------
 // Guardadito tools — user-facing savings flow
 // --------------------------------------------------------------------------
 
@@ -834,6 +961,8 @@ export const ALL_TOOLS: readonly ToolDefinition[] = [
   confirmarTransferDefinition,
   cancelarTransferDefinition,
   iniciarOnboardingDefinition,
+  iniciarCuentaSeguraDefinition,
+  enviarPlataDefinition,
   consultarGuardaditoDefinition,
   prepararGuardaditoDefinition,
   confirmarGuardaditoDefinition,
@@ -856,6 +985,8 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   confirmar_transfer: confirmarTransferExecute,
   cancelar_transfer: cancelarTransferExecute,
   iniciar_onboarding: iniciarOnboardingExecute,
+  iniciar_cuenta_segura: iniciarCuentaSeguraExecute,
+  enviar_plata: enviarPlataExecute,
   consultar_guardadito: consultarGuardaditoExecute,
   preparar_guardadito: prepararGuardaditoExecute,
   confirmar_guardadito: confirmarGuardaditoExecute,

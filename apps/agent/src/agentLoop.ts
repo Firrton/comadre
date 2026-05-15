@@ -47,7 +47,7 @@ export interface RunAgentResult {
 
 const MAX_TOOL_ITERATIONS = 5;
 const COMADRE_LLM_TEMPERATURE = 0.3;
-const TOOLS_ALLOWED_WITHOUT_WALLET = new Set<string>(["iniciar_onboarding"]);
+const TOOLS_ALLOWED_WITHOUT_WALLET = new Set<string>(["iniciar_onboarding", "iniciar_cuenta_segura"]);
 
 const UNREGISTERED_TOOL_ERROR =
   "UNREGISTERED: el usuario no tiene wallet todavía. Pide consentimiento explícito ANTES de llamar `iniciar_onboarding`.";

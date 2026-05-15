@@ -55,6 +55,8 @@ export {
   // Onboarding
   iniciarOnboardingDefinition,
   iniciarOnboardingExecute,
+  iniciarCuentaSeguraDefinition,
+  iniciarCuentaSeguraExecute,
   consultarGuardaditoDefinition,
   prepararGuardaditoDefinition,
   confirmarGuardaditoDefinition,

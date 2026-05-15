@@ -1,0 +1,18 @@
+{
+  "name": "@comadre/monad-contracts",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Comadre on-chain contracts on Monad EVM",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test -vvv",
+    "test:fuzz": "FOUNDRY_PROFILE=ci forge test -vvv",
+    "coverage": "forge coverage --report lcov",
+    "snapshot": "forge snapshot",
+    "fmt": "forge fmt",
+    "fmt:check": "forge fmt --check",
+    "clean": "forge clean",
+    "deploy:testnet": "forge script script/Deploy.s.sol --rpc-url monad_testnet --broadcast --verify --verifier sourcify --verifier-url https://sourcify-api-monad.blockvision.org/",
+    "deploy:mock-usdc:testnet": "forge script script/DeployMockUSDC.s.sol --rpc-url monad_testnet --broadcast"
+  }
+}

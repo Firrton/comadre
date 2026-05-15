@@ -32,6 +32,7 @@ import { kycRouter } from "./routes/kyc.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { rampsRouter } from "./routes/ramps.js";
 import { transfersRouter } from "./routes/transfers.js";
+import { transfersMonadRouter } from "./routes/transfersMonad.js";
 import { onboardingRouter } from "./routes/onboarding.js";
 import { walletRouter } from "./routes/wallet.js";
 import { savingsRouter } from "./routes/savings.js";
@@ -54,19 +55,24 @@ app.get("/health", (c) =>
 // ── Webhooks (public — own auth via HMAC / Privy signature) ──────────────────
 app.route("/webhooks", webhooksRouter);
 
-// ── Onboarding (public — user has no Privy JWT yet) ──────────────────────────
-// Mounted BEFORE the /api/* middleware chain so unregistered phones can register.
+// ── Onboarding + Monad transfers (public — agent uses internal HMAC auth) ────
+// Mounted BEFORE the /api/* middleware chain so unregistered phones can register
+// and so the agent can issue Monad transfers without a Privy JWT.
 app.route("/api/v1/onboarding", onboardingRouter);
+app.route("/api/v1/transfers-monad", transfersMonadRouter);
 
 // ── Authenticated routes ──────────────────────────────────────────────────────
 const ONBOARDING_PREFIX = "/api/v1/onboarding";
+const TRANSFERS_MONAD_PREFIX = "/api/v1/transfers-monad";
 
 app.use("/api/*", async (c, next) => {
   if (c.req.path.startsWith(ONBOARDING_PREFIX)) return next();
+  if (c.req.path.startsWith(TRANSFERS_MONAD_PREFIX)) return next();
   return rateLimitMiddleware(c, next);
 });
 app.use("/api/*", async (c, next) => {
   if (c.req.path.startsWith(ONBOARDING_PREFIX)) return next();
+  if (c.req.path.startsWith(TRANSFERS_MONAD_PREFIX)) return next();
   return authMiddleware(c, next);
 });
 
@@ -74,6 +80,7 @@ app.use("/api/*", async (c, next) => {
 app.use("/api/*", async (c, next) => {
   if (c.req.method !== "POST") return next();
   if (c.req.path.startsWith(ONBOARDING_PREFIX)) return next();
+  if (c.req.path.startsWith(TRANSFERS_MONAD_PREFIX)) return next();
   return idempotencyMiddleware(c, next);
 });
 
