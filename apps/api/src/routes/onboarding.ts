@@ -1,10 +1,14 @@
 /**
- * /api/v1/onboarding — phone-based user onboarding (no Privy JWT yet).
+ * /api/v1/onboarding — phone-based user onboarding.
  *
- * POST /api/v1/onboarding/init { phone } → creates Privy user + Solana wallet.
- * No user-level auth required (the user has no identity yet), but callers
- * must be trusted internal services. The agent signs each request with
- * INTERNAL_HMAC_SECRET after Twilio has verified phone ownership upstream.
+ * Internal-HMAC-authenticated routes (agent → API):
+ *   POST /init                           (legacy Solana path; gated by SOLANA_ONBOARDING_ENABLED)
+ *   POST /monad/start                    (issue magic-link)
+ *
+ * Magic-token-authenticated routes (browser → API):
+ *   GET  /monad/session/:token
+ *   POST /monad/finalize                 (now requires phoneJwt — see COM-026)
+ *   POST /monad/install-session-key      (now wrapped in db.transaction — see COM-009)
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
@@ -18,7 +22,11 @@ import { onboardPhone } from "../lib/onboarding.js";
 import { getLogger } from "../middlewares/logger.js";
 import { upsertContactRoute } from "../lib/savings/contactCrypto.js";
 import { db, authSessions, smartWallets, sessionKeys, users } from "@comadre/db";
-import { sessionKey as walletSessionKey, kms as walletKms } from "@comadre/wallet-infra";
+import {
+  sessionKey as walletSessionKey,
+  kms as walletKms,
+  privy as walletPrivy,
+} from "@comadre/wallet-infra";
 
 export const onboardingRouter = new Hono();
 
@@ -26,7 +34,20 @@ const InitBody = z.object({
   phone: z.string().regex(/^\+\d{6,15}$/, "phone must be E.164"),
 });
 
-const MAX_SIGNATURE_AGE_MS = 5 * 60 * 1000;
+// Audit COM-022: tightened from 5 min to 90s. With anti-replay nonce dedup
+// below, this narrows the replay window to clock-skew tolerance only.
+const MAX_SIGNATURE_AGE_MS = 90 * 1000;
+
+// Audit COM-022: in-process nonce dedup for HMAC signatures. A signature can
+// only be consumed once within MAX_SIGNATURE_AGE_MS. Process-local — fine for
+// single-instance deploys; horizontal scaling would need Redis (deferred).
+const seenSignatures = new Map<string, number>();
+function pruneSeenSignatures(now: number): void {
+  if (seenSignatures.size < 1024) return;
+  for (const [sig, expiresAt] of seenSignatures) {
+    if (expiresAt <= now) seenSignatures.delete(sig);
+  }
+}
 
 function signInternalRequest(secret: string, method: string, path: string, body: string, timestamp: string): string {
   const payload = `${method}\n${path}\n${timestamp}\n${body}`;
@@ -70,6 +91,16 @@ export const requireInternalSignature: MiddlewareHandler = async (c, next) => {
   if (!safeEqualHex(signature, expected)) {
     return c.json({ error: "unauthorized", message: "Invalid internal signature" }, 401);
   }
+
+  // Audit COM-022: reject signature replay within the validity window.
+  const now = Date.now();
+  pruneSeenSignatures(now);
+  const seenExpiresAt = seenSignatures.get(signature);
+  if (seenExpiresAt && seenExpiresAt > now) {
+    log.warn({ path: c.req.path }, "[onboarding] HMAC replay rejected");
+    return c.json({ error: "unauthorized", message: "Signature already used" }, 401);
+  }
+  seenSignatures.set(signature, now + MAX_SIGNATURE_AGE_MS);
 
   return next();
 };
@@ -179,6 +210,13 @@ onboardingRouter.post(
     const now = new Date();
     const expiresAt = new Date(now.getTime() + MAGIC_TOKEN_TTL_MS);
 
+    // Audit COM-034: cancel any prior pending tokens for this phone so two
+    // concurrent magic links can't coexist (race + ATO surface).
+    await db
+      .update(authSessions)
+      .set({ status: "cancelled" })
+      .where(and(eq(authSessions.phoneHash, phoneHash), eq(authSessions.status, "pending")));
+
     await db.insert(authSessions).values({
       phoneHash,
       magicToken,
@@ -248,7 +286,8 @@ const FinalizeBody = z.object({
   token: z.string().min(1),
   privyUserId: z.string().min(1),
   ownerAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
-  phoneJwt: z.string().optional(),
+  // Audit COM-026: now REQUIRED. Verified server-side against Privy.
+  phoneJwt: z.string().min(1),
 });
 
 onboardingRouter.post(
@@ -257,7 +296,7 @@ onboardingRouter.post(
     if (!result.success) return c.json({ error: "validation", issues: result.error.format() }, 400);
   }),
   async (c) => {
-    const { token, privyUserId, ownerAddress } = c.req.valid("json");
+    const { token, privyUserId, ownerAddress, phoneJwt } = c.req.valid("json");
     const log = getLogger(c);
 
     const row = await loadPendingSession(token);
@@ -266,12 +305,37 @@ onboardingRouter.post(
       return c.json({ error: "expired" }, 410);
     }
 
-    // V1: trust the token; phoneJwt verification deferred until Privy app config is wired through.
-    log.info({ token: token.slice(0, 8) + "...", privyUserId, ownerAddress }, "[onboarding] monad finalize");
+    // Audit COM-026: verify the Privy JWT. Confirms the caller authenticated
+    // via Privy AND that the userId/ownerAddress/phone tuple is consistent.
+    let claims;
+    try {
+      claims = await walletPrivy.verifyPrivyJwt(phoneJwt);
+    } catch (err) {
+      log.warn({ err }, "[onboarding] privy jwt verification failed");
+      return c.json({ error: "unauthorized", message: "Invalid Privy JWT" }, 401);
+    }
+    if (claims.userId !== privyUserId) {
+      return c.json({ error: "unauthorized", message: "userId mismatch" }, 401);
+    }
+    const normalizedOwner = ownerAddress.toLowerCase();
+    if (!claims.ownerAddress || claims.ownerAddress.toLowerCase() !== normalizedOwner) {
+      return c.json({ error: "unauthorized", message: "ownerAddress mismatch" }, 401);
+    }
+    const phoneMatches = claims.phoneNumbers.some(
+      (p) => hashPhoneSync(p) === row.phoneHash,
+    );
+    if (!phoneMatches) {
+      return c.json({ error: "unauthorized", message: "phone mismatch" }, 401);
+    }
+
+    log.info(
+      { token: token.slice(0, 8) + "...", privyUserId, ownerAddress: normalizedOwner },
+      "[onboarding] monad finalize",
+    );
 
     await db
       .update(authSessions)
-      .set({ privyUserId, ownerAddress: ownerAddress.toLowerCase() })
+      .set({ privyUserId, ownerAddress: normalizedOwner })
       .where(eq(authSessions.magicToken, token));
 
     const generated = walletSessionKey.generateSessionKey();
@@ -285,6 +349,9 @@ const InstallBody = z.object({
   token: z.string().min(1),
   serializedBlob: z.string().min(1),
   smartWalletAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+  // Audit COM-027: now REQUIRED. Re-verified server-side against the
+  // privyUserId stored at finalize time.
+  phoneJwt: z.string().min(1),
 });
 
 onboardingRouter.post(
@@ -293,7 +360,7 @@ onboardingRouter.post(
     if (!result.success) return c.json({ error: "validation", issues: result.error.format() }, 400);
   }),
   async (c) => {
-    const { token, serializedBlob, smartWalletAddress } = c.req.valid("json");
+    const { token, serializedBlob, smartWalletAddress, phoneJwt } = c.req.valid("json");
     const log = getLogger(c);
 
     const row = await loadPendingSession(token);
@@ -303,6 +370,22 @@ onboardingRouter.post(
     }
     if (!row.privyUserId || !row.ownerAddress) {
       return c.json({ error: "finalize_required" }, 409);
+    }
+
+    // Audit COM-027: verify the Privy JWT against the user pinned at finalize.
+    let claims;
+    try {
+      claims = await walletPrivy.verifyPrivyJwt(phoneJwt);
+    } catch (err) {
+      log.warn({ err }, "[onboarding] privy jwt verification failed at install");
+      return c.json({ error: "unauthorized", message: "Invalid Privy JWT" }, 401);
+    }
+    if (claims.userId !== row.privyUserId) {
+      return c.json({ error: "unauthorized", message: "userId mismatch" }, 401);
+    }
+    const normalizedOwner = row.ownerAddress.toLowerCase();
+    if (!claims.ownerAddress || claims.ownerAddress.toLowerCase() !== normalizedOwner) {
+      return c.json({ error: "unauthorized", message: "ownerAddress mismatch" }, 401);
     }
 
     const sessionEntry = takeSessionPk(token);
@@ -316,74 +399,84 @@ onboardingRouter.post(
     const chainId = Number(process.env["MONAD_CHAIN_ID"] ?? MONAD_DEFAULT_CHAIN_ID);
     const comadreAddr = process.env["COMADRE_CONTRACT_ADDRESS"] ?? "0x0";
     const usdcAddr = process.env["USDC_CONTRACT_ADDRESS"] ?? "0x0";
-    const normalizedOwner = row.ownerAddress.toLowerCase();
     const normalizedSmart = smartWalletAddress.toLowerCase();
     const now = new Date();
 
-    // Dual-identity period: legacy users.wallet still references Solana base58.
-    // For Monad signups we insert a fresh row keyed by EVM ownerAddress.
-    // If a row already exists for this phoneHash, reuse its wallet PK instead.
-    const existingByPhone = await db
-      .select({ wallet: users.wallet })
-      .from(users)
-      .where(eq(users.phoneHash, row.phoneHash))
-      .limit(1);
+    // Audit COM-009: all four writes are atomic. A mid-flight crash either
+    // leaves the auth_session pending (recoverable) or fully completes —
+    // never the in-between state that previously orphaned smart_wallets rows.
+    try {
+      await db.transaction(async (tx) => {
+        const existingByPhone = await tx
+          .select({ wallet: users.wallet })
+          .from(users)
+          .where(eq(users.phoneHash, row.phoneHash))
+          .limit(1);
 
-    const userWallet = existingByPhone[0]?.wallet ?? normalizedOwner;
-    if (!existingByPhone[0]) {
-      await db.insert(users).values({
-        wallet: normalizedOwner,
-        phoneHash: row.phoneHash,
-        kycTier: "t0_demo",
-        reputationScore: 0,
-        tandasCompleted: 0,
-        tandasDefaulted: 0,
-        tandasCreated: 0n,
-        loansRepaid: 0,
-        loansDefaulted: 0,
-        createdAt: now,
-        updatedAt: now,
+        const userWallet = existingByPhone[0]?.wallet ?? normalizedOwner;
+        if (!existingByPhone[0]) {
+          await tx.insert(users).values({
+            wallet: normalizedOwner,
+            phoneHash: row.phoneHash,
+            kycTier: "t0_demo",
+            reputationScore: 0,
+            tandasCompleted: 0,
+            tandasDefaulted: 0,
+            tandasCreated: 0n,
+            loansRepaid: 0,
+            loansDefaulted: 0,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+
+        const inserted = await tx
+          .insert(smartWallets)
+          .values({
+            userWallet,
+            privyUserId: row.privyUserId!,
+            ownerAddress: normalizedOwner,
+            smartWalletAddress: normalizedSmart,
+            chainId,
+          })
+          .returning({ id: smartWallets.id });
+
+        const smartWalletId = inserted[0]!.id;
+
+        await tx.insert(sessionKeys).values({
+          smartWalletId,
+          kind: "daily",
+          sessionAddress: sessionEntry.address.toLowerCase(),
+          // TODO(monad-onboarding): extract on-chain permissionId from serializedBlob (audit COM-033).
+          permissionId: "",
+          ciphertext: envelope.ciphertext,
+          dekCiphertext: envelope.dekCiphertext,
+          iv: envelope.iv,
+          encryptionVersion: envelope.encryptionVersion,
+          policiesJson: { kind: "daily", cap: 50 },
+          perCallCapMicroUsdc: DAILY_PER_CALL_CAP_MICRO_USDC,
+          allowedContracts: [comadreAddr, usdcAddr],
+          // TODO(audit COM-004): populate from user contact allowlist; empty = no transfers
+          //                       allowed once the signer enforces this list.
+          allowedRecipients: [],
+          validUntil: new Date(now.getTime() + DAILY_VALIDITY_MS),
+          status: "active",
+        });
+
+        await tx
+          .update(authSessions)
+          .set({ status: "completed", completedAt: now })
+          .where(
+            and(eq(authSessions.magicToken, token), eq(authSessions.status, "pending")),
+          );
       });
+    } catch (err) {
+      log.error({ err }, "[onboarding] install transaction failed");
+      return c.json({ error: "install_failed", message: "Database transaction failed" }, 500);
     }
 
-    const inserted = await db
-      .insert(smartWallets)
-      .values({
-        userWallet,
-        privyUserId: row.privyUserId,
-        ownerAddress: normalizedOwner,
-        smartWalletAddress: normalizedSmart,
-        chainId,
-      })
-      .returning({ id: smartWallets.id });
-
-    const smartWalletId = inserted[0]!.id;
-
-    await db.insert(sessionKeys).values({
-      smartWalletId,
-      kind: "daily",
-      sessionAddress: sessionEntry.address.toLowerCase(),
-      // TODO(monad-onboarding): extract on-chain permissionId from serializedBlob.
-      permissionId: "",
-      ciphertext: envelope.ciphertext,
-      dekCiphertext: envelope.dekCiphertext,
-      iv: envelope.iv,
-      encryptionVersion: envelope.encryptionVersion,
-      policiesJson: { kind: "daily", cap: 50 },
-      perCallCapMicroUsdc: DAILY_PER_CALL_CAP_MICRO_USDC,
-      allowedContracts: [comadreAddr, usdcAddr],
-      allowedRecipients: [],
-      validUntil: new Date(now.getTime() + DAILY_VALIDITY_MS),
-      status: "active",
-    });
-
-    await db
-      .update(authSessions)
-      .set({ status: "completed", completedAt: now })
-      .where(and(eq(authSessions.magicToken, token), eq(authSessions.status, "pending")));
-
     sessionPkMemory.delete(token);
-    log.info({ smartWalletId, normalizedSmart }, "[onboarding] monad session key installed");
+    log.info({ normalizedSmart }, "[onboarding] monad session key installed");
 
     return c.json({ ok: true, smartWalletAddress: normalizedSmart }, 200);
   },

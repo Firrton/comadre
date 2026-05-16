@@ -4,10 +4,16 @@
  * Reads `Authorization: Bearer <jwt>`, verifies with Privy server SDK,
  * and sets `c.set("user", { userId, walletAddress, linkedAccounts })`.
  *
- * Dev-mode bypass (NODE_ENV !== "production"):
+ * Dev-mode bypass — opt-in via explicit env flag (audit COM-006):
+ *   DEV_AUTH_BYPASS=true   ← MUST be explicitly set; default OFF
+ *   AND NODE_ENV !== "production"
+ *
+ * Then accepts:
  *   X-Dev-Wallet: <solana-pubkey>
  *   X-Dev-User-Id: <string>
- * This lets us test before Privy is fully wired.
+ *
+ * Previously the bypass was active for any non-production NODE_ENV. That made
+ * a single env misconfig collapse all user auth to whoever held the HMAC secret.
  */
 
 import type { MiddlewareHandler } from "hono";
@@ -39,9 +45,16 @@ function getPrivy(): PrivyClient {
 export const authMiddleware: MiddlewareHandler = async (c, next) => {
   const logger = getLogger(c);
   const nodeEnv = process.env["NODE_ENV"] ?? "development";
+  const devBypassEnabled = process.env["DEV_AUTH_BYPASS"] === "true";
 
-  // Dev-mode bypass — accept header-injected identity (non-production only)
-  if (nodeEnv !== "production") {
+  // Audit COM-006: dev-mode bypass now requires BOTH the explicit env flag AND
+  // non-production NODE_ENV. The flag MUST be explicitly set; default is OFF
+  // (i.e. unset, "false", or anything other than "true" rejects the bypass).
+  if (nodeEnv === "production" && devBypassEnabled) {
+    logger.error("[auth] DEV_AUTH_BYPASS=true in production — refusing to honor");
+  }
+
+  if (nodeEnv !== "production" && devBypassEnabled) {
     const devWallet = c.req.header("X-Dev-Wallet");
     const devUserId = c.req.header("X-Dev-User-Id");
 

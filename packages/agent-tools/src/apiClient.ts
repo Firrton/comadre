@@ -7,8 +7,10 @@
  * Auth model:
  *   - The agent service signs each request with the shared `INTERNAL_HMAC_SECRET`
  *   - `apps/api` verifies the signature on its `/api/v1/...` endpoints
- *   - In dev (NODE_ENV !== "production") we ALSO send `X-Dev-Wallet` and
- *     `X-Dev-User-Id` so the API's dev-mode bypass works without Privy JWT
+ *   - Audit COM-006: dev-bypass headers (X-Dev-Wallet / X-Dev-User-Id) are sent
+ *     ONLY when NODE_ENV === "development". Previously they were sent always,
+ *     which combined with a misconfigured production NODE_ENV could turn the
+ *     HMAC secret into a master key over every user.
  */
 import crypto from "node:crypto";
 import { env } from "@comadre/config";
@@ -42,9 +44,12 @@ export async function apiCall<T>(params: ApiCallParams): Promise<T> {
     "Content-Type": "application/json",
     "X-Internal-Signature": signature,
     "X-Internal-Timestamp": timestamp,
-    "X-Dev-Wallet": params.userWallet,
-    "X-Dev-User-Id": `agent-tool:${params.userWallet}`,
   };
+  // Audit COM-006: dev-bypass headers gated on NODE_ENV === "development".
+  if (process.env["NODE_ENV"] === "development" && params.userWallet) {
+    headers["X-Dev-Wallet"] = params.userWallet;
+    headers["X-Dev-User-Id"] = `agent-tool:${params.userWallet}`;
+  }
   if (params.idempotencyKey) headers["X-Idempotency-Key"] = params.idempotencyKey;
 
   const response = await fetch(url, {

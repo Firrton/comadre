@@ -20,6 +20,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import { db, transfers } from "@comadre/db";
 import { lookupMonadByPhone } from "../lib/monadPhoneLookup.js";
 import { buildUsdcTransferCalldata, microToUsdc, usdcToMicro } from "../lib/monadUsdcTransfer.js";
@@ -174,10 +175,6 @@ transfersMonadRouter.post(
   },
 );
 
-// Drizzle's `eq(transfers.id, …)` once — kept local to avoid a long import line.
 function eqId(id: string) {
-  return eqRaw(transfers.id, id);
+  return eq(transfers.id, id);
 }
-
-// Resolved separately so the helper above stays readable.
-import { eq as eqRaw } from "drizzle-orm";

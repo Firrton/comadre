@@ -12,7 +12,7 @@
 
 import { and, eq, gt } from "drizzle-orm";
 import { db, sessionKeys, smartWallets } from "@comadre/db";
-import { kms, sessionKey as sessionKeyApi } from "@comadre/wallet-infra";
+import { sessionKey as sessionKeyApi } from "@comadre/wallet-infra";
 import type { Address, Hex } from "viem";
 
 export interface SignMonadTransferInput {
@@ -58,13 +58,6 @@ export async function signMonadTransfer(
     return { ok: false, reason: "cap_exceeded" };
   }
 
-  const plaintext = await kms.decryptSessionKey({
-    ciphertext: key.ciphertext,
-    dekCiphertext: key.dekCiphertext,
-    iv: key.iv,
-    encryptionVersion: key.encryptionVersion,
-  });
-
   const result = await sessionKeyApi.signAndSendUserOp({
     envelope: {
       ciphertext: key.ciphertext,
@@ -76,14 +69,10 @@ export async function signMonadTransfer(
     data: input.data,
   });
 
-  // Touch lastUsedAt for observability + future rate-limit policies.
   await db
     .update(sessionKeys)
     .set({ lastUsedAt: new Date() })
     .where(eq(sessionKeys.id, key.id));
-
-  // Avoid retaining the plaintext reference in any closure scope.
-  void plaintext;
 
   return { ok: true, userOpHash: result.userOpHash, txHash: result.txHash };
 }

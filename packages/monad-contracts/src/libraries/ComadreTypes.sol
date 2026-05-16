@@ -61,8 +61,13 @@ library ComadreTypes {
     /// @notice Minimum frequency between turns on mainnet (24h).
     uint32 internal constant MIN_FREQUENCY = 86_400;
 
-    /// @notice Maximum fee in basis points (100% = 10_000).
-    uint16 internal constant MAX_FEE_BPS = 10_000;
+    /// @notice Basis-point denominator used in fee math (`fee = gross * feeBps / BPS_DENOMINATOR`).
+    ///         100% in basis points; never used as a cap.
+    uint16 internal constant BPS_DENOMINATOR = 10_000;
+
+    /// @notice Hard upper bound on `feeBps`. Capped at 10% so a compromised
+    ///         admin cannot drain payouts via fee rotation. See audit COM-016.
+    uint16 internal constant MAX_FEE_BPS = 1_000;
 
     /// @notice Number of KYC tiers (T0–T3).
     uint8 internal constant KYC_TIER_COUNT = 4;

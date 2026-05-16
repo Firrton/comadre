@@ -6,6 +6,7 @@
  * POST /webhooks/helius  — Solana transaction events (log only; indexer is authoritative)
  */
 
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { eq } from "drizzle-orm";
@@ -23,6 +24,23 @@ function log(c: Context): pino.Logger {
   return rootLogger.child({ path: c.req.path });
 }
 
+/**
+ * Audit COM-023: timing-safe HMAC comparison. Plain `!==` on hex digests leaks
+ * comparison length via timing. Decode both sides to Buffers of equal length
+ * and use `crypto.timingSafeEqual`. Returns false on any malformed input.
+ */
+function timingSafeHexEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  if (!/^[0-9a-f]+$/i.test(a) || !/^[0-9a-f]+$/i.test(b)) return false;
+  try {
+    return timingSafeEqual(Buffer.from(a, "hex"), Buffer.from(b, "hex"));
+  } catch {
+    return false;
+  }
+}
+
+const IS_PRODUCTION = process.env["NODE_ENV"] === "production";
+
 // ---------------------------------------------------------------------------
 // POST /webhooks/sumsub — KYC events
 // ---------------------------------------------------------------------------
@@ -30,6 +48,17 @@ webhooksRouter.post("/sumsub", async (c) => {
   const logger = log(c);
 
   const webhookSecret = process.env["SUMSUB_WEBHOOK_SECRET"];
+
+  // Audit COM-024: fail CLOSED in production if the webhook secret is unset.
+  // Previously an unset secret would silently accept every request — including
+  // forged ones — which is catastrophic for a KYC channel.
+  if (!webhookSecret) {
+    if (IS_PRODUCTION) {
+      logger.error("[sumsub] SUMSUB_WEBHOOK_SECRET unset in production — rejecting");
+      return c.json({ error: "service_unavailable", message: "Webhook secret missing" }, 503);
+    }
+    logger.warn("[sumsub] SUMSUB_WEBHOOK_SECRET unset (dev only)");
+  }
 
   let payload: unknown;
 
@@ -41,19 +70,10 @@ webhooksRouter.post("/sumsub", async (c) => {
       return c.json({ error: "unauthorized", message: "Missing X-Payload-Digest" }, 401);
     }
 
-    const key = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(webhookSecret),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"]
-    );
-    const sigBuf = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody));
-    const expected = Array.from(new Uint8Array(sigBuf))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+    const expected = createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
 
-    if (digest !== expected) {
+    // Audit COM-023: timing-safe comparison.
+    if (!timingSafeHexEqual(digest, expected)) {
       logger.warn("[sumsub] HMAC mismatch");
       return c.json({ error: "unauthorized", message: "Invalid payload digest" }, 401);
     }
@@ -97,12 +117,48 @@ webhooksRouter.post("/sumsub", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /webhooks/privy — wallet linking events (STUB)
+// POST /webhooks/privy — wallet linking events
+//
+// Audit COM-025: was previously unauthenticated. Now requires an HMAC-SHA256
+// signature in `X-Privy-Signature` (hex), computed over the raw body using
+// PRIVY_WEBHOOK_SECRET. Privy production uses Svix-style multi-sig; integrating
+// the full Svix verifier is a follow-up (COM-025 phase 2). For now this closes
+// the latent landmine — an unsigned request is rejected.
 // ---------------------------------------------------------------------------
 webhooksRouter.post("/privy", async (c) => {
   const logger = log(c);
-  const payload = await c.req.json().catch(() => null);
-  logger.info({ payload }, "[privy] webhook received (stub)");
+  const webhookSecret = process.env["PRIVY_WEBHOOK_SECRET"];
+
+  if (!webhookSecret) {
+    if (IS_PRODUCTION) {
+      logger.error("[privy] PRIVY_WEBHOOK_SECRET unset in production — rejecting");
+      return c.json({ error: "service_unavailable" }, 503);
+    }
+    logger.warn("[privy] PRIVY_WEBHOOK_SECRET unset (dev only); accepting unsigned");
+    const payload = await c.req.json().catch(() => null);
+    logger.info({ payload }, "[privy] webhook received (dev, unsigned)");
+    return c.json({ received: true }, 200);
+  }
+
+  const rawBody = await c.req.text();
+  const signature = c.req.header("X-Privy-Signature");
+  if (!signature) {
+    return c.json({ error: "unauthorized", message: "Missing X-Privy-Signature" }, 401);
+  }
+  const expected = createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
+  if (!timingSafeHexEqual(signature, expected)) {
+    logger.warn("[privy] HMAC mismatch");
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    return c.json({ error: "bad_request", message: "Invalid JSON" }, 400);
+  }
+
+  logger.info({ payload }, "[privy] webhook received");
   return c.json({ received: true }, 200);
 });
 
@@ -114,10 +170,16 @@ webhooksRouter.post("/helius", async (c) => {
 
   const heliusSecret = process.env["HELIUS_WEBHOOK_SECRET"];
   if (heliusSecret) {
-    const auth = c.req.header("Authorization");
-    if (auth !== heliusSecret) {
+    const auth = c.req.header("Authorization") ?? "";
+    // Audit COM-023 (Helius variant): timing-safe equality on shared-secret check.
+    const a = Buffer.from(auth);
+    const b = Buffer.from(heliusSecret);
+    const ok = a.length === b.length && timingSafeEqual(a, b);
+    if (!ok) {
       return c.json({ error: "unauthorized" }, 401);
     }
+  } else if (IS_PRODUCTION) {
+    return c.json({ error: "service_unavailable", message: "Webhook secret missing" }, 503);
   }
 
   const body = await c.req.json().catch(() => null);

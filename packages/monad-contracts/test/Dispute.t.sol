@@ -97,19 +97,32 @@ contract DisputeTest is TestBase {
 
     function test_voteDispute_continueAndCancelTallies() public {
         bytes32 key = _activeTanda();
+        // Audit COM-045: opener cannot vote on their own dispute. Bob opens,
+        // carol and dave vote.
         vm.prank(bob);
         bytes32 dispute = comadre.openDispute(key, REASON_HASH);
 
-        vm.prank(bob);
-        comadre.voteDispute(key, dispute, true);
         vm.prank(carol);
+        comadre.voteDispute(key, dispute, true);
+        vm.prank(dave);
         comadre.voteDispute(key, dispute, false);
 
         T.Dispute memory d = comadre.getDispute(dispute);
         assertEq(d.votesContinue, 1);
         assertEq(d.votesCancel, 1);
-        assertTrue(comadre.hasVoted(dispute, bob));
         assertTrue(comadre.hasVoted(dispute, carol));
+        assertTrue(comadre.hasVoted(dispute, dave));
+    }
+
+    function test_voteDispute_revertsWhenOpener() public {
+        bytes32 key = _activeTanda();
+        vm.prank(bob);
+        bytes32 dispute = comadre.openDispute(key, REASON_HASH);
+
+        // Audit COM-045: the opener voting on their own dispute reverts.
+        vm.prank(bob);
+        vm.expectRevert(E.Unauthorized.selector);
+        comadre.voteDispute(key, dispute, true);
     }
 
     function test_voteDispute_revertsOnDoubleVote() public {
@@ -117,10 +130,11 @@ contract DisputeTest is TestBase {
         vm.prank(bob);
         bytes32 dispute = comadre.openDispute(key, REASON_HASH);
 
-        vm.prank(bob);
+        // Bob opens, so carol is the one voting twice.
+        vm.prank(carol);
         comadre.voteDispute(key, dispute, true);
 
-        vm.prank(bob);
+        vm.prank(carol);
         vm.expectRevert(E.AlreadyVoted.selector);
         comadre.voteDispute(key, dispute, false);
     }
@@ -153,15 +167,14 @@ contract DisputeTest is TestBase {
 
     function test_resolveDispute_continueWinsRestoresActive() public {
         bytes32 key = _activeTanda();
+        // Bob opens, so only carol + dave can vote (audit COM-045).
         vm.prank(bob);
         bytes32 dispute = comadre.openDispute(key, REASON_HASH);
 
-        vm.prank(bob);
-        comadre.voteDispute(key, dispute, true);
         vm.prank(carol);
         comadre.voteDispute(key, dispute, true);
         vm.prank(dave);
-        comadre.voteDispute(key, dispute, false);
+        comadre.voteDispute(key, dispute, true);
 
         _warpForward(T.DISPUTE_VOTING_WINDOW + 1);
 
@@ -182,9 +195,9 @@ contract DisputeTest is TestBase {
         vm.prank(bob);
         bytes32 dispute = comadre.openDispute(key, REASON_HASH);
 
-        vm.prank(bob);
-        comadre.voteDispute(key, dispute, false);
         vm.prank(carol);
+        comadre.voteDispute(key, dispute, false);
+        vm.prank(dave);
         comadre.voteDispute(key, dispute, false);
 
         _warpForward(T.DISPUTE_VOTING_WINDOW + 1);
@@ -200,9 +213,9 @@ contract DisputeTest is TestBase {
         vm.prank(bob);
         bytes32 dispute = comadre.openDispute(key, REASON_HASH);
 
-        vm.prank(bob);
-        comadre.voteDispute(key, dispute, true);
         vm.prank(carol);
+        comadre.voteDispute(key, dispute, true);
+        vm.prank(dave);
         comadre.voteDispute(key, dispute, false);
 
         _warpForward(T.DISPUTE_VOTING_WINDOW + 1);

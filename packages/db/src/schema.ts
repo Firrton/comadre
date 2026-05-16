@@ -1,16 +1,31 @@
 /**
  * @comadre/db — Drizzle ORM schema
  *
- * 12 tables mirroring on-chain Anchor accounts (read by the indexer service)
- * plus off-chain state tables for the agent, ramps, KYC, and API idempotency.
+ * Originally 12 tables mirroring on-chain Anchor accounts (read by the indexer)
+ * plus off-chain state for the agent, ramps, KYC, and idempotency. The Monad
+ * migration added: smart_wallets, session_keys, auth_sessions, elevated_intents
+ * (see docs/WALLET_SECURITY.md §8 for the full design).
  *
  * Design decisions:
- * - Pubkeys stored as TEXT (base58), not bytea — easier to debug and consistent
- *   with @comadre/types validators.
+ * - Pubkeys stored as TEXT — base58 for Solana legacy rows, lowercase hex 0x...
+ *   for Monad rows. Mixed-mode coexistence during migration is expected.
  * - u64 on-chain amounts stored as BIGINT with mode:'bigint' — returns native
  *   BigInt, no IEEE 754 precision loss.
  * - Timestamps with timezone, mode:'date' — returns JS Date objects.
  * - Enums are Postgres native pgEnum — enforced at the DB level.
+ *
+ * Known gaps tracked in docs/audits/00-master-findings.md:
+ * - `session_keys.permissionId` is currently persisted as empty string at
+ *   install time (audit COM-033). The on-chain `uninstallValidator(permissionId)`
+ *   revocation path (WALLET_SECURITY.md §7) is unavailable until populated.
+ *   Soft revoke (delete the row) still works.
+ * - `user_keypairs.secret_key_b58` is the legacy Solana plaintext-key column
+ *   being retired (audit COM-005). New onboarding flows MUST use the Monad
+ *   `smart_wallets` + `session_keys` path; the Solana path is gated by
+ *   `SOLANA_ONBOARDING_ENABLED` and disabled in production.
+ * - `session_keys.allowedRecipients` is populated as `[]` at install time and
+ *   not consulted by the signer (audit COM-004). The "backend-enforced
+ *   allowlist" described in WALLET_SECURITY.md §10/§11 is not yet wired.
  */
 
 import { sql } from "drizzle-orm";

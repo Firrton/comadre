@@ -946,6 +946,10 @@ export const cancelarGuardaditoExecute: ToolExecutor = async (args, context) => 
 // --------------------------------------------------------------------------
 // Registry
 // --------------------------------------------------------------------------
+// `iniciarOnboardingDefinition`/`iniciar_onboarding` are intentionally NOT in
+// the registry: that flow created plaintext Solana keys and is being retired in
+// favor of `iniciar_cuenta_segura` (Monad + KMS-encrypted session keys).
+// See audit COM-032 / COM-005.
 export const ALL_TOOLS: readonly ToolDefinition[] = [
   consultarPerfilDefinition,
   consultarTandaDefinition,
@@ -960,7 +964,6 @@ export const ALL_TOOLS: readonly ToolDefinition[] = [
   iniciarTransferDefinition,
   confirmarTransferDefinition,
   cancelarTransferDefinition,
-  iniciarOnboardingDefinition,
   iniciarCuentaSeguraDefinition,
   enviarPlataDefinition,
   consultarGuardaditoDefinition,
@@ -984,7 +987,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   iniciar_transfer: iniciarTransferExecute,
   confirmar_transfer: confirmarTransferExecute,
   cancelar_transfer: cancelarTransferExecute,
-  iniciar_onboarding: iniciarOnboardingExecute,
+  // iniciar_onboarding intentionally excluded — see ALL_TOOLS comment above.
   iniciar_cuenta_segura: iniciarCuentaSeguraExecute,
   enviar_plata: enviarPlataExecute,
   consultar_guardadito: consultarGuardaditoExecute,

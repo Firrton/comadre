@@ -30,7 +30,7 @@ const comadreAbi = parseAbi([
   "function contribute(bytes32 tandaKey) external",
   "function joinTanda(bytes32 tandaKey, uint8 turnNumber) external",
   "function openDispute(bytes32 tandaKey, bytes32 reasonHash) external returns (bytes32)",
-  "function voteDispute(bytes32 disputeKey, bool continueTanda) external",
+  "function voteDispute(bytes32 tandaKey, bytes32 disputeKey, bool continueTanda) external",
   "function claimStake(bytes32 tandaKey) external",
 ]);
 
@@ -86,7 +86,7 @@ export function buildPolicies(input: BuildPoliciesInput) {
         valueLimit: 0n,
         abi: comadreAbi,
         functionName: "voteDispute",
-        args: [null, null],
+        args: [null, null, null],
       },
       {
         target: input.comadreAddress,

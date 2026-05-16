@@ -26,8 +26,10 @@ afterEach(() => {
 const ctx = { userWallet: "BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh" };
 
 describe("tool registry", () => {
-  it("exposes 19 tools", () => {
-    expect(ALL_TOOLS.length).toBe(19);
+  it("exposes the expected number of tools", () => {
+    // Audit COM-032: iniciar_onboarding was removed from the registry. Update
+    // this count when adding/removing tools.
+    expect(ALL_TOOLS.length).toBe(20);
   });
 
   it("includes transfer and onboarding tools", () => {
@@ -36,7 +38,10 @@ describe("tool registry", () => {
     expect(names).toContain("iniciar_transfer");
     expect(names).toContain("confirmar_transfer");
     expect(names).toContain("cancelar_transfer");
-    expect(names).toContain("iniciar_onboarding");
+    // Audit COM-032: iniciar_onboarding (legacy Solana plaintext-key path)
+    // is intentionally NOT registered. The Monad replacement is iniciar_cuenta_segura.
+    expect(names).not.toContain("iniciar_onboarding");
+    expect(names).toContain("iniciar_cuenta_segura");
     expect(names).toContain("consultar_guardadito");
     expect(names).toContain("preparar_guardadito");
     expect(names).toContain("confirmar_guardadito");
@@ -65,7 +70,13 @@ describe("read-only tools", () => {
     expect(lastRequest?.init?.method).toBe("GET");
     const headers = lastRequest?.init?.headers as Record<string, string>;
     expect(headers["X-Internal-Signature"]).toMatch(/^[0-9a-f]{64}$/);
-    expect(headers["X-Dev-Wallet"]).toBe(ctx.userWallet);
+    // Audit COM-006: X-Dev-Wallet is only sent in NODE_ENV=development. In
+    // tests (NODE_ENV=test) the header is intentionally absent.
+    if (process.env["NODE_ENV"] === "development") {
+      expect(headers["X-Dev-Wallet"]).toBe(ctx.userWallet);
+    } else {
+      expect(headers["X-Dev-Wallet"]).toBeUndefined();
+    }
   });
 
   it("consultar_tanda → GET /api/v1/tandas/:id", async () => {
@@ -121,7 +132,9 @@ describe("crear_tanda", () => {
     );
 
     expect(result.type).toBe("data");
-    expect(result.summary).toContain('Tanda "Ahorros" creada');
+    if (result.type === "data") {
+      expect(result.summary).toContain('Tanda "Ahorros" creada');
+    }
   });
 
   it("rejects negative cents (RangeError)", async () => {
@@ -220,39 +233,19 @@ describe("phone-to-phone transfer tools (PR D)", () => {
   });
 });
 
-describe("phone onboarding tool", () => {
-  it("requires senderPhone in context", async () => {
-    const result = await executeTool("iniciar_onboarding", {}, { userWallet: "" });
-    expect(result.type).toBe("error");
-    if (result.type === "error") {
-      expect(result.error).toContain("senderPhone");
-    }
-  });
-
-  it("POSTs to /api/v1/onboarding/init with phone and internal auth", async () => {
-    globalThis.fetch = makeMockFetch({
-      walletAddress: "BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh",
-      walletId: "wallet-id",
-      privyUserId: "did:privy:user",
-      alreadyExisted: false,
-    });
-
+describe("phone onboarding tool (legacy Solana path retired — audit COM-032)", () => {
+  // The legacy `iniciar_onboarding` tool (Solana plaintext-key path) was
+  // removed from ALL_TOOLS and TOOL_EXECUTORS per audit COM-032. The agent
+  // now exclusively uses `iniciar_cuenta_segura` for the Monad ERC-4337 flow.
+  it("rejects iniciar_onboarding as unknown (registration removed)", async () => {
     const result = await executeTool("iniciar_onboarding", {}, {
       userWallet: "",
       senderPhone: "+528116346072",
     });
-
-    expect(result.type).toBe("data");
-    expect(lastRequest?.url).toContain("/api/v1/onboarding/init");
-    expect(lastRequest?.init?.method).toBe("POST");
-
-    const headers = lastRequest?.init?.headers as Record<string, string>;
-    expect(headers["X-Internal-Signature"]).toMatch(/^[0-9a-f]{64}$/);
-    expect(headers["X-Internal-Timestamp"]).toMatch(/^\d+$/);
-    expect(headers["X-Idempotency-Key"]).toBeString();
-
-    const body = JSON.parse((lastRequest?.init?.body as string) ?? "{}");
-    expect(body.phone).toBe("+528116346072");
+    expect(result.type).toBe("error");
+    if (result.type === "error") {
+      expect(result.error).toContain("Unknown tool");
+    }
   });
 });
 

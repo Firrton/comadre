@@ -402,9 +402,12 @@ contract Comadre is ReentrancyGuard {
         address beneficiary = memberByTurn[tandaKey][tanda.currentTurn];
         T.Member storage beneficiaryMember = _members[memberKeyOf(tandaKey, beneficiary)];
         if (beneficiaryMember.hasReceivedPayout) revert E.AlreadyPaidOut();
+        // Audit COM-003: do not pay out to a slashed (inactive) member. If the
+        // current-turn beneficiary was slashed, the crank caller must reroute.
+        if (!beneficiaryMember.isActive) revert E.MemberInactive();
 
         uint256 gross = uint256(tanda.contributionAmount) * uint256(tanda.memberTarget);
-        uint256 fee = (gross * feeBps) / T.MAX_FEE_BPS;
+        uint256 fee = (gross * feeBps) / T.BPS_DENOMINATOR;
         uint256 net = gross - fee;
 
         beneficiaryMember.hasReceivedPayout = true;
@@ -557,6 +560,8 @@ contract Comadre is ReentrancyGuard {
         if (!dispute.exists) revert E.DisputeNotFound();
         if (dispute.state != T.DisputeState.Open) revert E.DisputeNotOpen();
         if (block.timestamp > dispute.deadlineTs) revert E.DisputeExpired();
+        // Audit COM-045: the opener should not be able to vote on their own dispute.
+        if (msg.sender == dispute.opener) revert E.Unauthorized();
 
         T.Member storage member = _members[memberKeyOf(tandaKey, msg.sender)];
         if (!member.exists || !member.isActive) revert E.NotAMember();

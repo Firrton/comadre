@@ -94,16 +94,23 @@ function OnboardingFlow({ token, config }: { token: string; config: SessionConfi
     [wallets],
   );
 
+  const { getAccessToken } = usePrivy();
+
   const runInstall = useCallback(
     async (ownerAddress: Address) => {
       if (!user) throw new Error("missing user");
+
+      // Audit COM-026/COM-027: phoneJwt is now required by both backend endpoints.
+      const phoneJwt = await getAccessToken();
+      if (!phoneJwt) throw new Error("missing privy access token");
+
       setStep({ kind: "finalizing", config });
       const finalizeRes = await fetch(
         `${API_BASE}/api/v1/onboarding/monad/finalize`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, privyUserId: user.id, ownerAddress }),
+          body: JSON.stringify({ token, privyUserId: user.id, ownerAddress, phoneJwt }),
         },
       );
       if (!finalizeRes.ok) throw new Error("finalize failed");
@@ -134,13 +141,13 @@ function OnboardingFlow({ token, config }: { token: string; config: SessionConfi
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, serializedBlob, smartWalletAddress }),
+          body: JSON.stringify({ token, serializedBlob, smartWalletAddress, phoneJwt }),
         },
       );
       if (!installRes.ok) throw new Error("install failed");
       setStep({ kind: "done" });
     },
-    [config, embedded, token, user],
+    [config, embedded, token, user, getAccessToken],
   );
 
   useEffect(() => {

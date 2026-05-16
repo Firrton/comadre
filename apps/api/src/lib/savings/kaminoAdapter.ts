@@ -27,6 +27,9 @@ export const kaminoSavingsAdapter: SavingsStrategyAdapter = {
       strategyId: `kamino:${cfg.market}:${cfg.reserve}`,
       savedMicroUsdc: 0n,
       shareAmount: "0",
+      // APR fetch from Kamino SDK is gated behind YIELD_STRATEGY_PROVIDER=kamino;
+      // adapter is wired but SDK calls are intentionally disabled (see buildDeposit).
+      apyPercent: 0,
     };
   },
 

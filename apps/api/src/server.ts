@@ -65,22 +65,25 @@ app.route("/api/v1/transfers-monad", transfersMonadRouter);
 const ONBOARDING_PREFIX = "/api/v1/onboarding";
 const TRANSFERS_MONAD_PREFIX = "/api/v1/transfers-monad";
 
+// Audit COM-007: /transfers-monad MUST run rateLimit + idempotency.
+// Only onboarding is exempt from rate limit / auth / idempotency (it bootstraps
+// users who don't yet have a Privy JWT; uses internal HMAC instead).
 app.use("/api/*", async (c, next) => {
   if (c.req.path.startsWith(ONBOARDING_PREFIX)) return next();
-  if (c.req.path.startsWith(TRANSFERS_MONAD_PREFIX)) return next();
   return rateLimitMiddleware(c, next);
 });
 app.use("/api/*", async (c, next) => {
   if (c.req.path.startsWith(ONBOARDING_PREFIX)) return next();
+  // /transfers-monad uses internal HMAC (verified in the router), not Privy JWT.
   if (c.req.path.startsWith(TRANSFERS_MONAD_PREFIX)) return next();
   return authMiddleware(c, next);
 });
 
-// Idempotency — POST routes only (after auth so userId is available)
+// Idempotency — POST routes only. /transfers-monad is included to prevent
+// double-spend on retry (audit COM-007).
 app.use("/api/*", async (c, next) => {
   if (c.req.method !== "POST") return next();
   if (c.req.path.startsWith(ONBOARDING_PREFIX)) return next();
-  if (c.req.path.startsWith(TRANSFERS_MONAD_PREFIX)) return next();
   return idempotencyMiddleware(c, next);
 });
 

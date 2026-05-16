@@ -47,14 +47,18 @@ export interface RunAgentResult {
 
 const MAX_TOOL_ITERATIONS = 5;
 const COMADRE_LLM_TEMPERATURE = 0.3;
-const TOOLS_ALLOWED_WITHOUT_WALLET = new Set<string>(["iniciar_onboarding", "iniciar_cuenta_segura"]);
+// `iniciar_onboarding` removed from the allowlist — the Solana plaintext-key
+// flow is retired (see audit COM-032). The Monad path is `iniciar_cuenta_segura`.
+const TOOLS_ALLOWED_WITHOUT_WALLET = new Set<string>(["iniciar_cuenta_segura"]);
 
 const UNREGISTERED_TOOL_ERROR =
   "UNREGISTERED: el usuario no tiene wallet todavía. Pide consentimiento explícito ANTES de llamar `iniciar_onboarding`.";
 const ONBOARDING_CONSENT_REQUIRED_ERROR =
   "CONSENT_REQUIRED: antes de crear la billetera, pedile al usuario que confirme con 'sí', 'dale' o 'registrame'.";
 
-export function toolsForWalletState(userWallet: string | null): typeof ALL_TOOLS {
+export function toolsForWalletState(
+  userWallet: string | null,
+): (typeof ALL_TOOLS)[number][] {
   if (userWallet === null) return [...ALL_TOOLS];
   return ALL_TOOLS.filter((tool) => tool.function.name !== "iniciar_onboarding");
 }

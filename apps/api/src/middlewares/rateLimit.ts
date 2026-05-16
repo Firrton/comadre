@@ -4,12 +4,30 @@
  * Uses `apiUserRateLimit` from @comadre/cache.
  * Identifier: userId from auth context (falls back to IP for unauthenticated routes).
  * Returns 429 with Retry-After header on limit exceeded.
+ *
+ * Audit COM-020: money-handling endpoints fail CLOSED on Redis errors (503).
+ *   Read-only / non-money endpoints fail open with a warn — losing rate-limit
+ *   coverage briefly is better than blocking a `consultar_perfil` lookup.
+ *   Money endpoints (transfers, savings withdraws) must NEVER bypass the rate
+ *   limit silently — a Redis outage is not a license to drain wallets.
  */
 
 import type { MiddlewareHandler } from "hono";
 import { apiUserRateLimit, checkRateLimit } from "@comadre/cache";
 import { getLogger } from "./logger.js";
 import type { AuthUser } from "./auth.js";
+
+const MONEY_ENDPOINT_PREFIXES = [
+  "/api/v1/transfers",
+  "/api/v1/transfers-monad",
+  "/api/v1/savings",
+  "/api/v1/tandas",
+  "/api/v1/wallet",
+];
+
+function isMoneyEndpoint(path: string): boolean {
+  return MONEY_ENDPOINT_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
 
 export const rateLimitMiddleware: MiddlewareHandler = async (c, next) => {
   // Skip Redis in test environment to avoid connection timeouts
@@ -20,7 +38,6 @@ export const rateLimitMiddleware: MiddlewareHandler = async (c, next) => {
   const logger = getLogger(c);
 
   const user = (c.get as (k: string) => unknown)("user") as AuthUser | undefined;
-  // Fall back to forwarded IP for unauthenticated paths (health, webhooks)
   const identifier =
     user?.userId ??
     c.req.header("X-Forwarded-For")?.split(",")[0]?.trim() ??
@@ -30,8 +47,17 @@ export const rateLimitMiddleware: MiddlewareHandler = async (c, next) => {
   try {
     result = await checkRateLimit(apiUserRateLimit, identifier);
   } catch (err) {
-    // Redis unavailable (e.g. test env or network issue) — allow through with a warn.
-    // Never block traffic due to rate-limiter backend failures.
+    if (isMoneyEndpoint(c.req.path)) {
+      // Audit COM-020: fail CLOSED on money endpoints.
+      logger.error(
+        { err, identifier, path: c.req.path },
+        "[rateLimit] Redis unavailable on money endpoint — failing closed",
+      );
+      return c.json(
+        { error: "service_unavailable", message: "Rate limiter backend offline" },
+        503,
+      );
+    }
     logger.warn({ err, identifier }, "[rateLimit] Redis unavailable, allowing request through");
     return next();
   }
