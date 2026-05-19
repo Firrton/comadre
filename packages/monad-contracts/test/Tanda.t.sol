@@ -24,6 +24,7 @@ contract TandaTest is TestBase {
 
         address[6] memory people = [alice, bob, carol, dave, eve, frank];
         for (uint256 i = 0; i < people.length; i++) {
+            vm.prank(people[i]);
             comadre.initUserProfile(people[i], keccak256(abi.encodePacked(people[i])), AR);
             vm.prank(kycOracle);
             comadre.updateKycTier(people[i], T.KycTier.T1Lite);

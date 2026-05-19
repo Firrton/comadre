@@ -61,13 +61,17 @@ library ComadreTypes {
     /// @notice Minimum frequency between turns on mainnet (24h).
     uint32 internal constant MIN_FREQUENCY = 86_400;
 
+    /// @notice Maximum frequency between turns (90 days). Prevents indefinitely
+    ///         long tandas that lock funds for years. See audit LOW-05.
+    uint32 internal constant MAX_FREQUENCY = 90 days; // 7_776_000 seconds
+
     /// @notice Basis-point denominator used in fee math (`fee = gross * feeBps / BPS_DENOMINATOR`).
     ///         100% in basis points; never used as a cap.
     uint16 internal constant BPS_DENOMINATOR = 10_000;
 
-    /// @notice Hard upper bound on `feeBps`. Capped at 10% so a compromised
+    /// @notice Hard upper bound on `feeBps`. Capped at 3% so a compromised
     ///         admin cannot drain payouts via fee rotation. See audit COM-016.
-    uint16 internal constant MAX_FEE_BPS = 1_000;
+    uint16 internal constant MAX_FEE_BPS = 300;
 
     /// @notice Number of KYC tiers (T0–T3).
     uint8 internal constant KYC_TIER_COUNT = 4;
@@ -142,10 +146,12 @@ library ComadreTypes {
     struct Dispute {
         // slot 0: full word.
         bytes32 reasonHash;
-        // slot 1 (packed)
+        // slot 1: full word — binds this dispute to the tanda that created it (CRIT-02).
+        bytes32 tandaKey;
+        // slot 2 (packed)
         address opener;
         uint64  openedAt;
-        // slot 2 (packed)
+        // slot 3 (packed)
         uint64  deadlineTs;
         uint8   disputeId;
         uint8   votesContinue;

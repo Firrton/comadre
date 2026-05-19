@@ -101,3 +101,10 @@ pub struct BadgeMinted {
     pub value: u64,
     pub timestamp: i64,
 }
+
+#[event]
+pub struct ProgramPauseStateChanged {
+    pub paused: bool,
+    pub admin: Pubkey,
+    pub timestamp: i64,
+}

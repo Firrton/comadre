@@ -160,7 +160,9 @@ pub fn handler(ctx: Context<Payout>) -> Result<()> {
         });
     } else {
         tanda.current_turn = next_turn;
-        tanda.next_payout_ts = now
+        // Anchor to the previous schedule slot, not to `now`, to prevent drift.
+        let previous_ts = tanda.next_payout_ts;
+        tanda.next_payout_ts = previous_ts
             .checked_add(tanda.frequency_seconds as i64)
             .ok_or(ComadreError::MathOverflow)?;
     }

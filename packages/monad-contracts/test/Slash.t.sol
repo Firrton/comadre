@@ -23,10 +23,12 @@ contract SlashTest is TestBase {
 
         address[3] memory people = [bob, carol, dave];
         for (uint256 i = 0; i < people.length; i++) {
+            vm.prank(people[i]);
             comadre.initUserProfile(people[i], keccak256(abi.encodePacked(people[i])), AR);
             vm.prank(kycOracle);
             comadre.updateKycTier(people[i], T.KycTier.T1Lite);
         }
+        vm.prank(alice);
         comadre.initUserProfile(alice, keccak256(abi.encodePacked(alice)), AR);
         vm.prank(kycOracle);
         comadre.updateKycTier(alice, T.KycTier.T1Lite);

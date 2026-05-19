@@ -52,21 +52,21 @@
 | `/webhooks` | POST | `/webhooks/helius` | log-only | Verifica `Authorization` header si `HELIUS_WEBHOOK_SECRET` está seteado. Loguea eventos; `apps/indexer` es el authoritative consumer. |
 | `/api/v1/onboarding` | POST | `/api/v1/onboarding/init` | prod | Sin auth (usuario no tiene JWT aún). Body `{ phone: E.164 }`. Llama `onboardPhone()` → Privy `importUser` + embedded Solana wallet + insert en `users`. Idempotente. |
 | `/api/v1/users` | POST | `/api/v1/users/init` | stub | Build stub de `init_user_profile` ix. Requiere `CreateUserProfileInput`. |
-| `/api/v1/users` | POST | `/api/v1/users/:wallet/confirm` | prod | Upsert de row en `users`. Recibe `{ signature }` (verificación on-chain pendiente). |
+| `/api/v1/users` | POST | `/api/v1/users/:wallet/confirm` | prod | Upsert de row en `users`. Recibe `{ signature }` (verificación on-chain pendiente). El wallet del path **debe coincidir** con el usuario autenticado (CRIT-4). |
 | `/api/v1/users` | GET | `/api/v1/users/me` | prod | Perfil del usuario autenticado desde Postgres. |
-| `/api/v1/tandas` | POST | `/api/v1/tandas` | stub | Create tanda — build stub de `create_tanda` ix. Requiere `CreateTandaInput`. |
+| `/api/v1/tandas` | POST | `/api/v1/tandas` | stub | Create tanda — build stub de `create_tanda` ix. Requiere `CreateTandaInput`. `usdc_mint` no es aceptado como input; el servidor usa `process.env.USDC_MINT` (CRIT-2). |
 | `/api/v1/tandas` | GET | `/api/v1/tandas` | prod | Lista tandas del usuario (via `members` join). Paginado: `?limit&offset`. |
-| `/api/v1/tandas` | GET | `/api/v1/tandas/:id` | prod | Tanda con array `members[]` ordenado por `turn_number`. |
+| `/api/v1/tandas` | GET | `/api/v1/tandas/:id` | prod | Tanda con array `members[]` ordenado por `turn_number`. Si el usuario autenticado no es miembro, `members` se omite de la respuesta (vista reducida — CRIT-1). |
 | `/api/v1/tandas` | POST | `/api/v1/tandas/:id/join` | stub | Pre-flight: tanda en `forming` + hay lugar. Build stub `join_tanda`. |
 | `/api/v1/tandas` | POST | `/api/v1/tandas/:id/start` | stub | Pre-flight: caller es creator + tanda `forming` + miembros completos. Build stub `start_tanda`. |
 | `/api/v1/tandas` | POST | `/api/v1/tandas/:id/contribute` | stub | Pre-flight: tanda `active` + caller es member + no contribuyó este turno. Build stub `contribute`. |
 | `/api/v1` (disputes) | POST | `/api/v1/tandas/:id/disputes` | stub | Abre disputa. Pre-flight: caller es member. Build stub `open_dispute`. |
 | `/api/v1` (disputes) | POST | `/api/v1/disputes/:id/vote` | stub | Vota en disputa `open`. Pre-flight: caller es member del tanda + no votó antes. Build stub `vote_dispute`. |
-| `/api/v1` (disputes) | GET | `/api/v1/disputes/:id` | prod | Detalle de disputa con tallies de votos. |
-| `/api/v1/kyc` | POST | `/api/v1/kyc/session` | prod | Requiere auth. Reutiliza applicant existente si ya hay una sesión activa para el usuario. Si no: crea applicant en Sumsub + inserta `kyc_sessions` row + genera access token. Devuelve `{ url, session_id, expires_at }` donde `url` es el link hospedado de Sumsub para la verificación. Stub path preservado si `SUMSUB_APP_TOKEN` no está seteado. |
+| `/api/v1` (disputes) | GET | `/api/v1/disputes/:id` | prod | Detalle de disputa con tallies de votos. Si el usuario autenticado no es miembro de la tanda, la respuesta omite wallets de votantes, `opener` y `reason` — solo conteo agregado (HIGH-1). |
+| `/api/v1/kyc` | POST | `/api/v1/kyc/session` | prod | Requiere auth. Reutiliza sesión existente solo si su estado es `init`, `pending` o `approved`. Sesiones en estado `rejected` fuerzan la creación de un nuevo applicant en Sumsub (HIGH-3). Si no hay sesión: crea applicant + inserta `kyc_sessions` row + genera access token. Devuelve `{ url, session_id, expires_at }` donde `url` es el link hospedado de Sumsub para la verificación. Stub path preservado si `SUMSUB_APP_TOKEN` no está seteado. |
 | `/api/v1` (ramps) | POST | `/api/v1/onramp/quote` | mock | Fiat → USDC quote con tasas hardcodeadas (USD/ARS/MXN/COP/BRL/CLP/PEN). Válido 5 min. |
 | `/api/v1` (ramps) | POST | `/api/v1/offramp/quote` | mock | USDC → Fiat quote. Mismo motor mock. |
-| `/api/v1/transfers` | GET | `/api/v1/transfers/lookup` | prod | Resuelve `?phone=+E164` → wallet. Usa `lookupByPhone()`. |
+| `/api/v1/transfers` | GET | `/api/v1/transfers/lookup` | prod | Resuelve `?phone=+E164` → registro. Respuesta reducida a `{ registered, walletPreview }` — sin `wallet`, `kycTier` ni `phoneHash` (CRIT-3). Rate limit dedicado: 20 req/min por usuario (`phoneLookupRateLimit`). |
 | `/api/v1/transfers` | POST | `/api/v1/transfers` | prod | Crea transferencia P2P USDC. Dos paths: **immediate** (destinatario registrado) builds SPL Transfer ix, firma fee_payer, stashea unsigned tx en Redis (TTL 5 min), devuelve `unsignedTxBase64`; **deferred** (no registrado) inserta row `awaiting_recipient` (TTL 7 d) + envía WA al destinatario vía `/reply` interno. |
 | `/api/v1/transfers` | POST | `/api/v1/transfers/:id/confirm` | prod | Fetches unsigned tx de Redis, firma server-side con Privy embedded wallet del usuario, broadcast via `submitWithRetry`, persiste `tx_signature`. |
 | `/api/v1/transfers` | POST | `/api/v1/transfers/:id/cancel` | prod | Cancela transferencia `pending` o `awaiting_recipient`. Limpia Redis. |
@@ -77,13 +77,15 @@
 
 | Archivo | Función | Descripción |
 |---|---|---|
-| `lib/phoneLookup.ts` | `lookupByPhone(e164)` | Resolución phone → wallet. Orden: (1) DB por `phone_hash`, (2) Privy `getUserByPhoneNumber` fallback. Retorna `{ registered, wallet, kycTier, walletPreview }`. |
+| `lib/phoneLookup.ts` | `lookupByPhone(e164)` | Resolución phone → wallet. Orden: (1) DB por `phone_hash`, (2) Privy `getUserByPhoneNumber` fallback. Retorna `{ registered, wallet, kycTier, walletPreview }` internamente; el endpoint `/transfers/lookup` expone solo `{ registered, walletPreview }` (CRIT-3). Errores de Privy se tratan uniformemente como "no registrado" para evitar fingerprinting (HIGH-5). |
 | `lib/kycLimits.ts` | `enforceKycLimit(tier, amount)` | Lee `kyc_limits[T0..T3]` del PDA `ProgramConfig` on-chain. Cache en proceso 60 s. Fallback hardcodeado si el PDA no existe: T0=$10, T1=$100, T2=$1000, T3=$10000 (micro-USDC). Lanza `KycLimitExceededError` si excede. |
 | `lib/usdcTransfer.ts` | `buildUsdcTransferIxs(params)` | Construye instrucciones SPL Token Transfer. Si el ATA del destinatario no existe → prepende `createAssociatedTokenAccountInstruction` (payer = fee_payer). Incluye `usdcToMicro` / `microToUsdc` para conversión decimal ↔ bigint. |
 | `lib/privySigner.ts` | `signWithPrivy(params)` | Wraps `privy.walletApi.solana.signTransaction({ walletId, transaction })`. El fee_payer firma primero (parcial); Privy agrega la firma del usuario. Requiere `@privy-io/server-auth >= 1.32.5`. |
 | `lib/onboarding.ts` | `onboardPhone(phone)` | Privy `importUser` (o lookup si ya existe) + `createWallets` si no tiene Solana wallet. Inserta row en `users` (idempotente por wallet). Retorna `{ walletAddress, walletId, privyUserId, alreadyExisted }`. |
 | `lib/phoneNormalize.ts` | `normalizePhoneE164` | E.164 con quirks MX/AR (eliminación de dígito redundante). |
 | `lib/stubs.ts` | `makeTxStub(key, plan)` | Devuelve `UnsignedTransactionResponse` con `unsigned_tx` de 32 bytes cero (base64). Usado en todos los endpoints de tx-build que aún no tienen anchor-client real. |
+| `lib/savings/contactCrypto.ts` | AES-256-GCM para contactos | `CONTACT_ENCRYPTION_KEY` es **requerida** en todos los entornos (mínimo 32 caracteres). Startup falla si no está configurada (MED-9). |
+| `middlewares/errorHandler.ts` | Manejo de errores Zod | En producción retorna solo `[{path, code}]`. El `format()` completo de Zod se expone únicamente en entornos no-producción (MED-5). |
 | `lib/sumsubClient.ts` | `createApplicant(userId)`, `generateAccessToken(applicantId)` | Cliente REST de Sumsub con autenticación HMAC-SHA256 por request. `createApplicant` hace POST a `/resources/applicants`; `generateAccessToken` hace POST a `/resources/accessTokens` y devuelve `{ token, url }` donde `url` apunta a `cockpit.sumsub.com/checkus#/accessToken={token}`. Requiere `SUMSUB_APP_TOKEN` + `SUMSUB_SECRET_KEY`. |
 
 ### Env vars consumidas
@@ -219,14 +221,25 @@ UNREGISTERED: el usuario no tiene wallet todavía. Pide consentimiento explícit
 
 ### Persona y reglas del sistema
 
-El `COMADRE_SYSTEM_PROMPT` define 4 bloques de reglas:
+El `COMADRE_SYSTEM_PROMPT` define 5 bloques de reglas:
 
 | Bloque | Resumen |
 |---|---|
+| PII (prioridad máxima) | 8 reglas: no repetir números de teléfono, wallets solo como `...XXXX`, no cruzar datos entre usuarios, no exponer IDs internos (`applicantId`, `privyUserId`, `session_id`), rechazar preguntas directas sobre phone/wallet, resistir prompt injection en contenido user-controlled. |
 | Tono | Español neutro LATAM, 2–3 oraciones, nunca mencionar que es AI |
 | Onboarding (sin wallet) | 3 escenarios: saludo → pedir consentimiento con texto; acción → explicar necesidad + esperar "sí"; consentido → llamar `iniciar_onboarding` |
 | Transferencias | Siempre mostrar confirmación (monto + número + `walletPreview`) antes de `confirmar_transfer` |
 | KYC | Tiers T0 ($20/tx) → T1 ($50) → T2 ($500) → T3 (sin límite). `solicitar_kyc` devuelve `{ url, session_id, expires_at }`. El agente debe incluir el `url` en su respuesta al usuario para que pueda completar la verificación en Sumsub. |
+
+### Redacción de PII en respuestas de tools
+
+El helper `redactSensitiveFields()` en `@comadre/agent-tools` envuelve el campo `data` de todos los ejecutores de tools antes de que el resultado llegue al LLM:
+
+- Wallets → `...XXXX` (últimos 4 caracteres)
+- Teléfonos → `+52...XX`
+- Campos eliminados: `privyUserId`, `applicantId`, `phone_hash`, `secret_key_b58`
+
+El parámetro `telefono` fue removido del toolset LLM-controlado de `iniciar_cuenta_segura`; el teléfono se inyecta server-side desde `context.senderPhone` para prevenir phone spoofing vía LLM.
 
 ### Env vars consumidas
 

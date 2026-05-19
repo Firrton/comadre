@@ -15,8 +15,8 @@ pub struct InitUserProfile<'info> {
     )]
     pub user_profile: Account<'info, UserProfile>,
 
-    /// CHECK: this is the wallet owner; signed in client side, not on-chain
-    pub wallet: AccountInfo<'info>,
+    /// Wallet owner MUST sign to authorize profile creation (prevents impersonation/brick attacks).
+    pub wallet: Signer<'info>,
 
     #[account(mut)]
     pub payer: Signer<'info>,

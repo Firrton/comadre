@@ -56,8 +56,16 @@ usersRouter.post(
     }
   }),
   async (c) => {
-    const wallet = c.req.param("wallet");
+    const pathWallet = c.req.param("wallet");
+    const user = (c.get as (k: string) => unknown)("user") as AuthUser;
     const logger = getLogger(c);
+
+    // Prevent account squatting: caller may only confirm their own wallet
+    if (pathWallet !== user.walletAddress) {
+      return c.json({ error: "forbidden", message: "wallet mismatch" }, 403);
+    }
+
+    const wallet = pathWallet;
 
     // Upsert: insert user if not exists, otherwise just return current state.
     await db

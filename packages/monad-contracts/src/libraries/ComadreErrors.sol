@@ -13,6 +13,7 @@ library ComadreErrors {
     error Unauthorized();
     error ProgramPaused();
     error AlreadyInitialized();
+    error ZeroAddress();
 
     // ----- Configuration -----
     error InvalidFeeBps();
@@ -53,6 +54,7 @@ library ComadreErrors {
     error DisputeStillOpen();
     error AlreadyVoted();
     error MaxDisputesReached();
+    error DisputeTandaMismatch();
 
     // ----- Math (kept for parity; Solidity 0.8+ reverts on overflow by default) -----
     error MathOverflow();

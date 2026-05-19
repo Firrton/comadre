@@ -19,7 +19,16 @@ export const errorHandler: MiddlewareHandler = async (c, next) => {
 
     if (err instanceof ZodError) {
       logger.warn({ req_id: reqId, issues: err.format() }, "validation error");
-      return c.json({ error: "validation", issues: err.format() }, 400);
+      const isProduction = process.env["NODE_ENV"] === "production";
+      return c.json(
+        {
+          error: "validation",
+          issues: isProduction
+            ? err.errors.map((e) => ({ path: e.path.join("."), code: e.code }))
+            : err.format(),
+        },
+        400
+      );
     }
 
     const userId = ((c.get as (k: string) => unknown)("user") as { userId?: string } | undefined)?.userId;

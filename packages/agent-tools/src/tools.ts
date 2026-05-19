@@ -11,6 +11,78 @@
 import { apiCall, newIdempotencyKey } from "./apiClient";
 import type { ToolContext, ToolDefinition, ToolExecutor, ToolResult } from "./types";
 
+// ───────────────────────────────────────────────────────────────────────────
+// PII redaction helpers — minimize PII visible to the LLM context
+// ───────────────────────────────────────────────────────────────────────────
+
+function maskWallet(wallet: string | null | undefined): string | null {
+  if (!wallet) return null;
+  if (wallet.length < 8) return wallet;
+  return `...${wallet.slice(-4)}`;
+}
+
+function maskPhone(phone: string | null | undefined): string | null {
+  if (!phone) return null;
+  // E.164 like +52181... → +52...XX
+  if (phone.length < 6) return "***";
+  return `${phone.slice(0, 4)}...${phone.slice(-2)}`;
+}
+
+function redactSensitiveFields(data: unknown): unknown {
+  if (data === null || data === undefined) return data;
+  if (typeof data !== "object") return data;
+  if (Array.isArray(data)) return data.map(redactSensitiveFields);
+
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+    const lowerKey = key.toLowerCase();
+    if (
+      lowerKey === "wallet" ||
+      lowerKey === "user_wallet" ||
+      lowerKey === "userwallet" ||
+      lowerKey === "creator_wallet" ||
+      lowerKey === "creatorwallet" ||
+      lowerKey === "opener_wallet" ||
+      lowerKey === "openerwallet" ||
+      lowerKey === "voter_wallet" ||
+      lowerKey === "voterwallet" ||
+      lowerKey === "recipient_wallet" ||
+      lowerKey === "recipientwallet" ||
+      lowerKey === "sender_wallet" ||
+      lowerKey === "senderwallet" ||
+      lowerKey === "walletaddress"
+    ) {
+      out[key] = maskWallet(value as string);
+    } else if (
+      lowerKey === "phone" ||
+      lowerKey === "phone_number" ||
+      lowerKey === "phonenumber"
+    ) {
+      out[key] = maskPhone(value as string);
+    } else if (
+      lowerKey === "phone_hash" ||
+      lowerKey === "phonehash" ||
+      lowerKey === "applicant_id" ||
+      lowerKey === "applicantid" ||
+      lowerKey === "privy_user_id" ||
+      lowerKey === "privyuserid" ||
+      lowerKey === "secret_key" ||
+      lowerKey === "secretkey" ||
+      lowerKey === "secret_key_b58" ||
+      lowerKey === "secretkeyb58" ||
+      lowerKey === "walletid"
+    ) {
+      // Remove these fields entirely
+      continue;
+    } else if (typeof value === "object" && value !== null) {
+      out[key] = redactSensitiveFields(value);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 // --------------------------------------------------------------------------
 // Helpers — USDC has 6 decimals; convert from "USD cents" surface to atomic units
 // --------------------------------------------------------------------------
@@ -48,7 +120,7 @@ export const consultarPerfilExecute: ToolExecutor = async (_args, context) => {
     path: "/api/v1/users/me",
     userWallet: context.userWallet,
   });
-  return { type: "data", data, summary: "Perfil cargado" };
+  return { type: "data", data: redactSensitiveFields(data), summary: "Perfil cargado" };
 };
 
 // --------------------------------------------------------------------------
@@ -80,7 +152,7 @@ export const consultarTandaExecute: ToolExecutor = async (args, context) => {
     path: `/api/v1/tandas/${encodeURIComponent(tanda_id)}`,
     userWallet: context.userWallet,
   });
-  return { type: "data", data, summary: `Tanda ${tanda_id} cargada` };
+  return { type: "data", data: redactSensitiveFields(data), summary: `Tanda ${tanda_id} cargada` };
 };
 
 // --------------------------------------------------------------------------
@@ -166,7 +238,7 @@ export const crearTandaExecute: ToolExecutor = async (args, context) => {
   if (result.signature) {
     return {
       type: "data",
-      data: result,
+      data: redactSensitiveFields(result),
       summary: `Tanda "${a.name}" creada: ${a.member_target} miembros, ${dollars} USDC cada ${a.frequency_days} días.`,
     };
   }
@@ -218,7 +290,7 @@ export const unirseTandaExecute: ToolExecutor = async (args, context) => {
   if (result.signature) {
     return {
       type: "data",
-      data: result,
+      data: redactSensitiveFields(result),
       summary: `Te uniste a la tanda. Comprobante: ${result.explorer_url}`,
     };
   }
@@ -385,7 +457,7 @@ export const solicitarKycExecute: ToolExecutor = async (_args, context) => {
     userWallet: context.userWallet,
     idempotencyKey,
   });
-  return { type: "data", data, summary: "Sesión KYC iniciada" };
+  return { type: "data", data: redactSensitiveFields(data), summary: "Sesión KYC iniciada" };
 };
 
 // --------------------------------------------------------------------------
@@ -427,7 +499,7 @@ export const iniciarOnrampExecute: ToolExecutor = async (args, context) => {
     idempotencyKey,
   });
   const dollars = (amount_cents / 100).toFixed(2);
-  return { type: "data", data, summary: `Cotización on-ramp para ${fiat_currency} ${dollars}` };
+  return { type: "data", data: redactSensitiveFields(data), summary: `Cotización on-ramp para ${fiat_currency} ${dollars}` };
 };
 
 // --------------------------------------------------------------------------
@@ -450,7 +522,7 @@ export const consultarBalanceExecute: ToolExecutor = async (_args, context) => {
     path: "/api/v1/wallet/balance",
     userWallet: context.userWallet,
   });
-  return { type: "data", data, summary: "Saldo USDC consultado" };
+  return { type: "data", data: redactSensitiveFields(data), summary: "Saldo USDC consultado" };
 };
 
 // 10b. mis_tandas
@@ -469,7 +541,7 @@ export const misTandasExecute: ToolExecutor = async (_args, context) => {
     path: "/api/v1/tandas",
     userWallet: context.userWallet,
   });
-  return { type: "data", data, summary: "Tandas del usuario cargadas" };
+  return { type: "data", data: redactSensitiveFields(data), summary: "Tandas del usuario cargadas" };
 };
 
 // 11. iniciar_transfer
@@ -536,14 +608,14 @@ export const iniciarTransferExecute: ToolExecutor = async (args, context) => {
   if (result.mode === "deferred") {
     return {
       type: "data",
-      data: result,
-      summary: `Destinatario ${a.to_phone} no está registrado. Comadre le mandó: "${result.message}". Cuando acepte, te aviso.`,
+      data: redactSensitiveFields(result),
+      summary: `Destinatario no está registrado. Comadre le mandó un mensaje. Cuando acepte, te aviso.`,
     };
   }
   return {
     type: "data",
-    data: result,
-    summary: `Transferencia preparada: ${a.amount_usdc} USDC a ${a.to_phone} (wallet ${result.recipient.walletPreview}). Pedile confirmación al usuario antes de llamar confirmar_transfer.`,
+    data: redactSensitiveFields(result),
+    summary: `Transferencia preparada: ${a.amount_usdc} USDC (wallet destinatario: ${result.recipient.walletPreview ?? "desconocido"}). Pedile confirmación al usuario antes de llamar confirmar_transfer.`,
   };
 };
 
@@ -580,7 +652,7 @@ export const confirmarTransferExecute: ToolExecutor = async (args, context) => {
   });
   return {
     type: "data",
-    data: result,
+    data: redactSensitiveFields(result),
     summary: `✅ Transferencia confirmada on-chain. Tx: ${result.explorerUrl}`,
   };
 };
@@ -614,7 +686,7 @@ export const cancelarTransferExecute: ToolExecutor = async (args, context) => {
   });
   return {
     type: "data",
-    data: result,
+    data: redactSensitiveFields(result),
     summary: `Transferencia ${result.transferId} cancelada.`,
   };
 };
@@ -650,12 +722,13 @@ export const iniciarOnboardingExecute: ToolExecutor = async (_args, context) => 
     idempotencyKey: newIdempotencyKey(),
     body: { phone: context.senderPhone },
   });
+  const walletPreview = `${data.walletAddress.slice(0, 4)}...${data.walletAddress.slice(-4)}`;
   return {
     type: "data",
-    data,
+    data: redactSensitiveFields(data),
     summary: data.alreadyExisted
-      ? `Ya tenías un wallet: ${data.walletAddress.slice(0, 4)}...${data.walletAddress.slice(-4)}`
-      : `Wallet creada: ${data.walletAddress.slice(0, 4)}...${data.walletAddress.slice(-4)}`,
+      ? `Ya tenías un wallet: ${walletPreview}`
+      : `Wallet creada: ${walletPreview}`,
   };
 };
 
@@ -668,20 +741,19 @@ export const iniciarCuentaSeguraDefinition: ToolDefinition = {
     name: "iniciar_cuenta_segura",
     description:
       "Inicia el proceso de creación de cuenta segura para el usuario en Monad. El agente envía un link único por SMS al teléfono del usuario; el usuario hace tap, confirma con un código que le llega y vuelve a WhatsApp. Usar ESTE tool en lugar de iniciar_onboarding para usuarios NUEVOS desde la migración a Monad.",
-    parameters: {
-      type: "object",
-      properties: {
-        telefono: {
-          type: "string",
-          description: "Número de teléfono del usuario en formato E.164 (ej. +5491112345678)",
-        },
-      },
-      required: ["telefono"],
-    },
+    // telefono is intentionally NOT in the schema — it is server-injected from
+    // context.senderPhone so the LLM cannot spoof a different phone number.
+    parameters: { type: "object", properties: {}, additionalProperties: false },
   },
 };
-export const iniciarCuentaSeguraExecute: ToolExecutor = async (args) => {
-  const { telefono } = args as { telefono: string };
+export const iniciarCuentaSeguraExecute: ToolExecutor = async (_args, context) => {
+  const telefono = context.senderPhone;
+  if (!telefono) {
+    return {
+      type: "error",
+      error: "iniciar_cuenta_segura requires senderPhone in context",
+    };
+  }
   try {
     const data = await apiCall<{ ok: true; magicLink?: string }>({
       method: "POST",
@@ -693,7 +765,7 @@ export const iniciarCuentaSeguraExecute: ToolExecutor = async (args) => {
     const summary = data.magicLink
       ? `Listo, te paso el link de seguridad — abrílo, confirmá con el código por SMS y volvés acá: ${data.magicLink}`
       : "Listo, ya te mandé un SMS con el link. Abrílo en el celu, confirmá con el código y volvés a esta charla.";
-    return { type: "data", data, summary };
+    return { type: "data", data: redactSensitiveFields(data), summary };
   } catch {
     return { type: "error", error: "Tuve un problema arrancando tu cuenta. ¿Probamos de nuevo en un minuto?" };
   }
@@ -759,9 +831,9 @@ export const enviarPlataExecute: ToolExecutor = async (args, context) => {
       },
     });
     const summary = data.deferred
-      ? `El contacto ${a.to_phone} no tiene cuenta todavía. Le mandé un aviso por WhatsApp; cuando se registre, recibe los ${a.amount_usdc} USDC.`
-      : `Mandé ${a.amount_usdc} USDC a ${a.to_phone} ✅`;
-    return { type: "data", data, summary };
+      ? `El contacto no tiene cuenta todavía. Le mandé un aviso por WhatsApp; cuando se registre, recibe los ${a.amount_usdc} USDC.`
+      : `Mandé ${a.amount_usdc} USDC ✅`;
+    return { type: "data", data: redactSensitiveFields(data), summary };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (/cap_exceeded|CAP_EXCEEDED/i.test(message)) {
@@ -812,7 +884,7 @@ export const consultarGuardaditoExecute: ToolExecutor = async (_args, context) =
   });
   return {
     type: "data",
-    data,
+    data: redactSensitiveFields(data),
     summary: data.suggested.shouldSuggest
       ? `Puede sugerirse Guardadito por ${data.suggested.amountUsdc} USDC, dejando ${data.suggested.liquidReserveUsdc} USDC disponibles.`
       : `Guardadito consultado: disponible ${data.available.usdc} USDC, guardado ${data.saved.usdc} USDC.`,
@@ -855,7 +927,7 @@ export const prepararGuardaditoExecute: ToolExecutor = async (args, context) => 
   });
   return {
     type: "data",
-    data,
+    data: redactSensitiveFields(data),
     summary: `Guardadito preparado por ${data.amount.usdc} USDC. Pedí confirmación antes de llamar confirmar_guardadito.`,
   };
 };
@@ -888,7 +960,7 @@ export const confirmarGuardaditoExecute: ToolExecutor = async (args, context) =>
   });
   return {
     type: "data",
-    data,
+    data: redactSensitiveFields(data),
     summary: data.explorerUrl
       ? `Guardadito confirmado. Tx: ${data.explorerUrl}`
       : "Guardadito confirmado.",
@@ -926,7 +998,7 @@ export const retirarGuardaditoExecute: ToolExecutor = async (args, context) => {
   });
   return {
     type: "data",
-    data,
+    data: redactSensitiveFields(data),
     summary: `Retiro del Guardadito preparado por ${data.amount.usdc} USDC. Pedí confirmación antes de llamar confirmar_guardadito.`,
   };
 };
@@ -957,7 +1029,7 @@ export const cancelarGuardaditoExecute: ToolExecutor = async (args, context) => 
     userWallet: context.userWallet,
     idempotencyKey,
   });
-  return { type: "data", data, summary: "Acción de Guardadito cancelada." };
+  return { type: "data", data: redactSensitiveFields(data), summary: "Acción de Guardadito cancelada." };
 };
 
 // --------------------------------------------------------------------------

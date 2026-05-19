@@ -24,6 +24,7 @@ contract DisputeTest is TestBase {
 
         address[4] memory people = [alice, bob, carol, dave];
         for (uint256 i = 0; i < people.length; i++) {
+            vm.prank(people[i]);
             comadre.initUserProfile(people[i], keccak256(abi.encodePacked(people[i])), AR);
             vm.prank(kycOracle);
             comadre.updateKycTier(people[i], T.KycTier.T1Lite);
@@ -179,7 +180,7 @@ contract DisputeTest is TestBase {
         _warpForward(T.DISPUTE_VOTING_WINDOW + 1);
 
         vm.expectEmit(true, false, false, true);
-        emit Comadre.DisputeResolved(dispute, true, uint64(block.timestamp));
+        emit Comadre.DisputeResolved(dispute, T.DisputeState.Resolved, false, uint64(block.timestamp));
 
         comadre.resolveDispute(key, dispute);
 

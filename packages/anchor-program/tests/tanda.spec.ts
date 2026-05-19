@@ -176,7 +176,8 @@ describe("tanda lifecycle", () => {
           payer:         deployer.publicKey,
           systemProgram: SystemProgram.programId,
         } as any)
-        .signers([deployer])
+        // wallet must co-sign to prevent impersonation (CRIT-1 fix)
+        .signers([deployer, kp])
         .rpc({ commitment: "confirmed" });
 
       // Upgrade to T1Lite so they can create/join tandas (only if we own the config)

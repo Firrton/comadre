@@ -23,6 +23,7 @@ contract ClaimStakeTest is TestBase {
 
         address[4] memory people = [alice, bob, carol, dave];
         for (uint256 i = 0; i < people.length; i++) {
+            vm.prank(people[i]);
             comadre.initUserProfile(people[i], keccak256(abi.encodePacked(people[i])), AR);
             vm.prank(kycOracle);
             comadre.updateKycTier(people[i], T.KycTier.T1Lite);

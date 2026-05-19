@@ -26,8 +26,8 @@ afterEach(() => {
 const ctx = { userWallet: "BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh" };
 
 describe("tool registry", () => {
-  it("exposes 20 tools", () => {
-    expect(ALL_TOOLS.length).toBe(20);
+  it("exposes 21 tools", () => {
+    expect(ALL_TOOLS.length).toBe(21);
   });
 
   it("includes transfer and onboarding tools", () => {

@@ -343,6 +343,48 @@
 
 ---
 
+## 🔒 Seguridad (audit sprint A — 2026-05-19)
+
+> Hallazgos del audit completo. Ver `docs/SECURITY.md` para el detalle completo.
+
+### API (`apps/api/`)
+- [x] **CRIT-1** `GET /api/v1/tandas/:id` — membership check; vista reducida a no-miembros (sin `members`).
+- [x] **CRIT-2** `POST /api/v1/tandas` — `usdc_mint` removido del input schema; servidor usa `process.env.USDC_MINT`.
+- [x] **CRIT-3** `GET /api/v1/transfers/lookup` — respuesta reducida a `{ registered, walletPreview }`; rate limit 20 req/min.
+- [x] **CRIT-4** `POST /api/v1/users/:wallet/confirm` — wallet del path debe coincidir con el usuario autenticado.
+- [x] **HIGH-1** `GET /api/v1/disputes/:id` — membership check; votos detallados solo a miembros.
+- [x] **HIGH-3** `POST /api/v1/kyc/session` — reutiliza sesión solo en estado `init/pending/approved`; `rejected` fuerza nuevo applicant.
+- [x] **HIGH-5** `lib/phoneLookup.ts` — errores de Privy tratados uniformemente como "no registrado".
+- [x] **MED-9** `lib/savings/contactCrypto.ts` — `CONTACT_ENCRYPTION_KEY` requerida en todos los entornos, mínimo 32 chars.
+- [x] **MED-5** `middlewares/errorHandler.ts` — producción expone solo `[{path, code}]`; `format()` completo solo en dev.
+
+### Agente PII (`apps/agent/`, `packages/agent-tools/`)
+- [x] System prompt — 8 reglas PII de prioridad máxima.
+- [x] `redactSensitiveFields()` — wallets → `...XXXX`, phones → `+52...XX`; drop de `privyUserId`, `applicantId`, `phone_hash`, `secret_key_b58` en los 21 ejecutores de tools.
+- [x] `iniciar_cuenta_segura` — `telefono` removido del toolset LLM-controlado; inyectado server-side.
+
+### Solana Anchor (`packages/anchor-program/`)
+- [x] **CRIT-1** `init_user_profile` — `wallet` es `Signer<'info>` (previene impersonación).
+- [x] **HIGH-4** `payout.rs` — schedule rolling (`prev_ts + frequency_seconds`).
+- [x] **HIGH-5** `pause.rs` — emite evento `ProgramPauseStateChanged`.
+- [ ] **CRIT-3** Vault lockup tras slash — pendiente redesign (documentado en `slash.rs`).
+- [ ] **CRIT-4** Slash envía stake a treasury en vez de cubrir contribución — pendiente (documentado en `slash.rs`).
+
+### Solidity (`packages/monad-contracts/`)
+- [x] **CRIT-02** Disputes vinculadas al `tandaKey`; cross-tanda voting bloqueado con `DisputeTandaMismatch`.
+- [x] **CRIT-03** Quorum mínimo `ceil(memberTarget/2)`; sin quorum → estado `Expired`.
+- [x] **HIGH-01** Setters de roles verifican `address(0)`.
+- [x] **HIGH-02** Constructor valida todas las direcciones no nulas.
+- [x] **HIGH-05** `resolveDispute` refresca `nextPayoutTs` al retornar a `Active`.
+- [x] **HIGH-06** `initUserProfile` exige `msg.sender == wallet`.
+- [x] **MED-05** `payout` usa schedule rolling.
+- [x] **MED-08** `MAX_FEE_BPS` reducido a 300 (3%).
+- [x] **LOW-05** `createTanda` exige `frequency <= MAX_FREQUENCY = 90 days`.
+- [ ] **CRIT-01** Vault lockup tras slash — pendiente redesign (documentado en `slashDefaulter`).
+- [ ] **CRIT-04** Dispute griefing gratuito — pendiente bond on dispute opening (documentado en `openDispute`).
+
+---
+
 ## 🚨 Riesgos detectados (mitigación pendiente)
 
 - 🔴 **Twilio Auth Token filtrado** — `e37fc5...d9d` quedó en transcript del chat. **ROTAR INMEDIATAMENTE**

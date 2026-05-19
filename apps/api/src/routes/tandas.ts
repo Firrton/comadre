@@ -92,7 +92,10 @@ tandasRouter.post(
     }
 
     // Mirror the tanda into the DB so list/get endpoints work pre-indexer
-    const usdcMint = process.env["USDC_MINT"] ?? input.usdc_mint;
+    const usdcMint = process.env["USDC_MINT"];
+    if (!usdcMint) {
+      return c.json({ error: "configuration", message: "USDC_MINT not configured" }, 500);
+    }
     const nameHash = createHash("sha256").update(input.name).digest("hex");
     const now = new Date();
 
@@ -175,6 +178,7 @@ tandasRouter.get("/", async (c) => {
 // GET /api/v1/tandas/:id — single tanda with members
 // ---------------------------------------------------------------------------
 tandasRouter.get("/:id", async (c) => {
+  const user = (c.get as (k: string) => unknown)("user") as AuthUser;
   const id = c.req.param("id");
 
   const tandaRows = await db
@@ -188,6 +192,24 @@ tandasRouter.get("/:id", async (c) => {
     return c.json({ error: "not_found", message: `Tanda ${id} not found` }, 404);
   }
 
+  // Check if caller is creator or member
+  const isCreator = tanda.creatorWallet === user.walletAddress;
+  let isMember = false;
+  if (!isCreator) {
+    const memberCheck = await db
+      .select({ id: members.id })
+      .from(members)
+      .where(and(eq(members.tandaId, id), eq(members.userWallet, user.walletAddress)))
+      .limit(1);
+    isMember = memberCheck.length > 0;
+  }
+
+  // Non-members get a redacted view (no member roster)
+  if (!isCreator && !isMember) {
+    return c.json({ tanda: formatTanda(tanda) }, 200);
+  }
+
+  // Members and creator get the full view with roster
   const memberRows = await db
     .select()
     .from(members)

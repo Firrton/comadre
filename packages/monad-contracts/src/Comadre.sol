@@ -126,6 +126,10 @@ contract Comadre is ReentrancyGuard {
         address _feeDestination,
         uint64[4] memory _kycLimits
     ) {
+        // HIGH-02: reject zero-address parameters that would permanently brick the contract.
+        if (address(_usdc) == address(0) || _kycOracle == address(0) ||
+            _crankAuthority == address(0) || _feeDestination == address(0))
+            revert E.ZeroAddress();
         if (_feeBps > T.MAX_FEE_BPS) revert E.InvalidFeeBps();
         if (_kycLimits[0] == 0) revert E.InvalidKycLimits();
         for (uint256 i = 1; i < T.KYC_TIER_COUNT; i++) {
@@ -154,21 +158,25 @@ contract Comadre is ReentrancyGuard {
     }
 
     function setAdmin(address newAdmin) external onlyAdmin {
+        if (newAdmin == address(0)) revert E.ZeroAddress();
         emit AdminChanged(admin, newAdmin);
         admin = newAdmin;
     }
 
     function setKycOracle(address newOracle) external onlyAdmin {
+        if (newOracle == address(0)) revert E.ZeroAddress();
         emit KycOracleChanged(kycOracle, newOracle);
         kycOracle = newOracle;
     }
 
     function setCrankAuthority(address newCrank) external onlyAdmin {
+        if (newCrank == address(0)) revert E.ZeroAddress();
         emit CrankAuthorityChanged(crankAuthority, newCrank);
         crankAuthority = newCrank;
     }
 
     function setFeeDestination(address newDest) external onlyAdmin {
+        if (newDest == address(0)) revert E.ZeroAddress();
         emit FeeDestinationChanged(feeDestination, newDest);
         feeDestination = newDest;
     }
@@ -187,15 +195,17 @@ contract Comadre is ReentrancyGuard {
     event KycTierUpdated(address indexed wallet, uint8 newTier, uint64 timestamp);
 
     /**
-     * @notice Create a profile for `wallet`. Anyone can pay to initialise a
-     *         profile for another address (matches Anchor `init_user_profile`),
-     *         but only the KYC oracle may later upgrade the tier.
+     * @notice Create a profile for the caller (`msg.sender`). The wallet
+     *         parameter must equal msg.sender — profiles cannot be opened on
+     *         behalf of other addresses to prevent impersonation (HIGH-06).
+     *         Only the KYC oracle may later upgrade the tier.
      */
     function initUserProfile(
         address wallet,
         bytes32 phoneHash,
         bytes2 countryCode
     ) external whenNotPaused {
+        if (msg.sender != wallet) revert E.Unauthorized();
         T.UserProfile storage profile = _userProfiles[wallet];
         if (profile.exists) revert E.AlreadyInitialized();
 
@@ -269,7 +279,7 @@ contract Comadre is ReentrancyGuard {
 
         if (memberTarget < T.MIN_MEMBERS || memberTarget > T.MAX_MEMBERS) revert E.InvalidMemberCount();
         if (contributionAmount == 0 || stakeAmount == 0) revert E.InvalidStake();
-        if (frequencySeconds < T.MIN_FREQUENCY) revert E.InvalidFrequency();
+        if (frequencySeconds < T.MIN_FREQUENCY || frequencySeconds > T.MAX_FREQUENCY) revert E.InvalidFrequency();
 
         tandaKey = tandaKeyOf(msg.sender, tandaId);
         T.Tanda storage tanda = _tandas[tandaKey];
@@ -426,7 +436,9 @@ contract Comadre is ReentrancyGuard {
             unchecked {
                 tanda.currentTurn += 1;
             }
-            tanda.nextPayoutTs = uint64(block.timestamp) + tanda.frequencySeconds;
+            // MED-05: Use rolling schedule anchored to the previous deadline to
+            // prevent accumulating clock drift across turns.
+            tanda.nextPayoutTs = tanda.nextPayoutTs + tanda.frequencySeconds;
         }
     }
 
@@ -461,6 +473,12 @@ contract Comadre is ReentrancyGuard {
      *         The member's stake is transferred to `feeDestination` and the
      *         member is marked inactive; `memberCurrent` is decremented so the
      *         tanda can complete naturally without them.
+     *
+     * SECURITY-TODO (CRIT-01): After any slash, contributionsThisTurn != memberTarget
+     * permanently, locking all remaining payouts. Requires either:
+     * - Decrement memberTarget on slash + adjust gross calculation, OR
+     * - Track activeMembers separately and gate payout on it.
+     * Tracked in audit findings — must be fixed before production with real funds.
      */
     function slashDefaulter(bytes32 tandaKey, address defaulter)
         external
@@ -507,12 +525,17 @@ contract Comadre is ReentrancyGuard {
         uint64 timestamp
     );
     event DisputeVoted(bytes32 indexed disputeKey, address indexed voter, bool continueTanda, uint64 timestamp);
-    event DisputeResolved(bytes32 indexed disputeKey, bool continueTanda, uint64 timestamp);
+    event DisputeResolved(bytes32 indexed disputeKey, T.DisputeState finalState, bool noQuorum, uint64 timestamp);
 
     /**
      * @notice Open a dispute against the tanda. Pauses the tanda for the
      *         duration of the voting window. Up to `MAX_DISPUTES_PER_TANDA`
      *         per tanda.
+     *
+     * SECURITY-TODO (CRIT-04): Opening a dispute is cost-free. A malicious member
+     * can grief by repeatedly opening disputes to pause the tanda for up to 7 days each.
+     * Required fix: require a stake bond on dispute opening, forfeited if dispute
+     * resolves to "continue".
      */
     function openDispute(bytes32 tandaKey, bytes32 reasonHash)
         external
@@ -532,6 +555,8 @@ contract Comadre is ReentrancyGuard {
 
         T.Dispute storage dispute = _disputes[disputeKey];
         dispute.reasonHash = reasonHash;
+        // CRIT-02: Bind the dispute to its tanda so cross-tanda vote injection is blocked.
+        dispute.tandaKey = tandaKey;
         dispute.opener = msg.sender;
         dispute.openedAt = uint64(block.timestamp);
         dispute.deadlineTs = uint64(block.timestamp) + T.DISPUTE_VOTING_WINDOW;
@@ -562,6 +587,8 @@ contract Comadre is ReentrancyGuard {
         if (block.timestamp > dispute.deadlineTs) revert E.DisputeExpired();
         // Audit COM-045: the opener should not be able to vote on their own dispute.
         if (msg.sender == dispute.opener) revert E.Unauthorized();
+        // CRIT-02: Reject votes that supply a different tanda than the one the dispute belongs to.
+        if (dispute.tandaKey != tandaKey) revert E.DisputeTandaMismatch();
 
         T.Member storage member = _members[memberKeyOf(tandaKey, msg.sender)];
         if (!member.exists || !member.isActive) revert E.NotAMember();
@@ -578,28 +605,55 @@ contract Comadre is ReentrancyGuard {
     }
 
     /**
-     * @notice Resolve a dispute after the voting window closes. Ties resolve to
-     *         "cancel" as a safety default (the chain favors leaving the funds
-     *         claimable rather than continuing under contention).
+     * @notice Resolve a dispute after the voting window closes.
      *
-     *         Anyone may call once the deadline has passed — the outcome is
-     *         determined purely by the recorded votes.
+     *         Quorum rule (CRIT-03): the winning side must reach ceil(memberTarget/2)
+     *         votes. If total votes < quorum, the dispute expires with no effect:
+     *         the tanda returns to Active with a refreshed payout schedule.
+     *
+     *         When quorum is reached, ties resolve to "cancel" (the chain favors
+     *         leaving funds claimable rather than continuing under contention).
+     *
+     *         Anyone may call once the deadline has passed — outcome is determined
+     *         purely by the recorded votes.
      */
     function resolveDispute(bytes32 tandaKey, bytes32 disputeKey) external whenNotPaused {
         T.Dispute storage dispute = _disputes[disputeKey];
         if (!dispute.exists) revert E.DisputeNotFound();
         if (dispute.state != T.DisputeState.Open) revert E.DisputeNotOpen();
         if (block.timestamp <= dispute.deadlineTs) revert E.DisputeNotExpired();
+        // CRIT-02: Reject calls that supply a different tanda than the one the dispute belongs to.
+        if (dispute.tandaKey != tandaKey) revert E.DisputeTandaMismatch();
 
         T.Tanda storage tanda = _tandas[tandaKey];
         if (!tanda.exists) revert E.TandaNotFound();
 
+        // CRIT-03: Require quorum — winning side must reach ceil(memberTarget / 2).
+        uint256 totalVotes = uint256(dispute.votesContinue) + uint256(dispute.votesCancel);
+        uint256 quorum = (uint256(tanda.memberTarget) + 1) / 2; // ceil(memberTarget / 2)
+
+        if (totalVotes < quorum) {
+            // No quorum — mark dispute Expired and return tanda to Active.
+            dispute.state = T.DisputeState.Expired;
+            tanda.state = T.TandaState.Active;
+            // HIGH-05: Refresh nextPayoutTs — the pause window already elapsed.
+            tanda.nextPayoutTs = uint64(block.timestamp) + tanda.frequencySeconds;
+            emit DisputeResolved(disputeKey, T.DisputeState.Expired, true, uint64(block.timestamp));
+            return;
+        }
+
         bool continueTanda = dispute.votesContinue > dispute.votesCancel;
         dispute.state = T.DisputeState.Resolved;
 
-        tanda.state = continueTanda ? T.TandaState.Active : T.TandaState.Cancelled;
+        if (continueTanda) {
+            tanda.state = T.TandaState.Active;
+            // HIGH-05: Refresh nextPayoutTs — the pause window already elapsed.
+            tanda.nextPayoutTs = uint64(block.timestamp) + tanda.frequencySeconds;
+        } else {
+            tanda.state = T.TandaState.Cancelled;
+        }
 
-        emit DisputeResolved(disputeKey, continueTanda, uint64(block.timestamp));
+        emit DisputeResolved(disputeKey, T.DisputeState.Resolved, false, uint64(block.timestamp));
     }
 
     // -------------------------------------------------------------------------

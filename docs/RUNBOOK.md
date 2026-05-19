@@ -813,3 +813,14 @@ Para empezar 100% desde cero (incluyendo Privy):
 | `generateAccessToken` falla con 404 | `applicantId` no existe en Sumsub | Puede pasar si el applicant se creó con otro app token; crear uno nuevo con `createApplicant` |
 | Webhook `applicantReviewed` llega pero no actualiza la DB | `SUMSUB_WEBHOOK_SECRET` no seteado o incorrecto | El handler acepta el webhook pero verifica el digest solo si la variable está seteada. Verificar `X-Payload-Digest` en los logs de la request. |
 | Webhook llega, DB actualizada, pero on-chain `update_kyc_tier` falla | `KYC_ORACLE_SK` no seteado o wallet sin SOL | El error se loguea pero no bloquea el 200. Verificar que `kyc_oracle` tenga SOL para pagar fees y que `COMADRE_PROGRAM_ID` sea correcto. La actualización on-chain puede reintentarse manualmente. |
+| `POST /api/v1/kyc/session` crea un applicant nuevo aunque ya había uno | Sesión anterior tiene estado `rejected` | Comportamiento correcto: sesiones rechazadas no son reutilizables. El endpoint crea un nuevo applicant para permitir que el usuario reintente la verificación. |
+
+### Seguridad (errores de control de acceso)
+
+| Error | Causa | Fix |
+|---|---|---|
+| `500: CONTACT_ENCRYPTION_KEY missing` al iniciar `apps/api` | `CONTACT_ENCRYPTION_KEY` no configurada o menor a 32 caracteres | Generar con `openssl rand -hex 32` y agregar al `.env`. La app no arranca sin esta variable. |
+| `403 Forbidden` en `GET /api/v1/tandas/:id` | Usuario autenticado no es miembro de la tanda | Comportamiento correcto. El usuario recibe vista reducida o, dependiendo de la implementación, 403. Solo miembros ven el array completo de `members`. |
+| `403 Forbidden` en `GET /api/v1/disputes/:id` | Usuario autenticado no es miembro de la tanda asociada a la disputa | Comportamiento correcto. No-miembros ven solo conteo agregado de votos. |
+| `403 wallet mismatch` en `POST /api/v1/users/:wallet/confirm` | El wallet del path no coincide con el usuario autenticado en el JWT | Comportamiento correcto (previene account squatting). El usuario debe llamar el endpoint con su propio wallet. |
+| `429 Too Many Requests` en `GET /api/v1/transfers/lookup` | Más de 20 requests/min al oracle de teléfonos | Rate limit dedicado (`phoneLookupRateLimit`). Esperar la ventana de 1 minuto. |

@@ -1,3 +1,11 @@
+// SECURITY-TODO (CRIT-3, CRIT-4):
+// - After slash, `tanda.contributions_this_turn == tanda.member_target`
+//   becomes unreachable, locking the vault forever.
+// - Slashed stake currently routes to fee_destination (treasury) instead of
+//   covering the defaulter's missed contribution in the vault.
+// Required fix (deferred): redesign slash to credit vault for the missed
+// contribution AND decrement member_target so payout can complete.
+// Tracked in audit findings — must be fixed before production with real funds.
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 

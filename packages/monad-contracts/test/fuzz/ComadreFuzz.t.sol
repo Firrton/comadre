@@ -23,6 +23,7 @@ contract ComadreFuzzTest is TestBase {
         // Onboard every actor as T1Lite so they can create / join tandas.
         address[6] memory people = [alice, bob, carol, dave, eve, frank];
         for (uint256 i = 0; i < people.length; i++) {
+            vm.prank(people[i]);
             comadre.initUserProfile(people[i], keccak256(abi.encodePacked(people[i])), AR);
             vm.prank(kycOracle);
             comadre.updateKycTier(people[i], T.KycTier.T1Lite);
@@ -42,7 +43,8 @@ contract ComadreFuzzTest is TestBase {
         vm.assume(memberTarget >= T.MIN_MEMBERS && memberTarget <= T.MAX_MEMBERS);
         vm.assume(contributionAmount > 0 && contributionAmount < type(uint64).max);
         vm.assume(stakeAmount > 0 && stakeAmount < type(uint64).max);
-        vm.assume(frequencySeconds >= T.MIN_FREQUENCY);
+        // LOW-05: frequencySeconds is now bounded [MIN_FREQUENCY, MAX_FREQUENCY].
+        vm.assume(frequencySeconds >= T.MIN_FREQUENCY && frequencySeconds <= T.MAX_FREQUENCY);
 
         vm.prank(alice);
         bytes32 key = comadre.createTanda(

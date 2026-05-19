@@ -8,13 +8,15 @@ const ALGORITHM = "aes-256-gcm";
 
 function getKey(): Buffer {
   const configured = env.CONTACT_ENCRYPTION_KEY;
-  if (!configured && env.NODE_ENV === "production") {
-    throw new Error("CONTACT_ENCRYPTION_KEY is required in production");
+  if (!configured) {
+    throw new Error(
+      "CONTACT_ENCRYPTION_KEY is required (32+ bytes hex, generate via openssl rand -hex 32)"
+    );
   }
-
-  return createHash("sha256")
-    .update(configured ?? "dev-only-contact-encryption-key")
-    .digest();
+  if (configured.length < 32) {
+    throw new Error("CONTACT_ENCRYPTION_KEY must be at least 32 chars");
+  }
+  return createHash("sha256").update(configured).digest();
 }
 
 export function encryptPhoneE164(phoneE164: string): string {

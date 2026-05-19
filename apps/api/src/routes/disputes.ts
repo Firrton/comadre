@@ -121,6 +121,7 @@ disputesRouter.post(
 // ---------------------------------------------------------------------------
 disputesRouter.get("/disputes/:id", async (c) => {
   const disputeId = c.req.param("id");
+  const user = (c.get as (k: string) => unknown)("user") as AuthUser;
 
   const disputeRows = await db
     .select()
@@ -133,6 +134,30 @@ disputesRouter.get("/disputes/:id", async (c) => {
     return c.json({ error: "not_found", message: `Dispute ${disputeId} not found` }, 404);
   }
 
+  // Check if caller is a member of the dispute's tanda
+  const memberCheck = await db
+    .select({ id: members.id })
+    .from(members)
+    .where(and(eq(members.tandaId, dispute.tandaId), eq(members.userWallet, user.walletAddress)))
+    .limit(1);
+  const isMember = memberCheck.length > 0;
+
+  // Non-members receive aggregate tallies only (no voter identities or reason)
+  if (!isMember) {
+    return c.json(
+      {
+        id: dispute.id,
+        state: dispute.state,
+        votes_continue: dispute.votesContinue,
+        votes_cancel: dispute.votesCancel,
+        deadline_ts: dispute.deadlineTs?.toISOString() ?? null,
+        opened_at: dispute.openedAt?.toISOString() ?? null,
+      },
+      200
+    );
+  }
+
+  // Members get the full view
   const votes = await db
     .select()
     .from(disputeVotes)

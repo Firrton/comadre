@@ -140,14 +140,47 @@ Convención: todo log lleva `req_id` (del middleware Hono), `user_id` o `from` (
 - `TWILIO_AUTH_TOKEN` se usa **únicamente** para verificar `X-Twilio-Signature` (webhook inbound). Outbound usa `TWILIO_API_KEY_SID` + `TWILIO_API_KEY_SECRET` (scoped keys).
 - `INTERNAL_HMAC_SECRET` protege **todas** las llamadas service-to-service: `apps/whatsapp → apps/agent /process`, `apps/agent → apps/api` (via `@comadre/agent-tools`), y `apps/api → apps/whatsapp /reply`. Formato: HMAC-SHA256 de `"METHOD\nPATH\nTIMESTAMP\nBODY"` con replay protection (ventana de 5 minutos, timing-safe compare). Generar con `openssl rand -hex 32`.
 - **CORS**: `apps/api` restringe orígenes a `comadre.lat` en producción (`*` en dev). Headers custom (`X-Idempotency-Key`, `X-Internal-Signature`, `X-Internal-Timestamp`, `X-Dev-Wallet`, `X-Dev-User-Id`) están whitelisted.
-- **Rate limiting**: 3 limiters en `@comadre/cache` vía Upstash sliding window:
+- **Rate limiting**: 4 limiters en `@comadre/cache` vía Upstash sliding window:
   - `webhookRateLimit` — 60 req/min por phone (apps/whatsapp webhook)
   - `agentToolRateLimit` — 30 tool calls/hora por conversación (apps/agent)
   - `apiUserRateLimit` — 100 req/min por usuario (apps/api)
+  - `phoneLookupRateLimit` — 20 req/min por usuario en `GET /api/v1/transfers/lookup` (defensa oracle — CRIT-3)
   - Todos fail-open si Redis no está disponible (log warn, no bloquean tráfico).
 - **Sentry**: inicializado en api, agent y whatsapp. Solo se activa si `SENTRY_DSN` está configurado (opcional). Trace sampling: 10% en producción, 100% en dev.
 - Todas las SKs de wallets viven en `.env` durante hackathon. En producción → Doppler/Infisical.
 - El programa Anchor tiene un guard deployer-only en `init_config` para prevenir front-run.
+
+### Controles de autorización por endpoint (audit sprint A)
+
+| Endpoint | Control añadido |
+|---|---|
+| `GET /api/v1/tandas/:id` | Membership check: no-miembros reciben vista reducida (sin array `members`). |
+| `POST /api/v1/tandas` | `usdc_mint` removido del input schema; el servidor usa `process.env.USDC_MINT` exclusivamente. |
+| `GET /api/v1/transfers/lookup` | Respuesta reducida a `{ registered, walletPreview }`. Campos `wallet`, `kycTier` y `phoneHash` eliminados de la respuesta pública. Rate limit dedicado 20 req/min. |
+| `POST /api/v1/users/:wallet/confirm` | Enforcement de que el wallet del path coincide con el usuario autenticado (previene account squatting). |
+| `GET /api/v1/disputes/:id` | Membership check: no-miembros ven solo conteo agregado de votos; sin wallets de votantes, opener ni razón. |
+| `POST /api/v1/kyc/session` | Reutiliza sesión existente solo si su estado es `init`, `pending` o `approved`. Sesiones `rejected` fuerzan creación de un nuevo applicant. |
+
+### Protección de PII en el agente (audit sprint A)
+
+- **System prompt**: 8 reglas de prioridad máxima para PII (ver `SECURITY.md`).
+- **Redacción de respuestas de tools**: helper `redactSensitiveFields()` en `@comadre/agent-tools`. Wallets enmascarados a `...XXXX`, teléfonos a `+52...XX`. Campos `privyUserId`, `applicantId`, `phone_hash`, `secret_key_b58` eliminados de todo dato que llega al LLM.
+- **`iniciar_cuenta_segura`**: el parámetro `telefono` fue removido del toolset LLM-controlado; el teléfono es inyectado server-side desde `context.senderPhone`.
+
+### Smart contracts (audit sprint A)
+
+**Solana Anchor** (`packages/anchor-program`):
+- `init_user_profile` — `wallet` es ahora `Signer<'info>` (previene impersonación/brick attacks, CRIT-1).
+- `payout` — `next_payout_ts` usa schedule rolling (`prev_ts + frequency_seconds`), no `now + frequency` (previene drift, HIGH-4).
+- `pause` — emite evento `ProgramPauseStateChanged` con admin + timestamp (HIGH-5).
+
+**Solidity Comadre.sol** (`packages/monad-contracts`):
+- Disputes vinculadas al `tandaKey` del origen; cross-tanda voting bloqueado con `DisputeTandaMismatch` (CRIT-02).
+- Quorum mínimo `ceil(memberTarget/2)` para resolver disputa; sin quorum → estado `Expired` y tanda vuelve a `Active` (CRIT-03).
+- Todos los setters de roles verifican `address(0)` (HIGH-01). Constructor valida todas las direcciones no nulas (HIGH-02).
+- `resolveDispute` refresca `nextPayoutTs` al retornar a `Active` (HIGH-05).
+- `initUserProfile` exige `msg.sender == wallet` (HIGH-06).
+- `payout` usa schedule rolling (MED-05). `MAX_FEE_BPS` reducido a 300 (3%) (MED-08). `createTanda` exige `frequency <= MAX_FREQUENCY = 90 days` (LOW-05).
 
 ---
 

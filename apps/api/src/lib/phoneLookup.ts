@@ -17,6 +17,7 @@ import { eq } from "drizzle-orm";
 import { PrivyClient } from "@privy-io/server-auth";
 import { db, users } from "@comadre/db";
 import { hashPhone } from "@comadre/cache";
+import { rootLogger } from "../middlewares/logger.js";
 
 export interface PhoneLookupResult {
   phone: string;
@@ -91,12 +92,10 @@ export async function lookupByPhone(e164: string): Promise<PhoneLookupResult> {
       };
     }
   } catch (err) {
-    // Privy returns 404 / similar when user doesn't exist; treat as not registered
-    const message = err instanceof Error ? err.message : String(err);
-    if (!/not[_ ]?found|no such user|404/i.test(message)) {
-      // Unexpected error — re-throw so the caller sees it (don't silently mask)
-      throw err;
-    }
+    // Treat all Privy lookup failures uniformly as "not found" to avoid fingerprinting
+    // (previously only 404-like errors were swallowed, leaking that Privy is reachable)
+    rootLogger.warn({ err, phoneE164: e164 }, "[phoneLookup] privy lookup failed, treating as not registered");
+    return { phone: e164, phoneHash, registered: false };
   }
 
   // 3. Not registered anywhere

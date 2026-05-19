@@ -62,7 +62,7 @@ export function toolsForWalletState(
   userWallet: string | null,
 ): (typeof ALL_TOOLS)[number][] {
   if (userWallet === null) return [...ALL_TOOLS];
-  return ALL_TOOLS.filter((tool) => tool.function.name !== "iniciar_onboarding");
+  return ALL_TOOLS.filter((tool) => tool.function.name !== "iniciar_cuenta_segura");
 }
 
 function hasExplicitOnboardingConsent(message: string): boolean {

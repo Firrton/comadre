@@ -37,6 +37,7 @@ import { getRedis } from "@comadre/cache";
 import { buildUnsignedTx, submitWithRetry, getFeePayerKeypair, getConnection } from "@comadre/solana";
 import { getUsdcMint } from "@comadre/anchor-client";
 import { lookupByPhone } from "../lib/phoneLookup.js";
+import { createRateLimiter, checkRateLimit } from "@comadre/cache";
 import { enforceKycLimit, KycLimitExceededError, type KycTier } from "../lib/kycLimits.js";
 import { buildUsdcTransferIxs, usdcToMicro, microToUsdc } from "../lib/usdcTransfer.js";
 import { signWithUserKeypair } from "../lib/userSigner.js";
@@ -44,6 +45,12 @@ import { createSavingsNudge } from "../lib/savings/nudges.js";
 import type { AuthUser } from "../middlewares/auth.js";
 
 export const transfersRouter = new Hono();
+
+// Stricter limiter for the phone-lookup oracle (20 req/min per user)
+const phoneLookupRateLimit = createRateLimiter("api:phone_lookup", {
+  requests: 20,
+  window: "1 m",
+});
 
 const TRANSFER_PENDING_TTL_SECONDS = 5 * 60; // 5 min — sender confirms or expires
 const TRANSFER_DEFERRED_TTL_DAYS = 7; // 7 days — recipient onboarding window
@@ -98,9 +105,26 @@ transfersRouter.get(
     }
   }),
   async (c) => {
+    // Apply extra-tight rate limit for phone oracle (20 req/min)
+    if (process.env["SKIP_REDIS"] !== "true" && process.env["NODE_ENV"] !== "test") {
+      const user = (c.get as (k: string) => unknown)("user") as import("../middlewares/auth.js").AuthUser | undefined;
+      const identifier = user?.userId ?? c.req.header("X-Forwarded-For")?.split(",")[0]?.trim() ?? "anonymous";
+      try {
+        const result = await checkRateLimit(phoneLookupRateLimit, identifier);
+        if (!result.allowed) {
+          const retryAfter = Math.ceil((result.resetAt.getTime() - Date.now()) / 1000);
+          c.header("Retry-After", String(retryAfter));
+          return c.json({ error: "rate_limit_exceeded", retry_after: retryAfter }, 429);
+        }
+      } catch {
+        // Redis unavailable — fail open for this read-only endpoint
+      }
+    }
+
     const { phone } = c.req.valid("query");
     const lookup = await lookupByPhone(phone);
-    return c.json(lookup);
+    // Only return non-sensitive fields — drop wallet, kycTier, phoneHash
+    return c.json({ registered: lookup.registered, walletPreview: lookup.walletPreview });
   }
 );
 

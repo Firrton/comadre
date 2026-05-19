@@ -53,16 +53,14 @@ kycRouter.post("/session", async (c) => {
 
   // Check for an existing active session to reuse
   const existingRows = await db
-    .select({ id: kycSessions.id, applicantId: kycSessions.applicantId })
+    .select({ id: kycSessions.id, applicantId: kycSessions.applicantId, status: kycSessions.status })
     .from(kycSessions)
-    .where(
-      // Use the wallet address filter in conjunction with status check
-      eq(kycSessions.userWallet, user.walletAddress)
-    )
+    .where(eq(kycSessions.userWallet, user.walletAddress))
     .limit(10);
 
+  // Only reuse sessions that are still progressing — skip rejected/failed ones
   const activeSession = existingRows.find(
-    (r) => r.applicantId !== null
+    (r) => r.applicantId !== null && ["init", "pending", "approved"].includes(r.status)
   );
 
   let sessionId: string;
