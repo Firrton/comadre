@@ -14,6 +14,7 @@
   "dependencies": {
     "@comadre/cache": "workspace:*",
     "@comadre/config": "workspace:*",
+    "@sentry/bun": "^8.0.0",
     "@comadre/db": "workspace:*",
     "@comadre/types": "workspace:*",
     "@upstash/redis": "^1.34.0",

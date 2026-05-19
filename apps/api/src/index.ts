@@ -5,7 +5,18 @@
  * Port: process.env.PORT (Railway) or 3001 (default).
  */
 
+import * as Sentry from "@sentry/bun";
+import { env } from "@comadre/config";
+
 import app from "./server.js";
+
+if (env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: env.SENTRY_DSN,
+    environment: env.NODE_ENV,
+    tracesSampleRate: env.NODE_ENV === "production" ? 0.1 : 1.0,
+  });
+}
 
 const port = Number(process.env["PORT"] ?? 3001);
 

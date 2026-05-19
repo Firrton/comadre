@@ -35,9 +35,10 @@
 |---|---|---|---|---|
 | 1 | `loggerMiddleware` | `middlewares/logger.ts` | `*` | Pino logger; inyecta `req_id` (UUID v4) + child logger en el context Hono |
 | 2 | `errorHandler` | `middlewares/errorHandler.ts` | `*` | Catch-all: `ZodError` → 400 con `issues`; resto → 500 con `req_id` |
-| 3 | `rateLimitMiddleware` | `middlewares/rateLimit.ts` | `/api/*` excepto `/api/v1/onboarding/*` | `apiUserRateLimit` 100 req/min por `userId` (fallback a IP). Responde 429 + `Retry-After`. Transparente si Redis falla. |
-| 4 | `authMiddleware` | `middlewares/auth.ts` | `/api/*` excepto `/api/v1/onboarding/*` | Verifica `Authorization: Bearer <jwt>` con Privy SDK (timeout 3 s). Sets `c.set("user", AuthUser)`. Dev bypass: `X-Dev-Wallet` + `X-Dev-User-Id` (solo `NODE_ENV !== production`). |
-| 5 | `idempotencyMiddleware` | `middlewares/idempotency.ts` | POST en `/api/*` excepto `/api/v1/onboarding/*` | Requiere header `X-Idempotency-Key`. Cache key: `api:{userId}:{path}:{key}`. Cache hit → devuelve respuesta sin ejecutar handler. Redis failures son toleradas (log + pass-through). |
+| 3 | `corsMiddleware` | `hono/cors` | `*` | CORS — restringe orígenes en producción a `comadre.lat`; `*` en dev. Headers permitidos: `Content-Type`, `Authorization`, `X-Idempotency-Key`, `X-Internal-Signature`, `X-Internal-Timestamp`, `X-Dev-Wallet`, `X-Dev-User-Id`. `maxAge: 3600`. |
+| 4 | `rateLimitMiddleware` | `middlewares/rateLimit.ts` | `/api/*` excepto `/api/v1/onboarding/*` | `apiUserRateLimit` 100 req/min por `userId` (fallback a IP). Responde 429 + `Retry-After`. Transparente si Redis falla. |
+| 5 | `authMiddleware` | `middlewares/auth.ts` | `/api/*` excepto `/api/v1/onboarding/*` | Verifica `Authorization: Bearer <jwt>` con Privy SDK (timeout 3 s). Sets `c.set("user", AuthUser)`. Dev bypass: `X-Dev-Wallet` + `X-Dev-User-Id` (solo `NODE_ENV !== production`). |
+| 6 | `idempotencyMiddleware` | `middlewares/idempotency.ts` | POST en `/api/*` excepto `/api/v1/onboarding/*` | Requiere header `X-Idempotency-Key`. Cache key: `api:{userId}:{path}:{key}`. Cache hit → devuelve respuesta sin ejecutar handler. Redis failures son toleradas (log + pass-through). |
 
 **Nota sobre skip de autenticación**: `/health`, `/webhooks/*` y `/api/v1/onboarding/*` son públicos. `webhooks/*` tiene su propio auth por HMAC/firma de proveedor.
 
@@ -46,7 +47,7 @@
 | Mount | Método | Path | Estado | Descripción |
 |---|---|---|---|---|
 | — | GET | `/health` | prod | Liveness check, no auth |
-| `/webhooks` | POST | `/webhooks/sumsub` | parcial | Verifica `X-Payload-Digest` HMAC-SHA256 si `SUMSUB_WEBHOOK_SECRET` está seteado. Actualiza `kyc_sessions.status` en `applicantReviewed`. |
+| `/webhooks` | POST | `/webhooks/sumsub` | prod | Verifica `X-Payload-Digest` HMAC-SHA256 si `SUMSUB_WEBHOOK_SECRET` está seteado. En evento `applicantReviewed` con resultado GREEN: actualiza `kyc_sessions.status`, actualiza `users.kycTier = "t2_standard"`, y llama `update_kyc_tier` on-chain vía `kyc_oracle`. Fallo on-chain es capturado y logueado pero no bloquea el 200. |
 | `/webhooks` | POST | `/webhooks/privy` | stub | Recibe eventos de wallet linking. Loguea y responde 200. |
 | `/webhooks` | POST | `/webhooks/helius` | log-only | Verifica `Authorization` header si `HELIUS_WEBHOOK_SECRET` está seteado. Loguea eventos; `apps/indexer` es el authoritative consumer. |
 | `/api/v1/onboarding` | POST | `/api/v1/onboarding/init` | prod | Sin auth (usuario no tiene JWT aún). Body `{ phone: E.164 }`. Llama `onboardPhone()` → Privy `importUser` + embedded Solana wallet + insert en `users`. Idempotente. |
@@ -62,7 +63,7 @@
 | `/api/v1` (disputes) | POST | `/api/v1/tandas/:id/disputes` | stub | Abre disputa. Pre-flight: caller es member. Build stub `open_dispute`. |
 | `/api/v1` (disputes) | POST | `/api/v1/disputes/:id/vote` | stub | Vota en disputa `open`. Pre-flight: caller es member del tanda + no votó antes. Build stub `vote_dispute`. |
 | `/api/v1` (disputes) | GET | `/api/v1/disputes/:id` | prod | Detalle de disputa con tallies de votos. |
-| `/api/v1/kyc` | POST | `/api/v1/kyc/session` | stub | Si `SUMSUB_APP_TOKEN` no está: devuelve stub token + inserta `kyc_sessions` row. Con token: devuelve 501 (integración pendiente). |
+| `/api/v1/kyc` | POST | `/api/v1/kyc/session` | prod | Requiere auth. Reutiliza applicant existente si ya hay una sesión activa para el usuario. Si no: crea applicant en Sumsub + inserta `kyc_sessions` row + genera access token. Devuelve `{ url, session_id, expires_at }` donde `url` es el link hospedado de Sumsub para la verificación. Stub path preservado si `SUMSUB_APP_TOKEN` no está seteado. |
 | `/api/v1` (ramps) | POST | `/api/v1/onramp/quote` | mock | Fiat → USDC quote con tasas hardcodeadas (USD/ARS/MXN/COP/BRL/CLP/PEN). Válido 5 min. |
 | `/api/v1` (ramps) | POST | `/api/v1/offramp/quote` | mock | USDC → Fiat quote. Mismo motor mock. |
 | `/api/v1/transfers` | GET | `/api/v1/transfers/lookup` | prod | Resuelve `?phone=+E164` → wallet. Usa `lookupByPhone()`. |
@@ -83,6 +84,7 @@
 | `lib/onboarding.ts` | `onboardPhone(phone)` | Privy `importUser` (o lookup si ya existe) + `createWallets` si no tiene Solana wallet. Inserta row en `users` (idempotente por wallet). Retorna `{ walletAddress, walletId, privyUserId, alreadyExisted }`. |
 | `lib/phoneNormalize.ts` | `normalizePhoneE164` | E.164 con quirks MX/AR (eliminación de dígito redundante). |
 | `lib/stubs.ts` | `makeTxStub(key, plan)` | Devuelve `UnsignedTransactionResponse` con `unsigned_tx` de 32 bytes cero (base64). Usado en todos los endpoints de tx-build que aún no tienen anchor-client real. |
+| `lib/sumsubClient.ts` | `createApplicant(userId)`, `generateAccessToken(applicantId)` | Cliente REST de Sumsub con autenticación HMAC-SHA256 por request. `createApplicant` hace POST a `/resources/applicants`; `generateAccessToken` hace POST a `/resources/accessTokens` y devuelve `{ token, url }` donde `url` apunta a `cockpit.sumsub.com/checkus#/accessToken={token}`. Requiere `SUMSUB_APP_TOKEN` + `SUMSUB_SECRET_KEY`. |
 
 ### Env vars consumidas
 
@@ -97,12 +99,14 @@
 | `COMADRE_PROGRAM_ID` | sí | Derive PDAs Anchor (kycLimits, onboarding) |
 | `USDC_MINT` | sí | Mint address USDC (devnet vs mainnet) |
 | `FEE_PAYER_SK` | sí | Keypair base58; firma transacciones como payer |
-| `SUMSUB_APP_TOKEN` / `SUMSUB_WEBHOOK_SECRET` | no | KYC real (stub si ausentes) |
+| `SUMSUB_APP_TOKEN` / `SUMSUB_SECRET_KEY` | no | Auth del cliente REST Sumsub (HMAC-SHA256 por request). Sin estas variables el endpoint `/api/v1/kyc/session` usa path stub. |
+| `SUMSUB_WEBHOOK_SECRET` | no | Verificación del header `X-Payload-Digest` en `/webhooks/sumsub`. |
 | `HELIUS_WEBHOOK_SECRET` | no | Auth header `/webhooks/helius` |
 | `INTERNAL_HMAC_SECRET` | sí | HMAC SHA-256 para llamadas inter-servicio a `apps/whatsapp /reply` |
 | `WA_URL` | sí | URL de `apps/whatsapp` (ej: `http://localhost:3002`) |
 | `SKIP_REDIS` | no | `true` → bypasea Redis en tests |
 | `LOG_LEVEL` | no | Pino log level (default: `info`) |
+| `SENTRY_DSN` | no | Si está seteado, activa Sentry crash tracking. Trace sampling: 10% prod, 100% dev. |
 
 ### Tests
 
@@ -131,7 +135,7 @@ Punto de entrada del canal WhatsApp. Recibe webhooks de Twilio, verifica la firm
 | Método | Path | Auth | Descripción |
 |---|---|---|---|
 | GET | `/health` | ninguna | Liveness check |
-| POST | `/webhook` | Twilio HMAC | Webhook inbound de Twilio. Verifica `X-Twilio-Signature` con master `TWILIO_AUTH_TOKEN`. Extrae `From`, `Body`, `MessageSid` del form. Hace POST a `$AGENT_URL/process`. Envía reply vía `sendWhatsAppMessage`. Siempre responde `<Response/>` TwiML (Twilio exige 2xx con TwiML vacío). |
+| POST | `/webhook` | Twilio HMAC | Webhook inbound de Twilio. Verifica `X-Twilio-Signature` con master `TWILIO_AUTH_TOKEN`. Tras la verificación aplica `webhookRateLimit` (60 req/min por número de teléfono — fail-open si Redis no responde). Extrae `From`, `Body`, `MessageSid` del form. Hace POST a `$AGENT_URL/process` firmado con HMAC-SHA256 (ver comunicación inter-servicios). Envía reply vía `sendWhatsAppMessage`. Siempre responde `<Response/>` TwiML (Twilio exige 2xx con TwiML vacío). |
 | POST | `/reply` | HMAC SHA-256 interno | Endpoint interno: recibe `{ to, body }` de otros servicios (API, cron). Auth via `X-Internal-Auth` = HMAC-SHA256(body, `INTERNAL_HMAC_SECRET`), timing-safe compare. Llama `sendWhatsAppMessage`. |
 
 ### Lib helpers
@@ -147,6 +151,8 @@ Punto de entrada del canal WhatsApp. Recibe webhooks de Twilio, verifica la firm
 ```
 Twilio → POST /webhook
   ↓ verifyTwilioSignature (X-Twilio-Signature)
+  ↓ webhookRateLimit (60 req/min por phone — fail-open si Redis no disponible)
+  ↓ firma HMAC-SHA256: X-Internal-Signature + X-Internal-Timestamp (INTERNAL_HMAC_SECRET)
   ↓ fetch AGENT_URL/process { from, body, conversationKey }
   ↓ agent responde { reply }
   ↓ sendWhatsAppMessage(from, reply)
@@ -163,7 +169,8 @@ Twilio → POST /webhook
 | `TWILIO_WHATSAPP_FROM` | Número de origen (ej: `whatsapp:+14155238886`) |
 | `WA_URL` | URL propia (usada para construir la URL de firma Twilio — ngrok en dev) |
 | `AGENT_URL` | URL de `apps/agent` (ej: `http://localhost:3003`) |
-| `INTERNAL_HMAC_SECRET` | HMAC para autenticar llamadas internas a `/reply` |
+| `INTERNAL_HMAC_SECRET` | HMAC para autenticar llamadas internas a `/reply` y firmar llamadas salientes a `apps/agent /process` |
+| `SENTRY_DSN` | Opcional. Si está seteado, activa Sentry crash tracking (`@sentry/bun`). |
 
 ---
 
@@ -182,7 +189,7 @@ Implementa el loop de tool-use de Kimi K2. Recibe un mensaje de WhatsApp (via `a
 | Método | Path | Descripción |
 |---|---|---|
 | GET | `/health` | Liveness check |
-| POST | `/process` | Body: `{ from, body, conversationKey }`. Orquesta `resolveUser → loadHistory → runAgent → saveHistory`. Devuelve `{ reply }`. |
+| POST | `/process` | Requiere autenticación HMAC-SHA256: headers `X-Internal-Signature` (firma) y `X-Internal-Timestamp` (epoch segundos). Ventana anti-replay: 5 min. Signature inválida o ausente → 401. Tras la verificación aplica `agentToolRateLimit` (30 tool calls/hora por `conversationKey` — fail-open si Redis no responde). Body: `{ from, body, conversationKey }`. Orquesta `resolveUser → loadHistory → runAgent → saveHistory`. Devuelve `{ reply }`. |
 
 ### Loop de tool-use (`src/agentLoop.ts`)
 
@@ -219,7 +226,7 @@ El `COMADRE_SYSTEM_PROMPT` define 4 bloques de reglas:
 | Tono | Español neutro LATAM, 2–3 oraciones, nunca mencionar que es AI |
 | Onboarding (sin wallet) | 3 escenarios: saludo → pedir consentimiento con texto; acción → explicar necesidad + esperar "sí"; consentido → llamar `iniciar_onboarding` |
 | Transferencias | Siempre mostrar confirmación (monto + número + `walletPreview`) antes de `confirmar_transfer` |
-| KYC | Tiers T0 ($20/tx) → T1 ($50) → T2 ($500) → T3 (sin límite). `solicitar_kyc` devuelve link Sumsub. |
+| KYC | Tiers T0 ($20/tx) → T1 ($50) → T2 ($500) → T3 (sin límite). `solicitar_kyc` devuelve `{ url, session_id, expires_at }`. El agente debe incluir el `url` en su respuesta al usuario para que pueda completar la verificación en Sumsub. |
 
 ### Env vars consumidas
 
@@ -229,8 +236,10 @@ El `COMADRE_SYSTEM_PROMPT` define 4 bloques de reglas:
 | `MOONSHOT_API_KEY` | Requerido si `LLM_PROVIDER=moonshot` |
 | `GROQ_API_KEY` | Requerido si `LLM_PROVIDER=groq` |
 | `KIMI_MODEL` | Nombre del modelo (ej: `kimi-k2-0905-preview`) |
-| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Conversation store |
+| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Conversation store + rate limiting |
 | `DATABASE_URL` | Lookup de usuarios (Drizzle) |
+| `INTERNAL_HMAC_SECRET` | Verifica la firma HMAC-SHA256 de las llamadas entrantes desde `apps/whatsapp`. Debe coincidir exactamente con el valor en `apps/whatsapp`. |
+| `SENTRY_DSN` | Opcional. Si está seteado, activa Sentry crash tracking (`@sentry/bun`). |
 
 ---
 
@@ -319,7 +328,10 @@ El indexer es el componente que materializa el estado on-chain en Postgres, haci
 ```
 Twilio
   → apps/whatsapp POST /webhook
-      → apps/agent POST /process (plain HTTP, no auth)
+      (Twilio HMAC) → webhookRateLimit (60/min por phone)
+      → apps/agent POST /process  [HMAC-SHA256: X-Internal-Signature + X-Internal-Timestamp]
+          (verifica firma, ventana anti-replay 5 min → 401 si inválido)
+          → agentToolRateLimit (30 tool calls/hora por conversationKey)
           → apps/api (tools via @comadre/agent-tools)
 
 apps/api transfers.ts
@@ -329,15 +341,18 @@ apps/cron reminderJob
   → apps/whatsapp POST /reply (pendiente wiring — stub hoy)
 ```
 
+**Formato de firma HMAC-SHA256 para llamadas inter-servicio (whatsapp → agent)**:
+
+El mensaje firmado tiene la forma: `METHOD\nPATH\nTIMESTAMP\nBODY` (saltos de línea `\n` literales). La clave es `INTERNAL_HMAC_SECRET`. La firma se envía en el header `X-Internal-Signature`; el timestamp (epoch en segundos) en `X-Internal-Timestamp`. El receptor rechaza requests con timestamp fuera de la ventana de ±5 minutos.
+
 ### Stubs globales a reemplazar antes de mainnet
 
 | Stub | Dónde | Blocker |
 |---|---|---|
 | Tx-build de tandas, users, disputes | `apps/api routes/*`, `apps/cron jobs/*` | Deploy del programa Anchor + `@comadre/anchor-client` wiring |
-| KYC session real (Sumsub) | `apps/api/src/routes/kyc.ts` | Configurar `SUMSUB_APP_TOKEN` y completar integración |
+| KYC refresh real en cron | `apps/cron/src/jobs/kycRefreshJob.ts` | Sumsub GET `/resources/applicants/{id}/status` (stub hoy) |
 | Privy webhook | `apps/api/src/routes/webhooks.ts` | Definir eventos a manejar (wallet linking, login events) |
 | WA templates en cron | `apps/cron/src/lib/whatsappStub.ts` | HTTP call a `apps/whatsapp /reply` |
-| KYC refresh real | `apps/cron/src/jobs/kycRefreshJob.ts` | Sumsub API integration |
 | Indexer completo | `apps/indexer` | Post-MVP — requiere programa Anchor deployado |
 
 ### Dev mode

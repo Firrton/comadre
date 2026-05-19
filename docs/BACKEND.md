@@ -96,6 +96,7 @@ bun run dev
 | Validation | Zod | 3.23+ |
 | Logging | Pino | 9+ |
 | Test runner | Bun test | — |
+| Observabilidad | Sentry (`@sentry/bun`) | inicializado en `apps/api`, `apps/agent`, `apps/whatsapp` si `SENTRY_DSN` está seteado |
 
 ### Decisiones técnicas cerradas
 
@@ -171,9 +172,10 @@ Para más detalle de cada servicio (puerto, middlewares, routers, env vars consu
 ### Lo que está completo
 - ✅ Anchor program completo: 15 instructions, 9 state structs, 14 events, ~28 errors, 10 PDA seeds. Deployado a devnet (`BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh`).
 - ✅ Packages base: `@comadre/{config, types, db, cache, anchor-client, solana, agent-tools}`. 19 tools en el registry.
-- ✅ `apps/api`: 8 routers, 5 middlewares (auth Privy, idempotency, rate limit, Pino logger, error handler), 4 lib helpers (phoneLookup, kycLimits, usdcTransfer, privySigner).
-- ✅ `apps/whatsapp`: Twilio webhook + reply HMAC.
-- ✅ `apps/agent`: tool-use loop (max 5 iters) con onboarding via Privy y contexto Guardadito.
+- ✅ `apps/api`: 8 routers, 6 middlewares (CORS, auth Privy, idempotency, rate limit, Pino logger, error handler), 4 lib helpers (phoneLookup, kycLimits, usdcTransfer, privySigner).
+- ✅ `apps/whatsapp`: Twilio webhook + reply HMAC. Rate limiting (60 req/min por phone). HMAC-SHA256 outbound a `apps/agent`.
+- ✅ `apps/agent`: tool-use loop (max 5 iters) con onboarding via Privy y contexto Guardadito. HMAC-SHA256 inbound verificado con ventana anti-replay de 5 min. Rate limiting (30 tool calls/hora por conversación).
+- ✅ Sentry inicializado en los 3 servicios principales (`apps/api`, `apps/agent`, `apps/whatsapp`) con trace sampling 10% prod / 100% dev.
 - ✅ Guardadito v1: savings API, mock adapter, Kamino boundary, nudges por Twilio y detección Helius de ingresos USDC.
 - ✅ `apps/cron`: 4 jobs scheduled.
 - ✅ Repo tidy completo (PR #21): apps con `lib/` + `__tests__/`, docs consolidados.

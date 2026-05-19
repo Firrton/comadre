@@ -16,8 +16,8 @@
 | `packages/config` (env) | ✅ | PR #1 mergeado |
 | `packages/db` (Drizzle) | 🟡 | Schemas + client en `feat/drizzle-schemas` (otro agente) |
 | `packages/cache` (Upstash) | 🟡 | Cache helpers en `feat/upstash-cache` |
-| `apps/whatsapp` (Twilio) | ✅ | Webhook + reply, typecheck + tests pasan localmente |
-| `apps/agent` (Kimi) | 🟡 | En construcción en worktree `/Users/firrton/comadre-kimi` |
+| `apps/whatsapp` (Twilio) | ✅ | Webhook + reply HMAC + rate limit (60/min por phone) + HMAC outbound a agent |
+| `apps/agent` (Kimi) | ✅ | Tool-use loop + HMAC inbound verificado + rate limit (30 tool calls/hr) |
 | APIs externas | 🟡 | Helius ✓, Privy ✓, Twilio ✓ (con master token, no API key todavía); Kimi/Upstash pendientes |
 | Demo E2E | 🔴 | Bloqueado por: agent service no listo + credenciales pendientes |
 
@@ -77,8 +77,8 @@
 - [ ] 🔴 **Upstash Redis** — free tier, copiar `REST_URL` + `REST_TOKEN`
 - [ ] 🔴 **Kimi/Moonshot OR Groq API key** — provider TBD. Usuario tiene Kimi directo (Moonshot)
 - [ ] 🔴 **Supabase** — crear proyecto, copiar `DATABASE_URL` con `?pgbouncer=true&connection_limit=1`
-- [ ] Sumsub — sandbox account (Fase 2)
-- [ ] Sentry — proyectos web/mobile/backend (post-MVP)
+- [x] Sumsub — integración REST real en `apps/api` (backend-hosted flow). Requiere `SUMSUB_APP_TOKEN` + `SUMSUB_SECRET_KEY` + `SUMSUB_WEBHOOK_SECRET` en `.env`.
+- [x] Sentry — `@sentry/bun` inicializado en `apps/api`, `apps/agent`, `apps/whatsapp` (activado via `SENTRY_DSN`)
 - [ ] Better Stack — log source (post-MVP)
 - [ ] Railway — project + GitHub integration (deploy)
 - [ ] Vercel — para `apps/web` (deploy)
@@ -95,7 +95,7 @@
 - [ ] 🔴 `TWILIO_API_KEY_SID` (SK...) + `TWILIO_API_KEY_SECRET`
 - [ ] 🔴 `MOONSHOT_API_KEY` (o `GROQ_API_KEY` según provider) + `KIMI_MODEL`
 - [ ] 🔴 `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`
-- [ ] 🔴 `INTERNAL_HMAC_SECRET` — generar con `openssl rand -hex 32`
+- [x] `INTERNAL_HMAC_SECRET` — generar con `openssl rand -hex 32`
 - [ ] `PRIVY_VERIFICATION_KEY` — descargar de Privy dashboard
 
 ### Wallets de Solana (devnet)
@@ -201,6 +201,9 @@
 - [x] Parseo form-urlencoded de Twilio
 - [x] Forward al agent service via `AGENT_URL`
 - [x] `POST /reply` interno con HMAC-SHA256 auth
+- [x] Rate limiting `webhookRateLimit` (60 req/min por phone) wired en POST /webhook
+- [x] HMAC-SHA256 outbound a `apps/agent /process` (`X-Internal-Signature` + `X-Internal-Timestamp`)
+- [x] Sentry inicializado (`@sentry/bun`)
 - [x] Tests pasan (3/3)
 - [x] Typecheck pasa
 - [ ] **Migrar a Twilio API Key** (SK...) en lugar de master Auth Token
@@ -210,16 +213,18 @@
   - [ ] `kyc_pendiente`
 - [ ] Deploy a Railway con webhook URL pública
 
-### `apps/agent` 🟡 Kimi K2 via Moonshot/Groq (en progreso — worktree `comadre-kimi`)
-- [ ] 🔴 **Decidir provider**: Moonshot directo (más barato) vs Groq (más rápido)
-- [ ] Cliente OpenAI SDK con baseURL custom según provider
-- [ ] `POST /process` — recibe `{from, body, conversationKey}`
-- [ ] Tool use loop (max 5 iterations)
-- [ ] System prompt "tía cariñosa LATAM" en español
-- [ ] Conversation state en Redis con TTL 24h
-- [ ] Mock tool `consultar_perfil` para hito 3
-- [ ] Tests (health, validación, executeTool)
-- [ ] Typecheck
+### `apps/agent` ✅ Kimi K2 via Moonshot/Groq
+- [x] **Decidir provider**: Moonshot directo (más barato) vs Groq (más rápido)
+- [x] Cliente OpenAI SDK con baseURL custom según provider
+- [x] `POST /process` — recibe `{from, body, conversationKey}`
+- [x] HMAC-SHA256 inbound verificado con ventana anti-replay de 5 min → 401 si inválido
+- [x] Rate limiting `agentToolRateLimit` (30 tool calls/hora por conversationKey) wired en POST /process
+- [x] Tool use loop (max 5 iterations)
+- [x] System prompt "tía cariñosa LATAM" en español
+- [x] Conversation state en Redis con TTL 24h
+- [x] Sentry inicializado (`@sentry/bun`)
+- [x] Tests (health, validación, executeTool)
+- [x] Typecheck
 
 ### `packages/agent-tools` 🟡
 - [ ] Estructura registry de tools
@@ -228,13 +233,16 @@
 - [ ] `aportar_turno`
 - [ ] Tools NUNCA firman tx — solo llaman API service
 
-### `apps/api` ⏳ (no iniciado)
-- [ ] Hono port 3001
-- [ ] Auth middleware (Privy JWT verify)
-- [ ] Idempotency middleware
-- [ ] Rate limit middleware
-- [ ] Endpoints: `/users`, `/tandas`, `/members`, `/disputes`, `/kyc`, `/onramp`, `/offramp`
-- [ ] Webhook handlers: `/webhooks/sumsub`, `/webhooks/privy`
+### `apps/api` ✅
+- [x] Hono port 3001
+- [x] CORS middleware (`hono/cors`) — producción: `comadre.lat`; dev: `*`
+- [x] Auth middleware (Privy JWT verify)
+- [x] Idempotency middleware
+- [x] Rate limit middleware (`apiUserRateLimit` 100 req/min por usuario)
+- [x] Sentry inicializado (`@sentry/bun`)
+- [x] Endpoints: `/users`, `/tandas`, `/members`, `/disputes`, `/kyc`, `/onramp`, `/offramp`
+- [x] Webhook handlers: `/webhooks/sumsub`, `/webhooks/privy`
+- [x] KYC Sumsub integrado: `sumsubClient.ts`, `POST /api/v1/kyc/session` (real cuando `SUMSUB_APP_TOKEN` seteado), webhook `applicantReviewed GREEN` actualiza DB + on-chain `update_kyc_tier`
 
 ### `apps/indexer` ⏳ (no iniciado)
 - [ ] Helius webhook config
@@ -341,7 +349,7 @@
 - 🟡 **Multi-agente paralelo** — varios agentes haciendo PRs distintos. Coordinación de merges + branch hygiene
 - 🟡 **Twilio template approval** — `HX350d...` ya OK, pero los nuevos para Comadre necesitan aprobación 24-48h
 - 🟡 **dApp Store review** — 3-5 días, empezar día 1 del sprint mobile
-- 🟡 **Idempotencia E2E** — diseñada en `packages/cache`, falta wiring en endpoints
+- ✅ **Idempotencia E2E** — wired en `apps/api`; rate limiters wired en los 3 servicios
 - 🟡 **Kimi provider TBD** — Moonshot directo vs Groq pendiente decisión final
 - 🟢 **Anchor build pipeline** — resuelto con pin de transitive deps + `procmacro2_semver_exempt` flag
 

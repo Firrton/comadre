@@ -14,7 +14,7 @@
 | Mobile | React Native + Expo | SDK 52 |
 | Web | Next.js | 15 (App Router) |
 | Auth | Privy server-auth | 1.32.5+ |
-| KYC | Sumsub | WebSDK 2 (Fase 2) |
+| KYC | Sumsub | REST API integrado en `apps/api` (backend-hosted flow via `sumsubClient.ts`). WebSDK 2 móvil es Fase 2. |
 | WhatsApp | Twilio (sandbox `+14155238886`) | — |
 | Agent LLM | Kimi K2 via Moonshot o Groq | `kimi-k2-0905-preview` |
 | Voice (Fase 2) | ElevenLabs Conv AI | — |
@@ -98,8 +98,8 @@
 
 WhatsApp path (sin JWT de usuario):
 5. Twilio → apps/whatsapp  X-Twilio-Signature (HMAC-SHA1 sobre TWILIO_AUTH_TOKEN)
-6. apps/whatsapp → apps/agent  (sin auth adicional, red interna)
-7. apps/agent → apps/api  X-Internal-Auth: HMAC-SHA256(body, INTERNAL_HMAC_SECRET)
+6. apps/whatsapp → apps/agent  X-Internal-Signature: HMAC-SHA256("POST\n/process\nTIMESTAMP\nBODY", INTERNAL_HMAC_SECRET) + replay protection (5 min window)
+7. apps/agent → apps/api  X-Internal-Signature: HMAC-SHA256("METHOD\nPATH\nTIMESTAMP\nBODY", INTERNAL_HMAC_SECRET)
 
 Dev bypass:
    X-Dev-Wallet: <address>  →  omite Privy verify, solo en NODE_ENV !== production
@@ -126,19 +126,26 @@ Dev bypass:
 
 ## Observabilidad
 
-| Área | Tool |
-|---|---|
-| Logs | Pino → BetterStack (opcional) |
-| Errors | Sentry (opcional, post-MVP) |
-| Tx tracing | Helius dashboard |
-| Uptime | BetterStack monitor (opcional) |
+| Área | Tool | Estado |
+|---|---|---|
+| Logs | Pino → BetterStack (opcional) | Pino activo en todos los servicios; BetterStack pendiente de wiring |
+| Errors | Sentry (`@sentry/bun`) | Inicializado en api, agent y whatsapp. Gated por `SENTRY_DSN` (opcional). Trace sampling: 10% prod, 100% dev. |
+| Tx tracing | Helius dashboard | Activo |
+| Uptime | BetterStack monitor (opcional) | Pendiente |
 
 Convención: todo log lleva `req_id` (del middleware Hono), `user_id` o `from` (WA), y `tx_signature` cuando aplique.
 
 ## Consideraciones de seguridad
 
 - `TWILIO_AUTH_TOKEN` se usa **únicamente** para verificar `X-Twilio-Signature` (webhook inbound). Outbound usa `TWILIO_API_KEY_SID` + `TWILIO_API_KEY_SECRET` (scoped keys).
-- `INTERNAL_HMAC_SECRET` protege las llamadas service-to-service (`/reply`, `/process`). Generar con `openssl rand -hex 32`.
+- `INTERNAL_HMAC_SECRET` protege **todas** las llamadas service-to-service: `apps/whatsapp → apps/agent /process`, `apps/agent → apps/api` (via `@comadre/agent-tools`), y `apps/api → apps/whatsapp /reply`. Formato: HMAC-SHA256 de `"METHOD\nPATH\nTIMESTAMP\nBODY"` con replay protection (ventana de 5 minutos, timing-safe compare). Generar con `openssl rand -hex 32`.
+- **CORS**: `apps/api` restringe orígenes a `comadre.lat` en producción (`*` en dev). Headers custom (`X-Idempotency-Key`, `X-Internal-Signature`, `X-Internal-Timestamp`, `X-Dev-Wallet`, `X-Dev-User-Id`) están whitelisted.
+- **Rate limiting**: 3 limiters en `@comadre/cache` vía Upstash sliding window:
+  - `webhookRateLimit` — 60 req/min por phone (apps/whatsapp webhook)
+  - `agentToolRateLimit` — 30 tool calls/hora por conversación (apps/agent)
+  - `apiUserRateLimit` — 100 req/min por usuario (apps/api)
+  - Todos fail-open si Redis no está disponible (log warn, no bloquean tráfico).
+- **Sentry**: inicializado en api, agent y whatsapp. Solo se activa si `SENTRY_DSN` está configurado (opcional). Trace sampling: 10% en producción, 100% en dev.
 - Todas las SKs de wallets viven en `.env` durante hackathon. En producción → Doppler/Infisical.
 - El programa Anchor tiene un guard deployer-only en `init_config` para prevenir front-run.
 

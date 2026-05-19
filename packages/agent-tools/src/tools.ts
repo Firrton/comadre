@@ -445,14 +445,31 @@ export const consultarBalanceDefinition: ToolDefinition = {
   },
 };
 export const consultarBalanceExecute: ToolExecutor = async (_args, context) => {
-  // For MVP we surface user profile stats; balance read from on-chain ATA is
-  // a follow-up endpoint. The agent presents reputation_score + tier as proxy.
   const data = await apiCall<unknown>({
     method: "GET",
-    path: "/api/v1/users/me",
+    path: "/api/v1/wallet/balance",
     userWallet: context.userWallet,
   });
-  return { type: "data", data, summary: "Perfil + stats cargados" };
+  return { type: "data", data, summary: "Saldo USDC consultado" };
+};
+
+// 10b. mis_tandas
+export const misTandasDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "mis_tandas",
+    description:
+      "Lista las tandas en las que el usuario participa. Devuelve nombre, estado, turno actual y monto de cada tanda. No requiere argumentos.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+};
+export const misTandasExecute: ToolExecutor = async (_args, context) => {
+  const data = await apiCall<unknown>({
+    method: "GET",
+    path: "/api/v1/tandas",
+    userWallet: context.userWallet,
+  });
+  return { type: "data", data, summary: "Tandas del usuario cargadas" };
 };
 
 // 11. iniciar_transfer
@@ -961,6 +978,7 @@ export const ALL_TOOLS: readonly ToolDefinition[] = [
   solicitarKycDefinition,
   iniciarOnrampDefinition,
   consultarBalanceDefinition,
+  misTandasDefinition,
   iniciarTransferDefinition,
   confirmarTransferDefinition,
   cancelarTransferDefinition,
@@ -984,6 +1002,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   solicitar_kyc: solicitarKycExecute,
   iniciar_onramp: iniciarOnrampExecute,
   consultar_balance: consultarBalanceExecute,
+  mis_tandas: misTandasExecute,
   iniciar_transfer: iniciarTransferExecute,
   confirmar_transfer: confirmarTransferExecute,
   cancelar_transfer: cancelarTransferExecute,

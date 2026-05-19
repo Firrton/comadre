@@ -72,7 +72,7 @@ export async function recordGuardaditoNudge(params: {
   await db.insert(savingsNudges).values({
     userWallet: params.userWallet,
     source: params.source,
-    sourceRef: params.source,
+    sourceRef: `${params.source}:${Date.now()}`,
     amountMicroUsdc: params.amountMicroUsdc,
     status: "delivered",
     message: params.message ?? null,

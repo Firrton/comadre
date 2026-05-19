@@ -5,9 +5,15 @@
  */
 
 import { Hono } from "hono";
+import { eq } from "drizzle-orm";
 import { db, kycSessions } from "@comadre/db";
+import { env } from "@comadre/config";
 import type { AuthUser } from "../middlewares/auth.js";
 import { getLogger } from "../middlewares/logger.js";
+import { createApplicant, generateAccessToken } from "../lib/sumsubClient.js";
+
+const LEVEL_NAME = "id-and-liveness";
+const TOKEN_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 export const kycRouter = new Hono();
 
@@ -15,24 +21,21 @@ kycRouter.post("/session", async (c) => {
   const user = (c.get as (k: string) => unknown)("user") as AuthUser;
   const logger = getLogger(c);
 
-  const sumsubToken = process.env["SUMSUB_APP_TOKEN"];
-
-  // Stub if Sumsub env vars not present
-  if (!sumsubToken) {
+  // Stub path — Sumsub not configured (dev mode)
+  if (!env.SUMSUB_APP_TOKEN) {
     logger.warn({ wallet: user.walletAddress }, "[kyc] SUMSUB_APP_TOKEN not set, returning stub");
 
-    // Insert a stub kyc_session row so we have a record
     const sessionRows = await db
       .insert(kycSessions)
       .values({
         userWallet: user.walletAddress,
-        levelName: "basic-kyc-level",
+        levelName: LEVEL_NAME,
         status: "init",
       })
       .returning({ id: kycSessions.id });
 
     const sessionId = sessionRows[0]?.id ?? "unknown";
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+    const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
 
     return c.json(
       {
@@ -45,7 +48,59 @@ kycRouter.post("/session", async (c) => {
     );
   }
 
-  // Real Sumsub call would go here.
-  // TODO: call Sumsub /resources/accessTokens, store applicantId, return token.
-  return c.json({ error: "not_implemented", message: "Sumsub integration pending" }, 501);
+  // Real Sumsub path
+  const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
+
+  // Check for an existing active session to reuse
+  const existingRows = await db
+    .select({ id: kycSessions.id, applicantId: kycSessions.applicantId })
+    .from(kycSessions)
+    .where(
+      // Use the wallet address filter in conjunction with status check
+      eq(kycSessions.userWallet, user.walletAddress)
+    )
+    .limit(10);
+
+  const activeSession = existingRows.find(
+    (r) => r.applicantId !== null
+  );
+
+  let sessionId: string;
+  let applicantId: string;
+
+  if (activeSession?.applicantId) {
+    // Reuse existing applicant — just generate a fresh access token
+    sessionId = activeSession.id;
+    applicantId = activeSession.applicantId;
+    logger.info({ wallet: user.walletAddress, applicantId }, "[kyc] reusing existing applicant");
+  } else {
+    // Create a new applicant + session row
+    const created = await createApplicant({
+      externalUserId: user.walletAddress,
+      levelName: LEVEL_NAME,
+    });
+    applicantId = created.applicantId;
+
+    const inserted = await db
+      .insert(kycSessions)
+      .values({
+        userWallet: user.walletAddress,
+        applicantId,
+        levelName: LEVEL_NAME,
+        status: "pending",
+      })
+      .returning({ id: kycSessions.id });
+
+    sessionId = inserted[0]?.id ?? "unknown";
+    logger.info({ wallet: user.walletAddress, applicantId, sessionId }, "[kyc] applicant created");
+  }
+
+  const { token, url } = await generateAccessToken({
+    externalUserId: user.walletAddress,
+    levelName: LEVEL_NAME,
+  });
+
+  logger.info({ wallet: user.walletAddress, sessionId }, "[kyc] access token generated");
+
+  return c.json({ url, session_id: sessionId, expires_at: expiresAt.toISOString() }, 200);
 });

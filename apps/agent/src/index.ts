@@ -1,7 +1,13 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+import * as Sentry from "@sentry/bun";
 import { Hono } from "hono";
 import { logger } from "hono/logger";
 import pino from "pino";
 import { z } from "zod";
+
+import { agentToolRateLimit, checkRateLimit } from "@comadre/cache";
+import { env } from "@comadre/config";
 
 import { runAgent } from "./agentLoop.js";
 import { loadHistory, saveHistory } from "./lib/conversationStore.js";
@@ -9,6 +15,14 @@ import { normalizePhoneE164 } from "./lib/phoneNormalize.js";
 import { loadSavingsContext } from "./lib/savingsContext.js";
 import { resolveUserFromTwilio } from "./lib/userResolver.js";
 import { shouldNudgeGuardadito, recordGuardaditoNudge } from "./lib/nudgeGate.js";
+
+if (env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: env.SENTRY_DSN,
+    environment: env.NODE_ENV,
+    tracesSampleRate: env.NODE_ENV === "production" ? 0.1 : 1.0,
+  });
+}
 
 const log = pino({ name: "agent" });
 
@@ -24,9 +38,35 @@ app.use("*", logger());
 app.get("/health", (c) => c.json({ ok: true, service: "agent" }));
 
 app.post("/process", async (c) => {
+  // ── HMAC verification (skipped in test) ─────────────────────────────────
+  const raw = await c.req.text();
+
+  if (process.env["NODE_ENV"] !== "test") {
+    const signature = c.req.header("X-Internal-Signature") ?? "";
+    const timestamp = c.req.header("X-Internal-Timestamp") ?? "";
+    const age = Date.now() - Number(timestamp);
+
+    if (!timestamp || Number.isNaN(age) || age > 300_000 || age < -30_000) {
+      log.warn({ hasTimestamp: timestamp.length > 0 }, "HMAC timestamp rejected");
+      return c.json({ error: "request expired or invalid timestamp" }, 401);
+    }
+
+    const expected = createHmac("sha256", env.INTERNAL_HMAC_SECRET)
+      .update(`POST\n/process\n${timestamp}\n${raw}`)
+      .digest("hex");
+
+    const a = Buffer.from(signature, "hex");
+    const b = Buffer.from(expected, "hex");
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      log.warn("HMAC signature mismatch on /process");
+      return c.json({ error: "invalid signature" }, 401);
+    }
+  }
+
+  // ── Parse body ──────────────────────────────────────────────────────────
   let parsedBody: unknown;
   try {
-    parsedBody = await c.req.json();
+    parsedBody = JSON.parse(raw);
   } catch {
     return c.json({ error: "invalid json" }, 400);
   }
@@ -40,6 +80,22 @@ app.post("/process", async (c) => {
   }
 
   const { from, body, conversationKey } = parsed.data;
+
+  // ── Rate limiting (skipped in test / when Redis unavailable) ────────────
+  if (process.env["SKIP_REDIS"] !== "true" && process.env["NODE_ENV"] !== "test") {
+    try {
+      const rl = await checkRateLimit(agentToolRateLimit, conversationKey);
+      if (!rl.allowed) {
+        const retryAfter = Math.ceil((rl.resetAt.getTime() - Date.now()) / 1000);
+        log.warn({ conversationKey, retryAfter }, "agent rate limited");
+        return c.json({ error: "rate_limit_exceeded", retry_after: retryAfter }, 429);
+      }
+    } catch (rlErr) {
+      log.warn({ err: rlErr }, "[rateLimit] Redis unavailable, allowing through");
+    }
+  }
+
+  // ── Agent execution ─────────────────────────────────────────────────────
   const start = Date.now();
 
   try {
@@ -55,14 +111,10 @@ app.post("/process", async (c) => {
     const nudgeDecision = userWallet
       ? await shouldNudgeGuardadito({ userWallet, userMessage: body, history })
       : { ok: false, source: null as null };
-    // Always load savings context when wallet exists, so the LLM can answer
-    // questions about APR/Guardadito at any time. The nudge gate only governs
-    // whether we PROACTIVELY suggest, not whether the data is available.
     const financialContext = userWallet
       ? await loadSavingsContext(userWallet)
       : null;
 
-    // Extract + normalize phone from "whatsapp:+5218116346072" → "+528116346072"
     const senderPhone = normalizePhoneE164(
       from.replace(/^whatsapp:/, "").trim(),
     );

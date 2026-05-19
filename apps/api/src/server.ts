@@ -18,6 +18,7 @@
  */
 
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 
 import { loggerMiddleware } from "./middlewares/logger.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
@@ -42,6 +43,26 @@ const app = new Hono();
 // ── Global middlewares ────────────────────────────────────────────────────────
 app.use("*", loggerMiddleware);
 app.use("*", errorHandler);
+app.use(
+  "*",
+  cors({
+    origin:
+      process.env["NODE_ENV"] === "production"
+        ? ["https://comadre.lat", "https://www.comadre.lat"]
+        : "*",
+    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Idempotency-Key",
+      "X-Internal-Signature",
+      "X-Internal-Timestamp",
+      "X-Dev-Wallet",
+      "X-Dev-User-Id",
+    ],
+    maxAge: 3600,
+  }),
+);
 
 // ── Health (no auth, no rate limit) ──────────────────────────────────────────
 app.get("/health", (c) =>

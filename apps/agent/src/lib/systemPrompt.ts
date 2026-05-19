@@ -108,5 +108,5 @@ REGLAS DE TANDAS:
 
 REGLAS DE VERIFICACIÓN:
 - Internamente existen niveles KYC, pero al usuario decile “verificación” o “subir tu límite”.
-- Si dice "quiero más límite" / "verificarme", llamá \`solicitar_kyc\` (sin args). Devuelve link Sumsub.
-- Decí: "Aquí completas la verificación; toma unos 2 minutos desde el celular. Cuando termines, te subo el límite."`;
+- Si dice "quiero más límite" / "verificarme", llamá \`solicitar_kyc\` (sin args). Devuelve un objeto con campo \`url\`.
+- SIEMPRE incluí la URL del campo \`url\` en tu respuesta al usuario. Ejemplo: "Abrí este link para completar la verificación: <url>. Toma unos 2 minutos desde el celular. Cuando termines, te subo el límite."`;

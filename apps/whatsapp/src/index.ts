@@ -1,14 +1,24 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import * as Sentry from "@sentry/bun";
 import { Hono } from "hono";
 import { logger } from "hono/logger";
 import pino from "pino";
 import { z } from "zod";
 
+import { webhookRateLimit, checkRateLimit } from "@comadre/cache";
 import { env } from "@comadre/config";
 
 import { sendWhatsAppMessage } from "./lib/sendMessage.js";
 import { verifyTwilioSignature } from "./lib/verifySignature.js";
+
+if (env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: env.SENTRY_DSN,
+    environment: env.NODE_ENV,
+    tracesSampleRate: env.NODE_ENV === "production" ? 0.1 : 1.0,
+  });
+}
 
 const log = pino({ name: "whatsapp" });
 
@@ -66,12 +76,35 @@ app.post("/webhook", async (c) => {
     "inbound whatsapp",
   );
 
-  // Forward to agent service /process endpoint
+  if (process.env["SKIP_REDIS"] !== "true" && process.env["NODE_ENV"] !== "test") {
+    try {
+      const rl = await checkRateLimit(webhookRateLimit, from);
+      if (!rl.allowed) {
+        log.warn({ from, resetAt: rl.resetAt }, "webhook rate limited");
+        return c.body('<?xml version="1.0" encoding="UTF-8"?><Response/>', 429);
+      }
+    } catch (rlErr) {
+      log.warn({ err: rlErr, from }, "[rateLimit] Redis unavailable, allowing through");
+    }
+  }
+
+  // Forward to agent service /process endpoint (HMAC-signed)
   try {
+    const bodyStr = JSON.stringify({ from, body, conversationKey: from });
+    const timestamp = String(Date.now());
+    const hmacPayload = `POST\n/process\n${timestamp}\n${bodyStr}`;
+    const hmacSignature = createHmac("sha256", env.INTERNAL_HMAC_SECRET)
+      .update(hmacPayload)
+      .digest("hex");
+
     const res = await fetch(`${env.AGENT_URL}/process`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ from, body, conversationKey: from }),
+      headers: {
+        "content-type": "application/json",
+        "X-Internal-Signature": hmacSignature,
+        "X-Internal-Timestamp": timestamp,
+      },
+      body: bodyStr,
     });
 
     if (!res.ok) {

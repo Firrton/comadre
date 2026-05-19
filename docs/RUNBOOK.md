@@ -64,6 +64,10 @@ UPSTASH_REDIS_REST_TOKEN
 DATABASE_URL          # postgresql://... con ?pgbouncer=true&connection_limit=1
 INTERNAL_HMAC_SECRET  # openssl rand -hex 32
 COMADRE_PROGRAM_ID    # después de deploy
+SUMSUB_APP_TOKEN      # opcional — activa KYC real en /api/v1/kyc/session; stub si ausente
+SUMSUB_SECRET_KEY     # requerido junto con SUMSUB_APP_TOKEN para HMAC-SHA256 por request
+SUMSUB_WEBHOOK_SECRET # opcional — verifica X-Payload-Digest en /webhooks/sumsub
+SENTRY_DSN            # opcional — activa crash tracking en api/agent/whatsapp
 ```
 
 ### Instalar dependencias
@@ -717,7 +721,7 @@ Para empezar 100% desde cero (incluyendo Privy):
 
 - **P2P USDC transfer**: endpoints + tools + Privy signing implementados, pero todavía sin probar E2E (faltan USDC devnet en el sender + un recipient registered)
 - **Tandas (create/join/contribute/payout)**: tools + endpoints listos, pero el program necesita `init_config` ejecutado y IDL upload
-- **KYC**: `solicitar_kyc` tool retorna stub; integración Sumsub real es Fase 2
+- **KYC**: integración Sumsub activa cuando `SUMSUB_APP_TOKEN` seteado. `POST /api/v1/kyc/session` crea applicant + genera access token + devuelve URL hospedada. Webhook `applicantReviewed GREEN` actualiza DB (`users.kycTier`) y llama `update_kyc_tier` on-chain. Stub path preservado si la var no está. El cron `kycRefreshJob` todavía stub (consulta Sumsub real pendiente).
 - **Cron jobs**: scaffold OK, lógica real depende de codegen del Anchor client
 
 ### ❌ NO IMPLEMENTADO
@@ -768,6 +772,23 @@ Para empezar 100% desde cero (incluyendo Privy):
 | `walletApi.solana.signTransaction` falla | `walletId` incorrecto o wallet no creada | Verificar `linkedAccounts` del JWT; wallet debe existir en Privy |
 | `importUser` duplicado | Phone ya registrado en Privy | Usar `getUser` por phone para recuperar el userId existente |
 
+### Autenticación inter-servicios (HMAC)
+
+| Error | Causa | Fix |
+|---|---|---|
+| `401 Unauthorized` en `apps/agent /process` | `INTERNAL_HMAC_SECRET` no coincide entre `apps/whatsapp` y `apps/agent` | Verificar que ambos servicios usan exactamente el mismo valor; regenerar con `openssl rand -hex 32` y reiniciar los dos |
+| `401 Unauthorized` en `apps/agent /process` | Desfase de reloj > 5 min entre los servidores | Verificar sincronización NTP (`timedatectl status` o `date` en ambos procesos); la ventana anti-replay es ±5 min |
+| `401 Unauthorized` en `apps/agent /process` | Replay de un request previo | Los requests con timestamp fuera de la ventana son rechazados por diseño; reintentar generando una nueva firma |
+
+### Rate limiting (429)
+
+| Error | Causa | Fix |
+|---|---|---|
+| `429 Too Many Requests` en `POST /webhook` (`apps/whatsapp`) | Se superaron 60 requests/min desde el mismo número de teléfono | Esperar que se renueve la ventana de 1 minuto; si ocurre en producción, revisar si hay un bot o loop enviando mensajes |
+| `429 Too Many Requests` en `POST /process` (`apps/agent`) | Se superaron 30 tool calls/hora para la misma `conversationKey` | Esperar el reset de la ventana horaria; si el usuario necesita más capacidad, revisar si el loop del agente está iterando más de lo esperado |
+| `429 Too Many Requests` en `apps/api` | Se superaron 100 requests/min para el mismo usuario | Esperar el reset de la ventana de 1 minuto; verificar que el cliente no está reintentando agresivamente |
+| Rate limiting ignorado (no se aplica 429) | Redis no disponible | Todos los limitadores son fail-open: si Redis no responde se logguea un warning y el request se permite. Verificar `UPSTASH_REDIS_REST_URL`/`TOKEN` y el estado del cluster. |
+
 ### Redis / Upstash
 
 | Error | Causa | Fix |
@@ -782,3 +803,13 @@ Para empezar 100% desde cero (incluyendo Privy):
 | `prepared statement already exists` | pgbouncer en transaction mode con Drizzle | Asegurar `?pgbouncer=true&connection_limit=1` en `DATABASE_URL` |
 | `relation "users" does not exist` | Migraciones no aplicadas | `bun run --filter packages/db migrate:push` |
 | `unique constraint violation` en `phone_hash` | Race condition de onboarding doble | El handler debe usar `ON CONFLICT DO NOTHING` o `DO UPDATE` |
+
+### Sumsub KYC
+
+| Error | Causa | Fix |
+|---|---|---|
+| `POST /api/v1/kyc/session` devuelve stub (token fake) | `SUMSUB_APP_TOKEN` no está seteado | Agregar `SUMSUB_APP_TOKEN` + `SUMSUB_SECRET_KEY` al `.env` y reiniciar `apps/api` |
+| `createApplicant` falla con 401 | `SUMSUB_APP_TOKEN` o `SUMSUB_SECRET_KEY` incorrectos | Verificar en el panel de Sumsub → API keys. El cliente usa HMAC-SHA256 por request con la secret key. |
+| `generateAccessToken` falla con 404 | `applicantId` no existe en Sumsub | Puede pasar si el applicant se creó con otro app token; crear uno nuevo con `createApplicant` |
+| Webhook `applicantReviewed` llega pero no actualiza la DB | `SUMSUB_WEBHOOK_SECRET` no seteado o incorrecto | El handler acepta el webhook pero verifica el digest solo si la variable está seteada. Verificar `X-Payload-Digest` en los logs de la request. |
+| Webhook llega, DB actualizada, pero on-chain `update_kyc_tier` falla | `KYC_ORACLE_SK` no seteado o wallet sin SOL | El error se loguea pero no bloquea el 200. Verificar que `kyc_oracle` tenga SOL para pagar fees y que `COMADRE_PROGRAM_ID` sea correcto. La actualización on-chain puede reintentarse manualmente. |

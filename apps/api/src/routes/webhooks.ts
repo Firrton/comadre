@@ -10,13 +10,56 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { eq } from "drizzle-orm";
-import { db, kycSessions } from "@comadre/db";
+import { PublicKey } from "@solana/web3.js";
+import { Keypair } from "@solana/web3.js";
+import { Wallet } from "@coral-xyz/anchor";
+import { db, kycSessions, users } from "@comadre/db";
 import {
   SumsubWebhookEvent,
   HeliusWebhookPayload,
 } from "@comadre/types";
+import { getComadreProgram } from "@comadre/anchor-client";
+import {
+  getConnection,
+  getFeePayerKeypair,
+  getKycOracleKeypair,
+  buildUnsignedTx,
+  submitWithRetry,
+} from "@comadre/solana";
 import { rootLogger } from "../middlewares/logger.js";
+import { VersionedTransaction } from "@solana/web3.js";
 import pino from "pino";
+
+// ---------------------------------------------------------------------------
+// Helper — promote a wallet's KYC tier on-chain
+// ---------------------------------------------------------------------------
+
+async function upgradeKycTierOnChain(walletAddress: string): Promise<void> {
+  const connection = getConnection();
+  const feePayer = getFeePayerKeypair();
+  const kycOracle = getKycOracleKeypair();
+
+  const walletPubkey = new PublicKey(walletAddress);
+  const dummyWallet = new Wallet(Keypair.generate());
+  const program = getComadreProgram(connection, dummyWallet);
+
+  const kycIx = await program.methods
+    .updateKycTier({ t2Standard: {} })
+    .accounts({
+      wallet: walletPubkey,
+      kycOracle: kycOracle.publicKey,
+    })
+    .instruction();
+
+  const built = await buildUnsignedTx({
+    instructions: [kycIx],
+    payer: feePayer,
+    signers: [kycOracle],
+  });
+
+  const tx = VersionedTransaction.deserialize(Buffer.from(built.unsignedTxBase64, "base64"));
+  await submitWithRetry(tx);
+}
 
 export const webhooksRouter = new Hono();
 
@@ -109,8 +152,41 @@ webhooksRouter.post("/sumsub", async (c) => {
       .where(eq(kycSessions.applicantId, event.applicantId));
 
     logger.info({ applicant_id: event.applicantId, status: newStatus }, "[sumsub] kyc session updated");
-    // STUB: on-chain update_kyc_tier call — pending anchor-client deploy
-    logger.info("[sumsub] STUB: skipping on-chain update_kyc_tier (pending deploy)");
+
+    if (approved) {
+      // Find the wallet address linked to this applicant
+      const sessionRows = await db
+        .select({ userWallet: kycSessions.userWallet })
+        .from(kycSessions)
+        .where(eq(kycSessions.applicantId, event.applicantId))
+        .limit(1);
+
+      const userWallet = sessionRows[0]?.userWallet;
+
+      if (userWallet) {
+        // Update users.kycTier in the DB
+        await db
+          .update(users)
+          .set({ kycTier: "t2_standard", updatedAt: new Date() })
+          .where(eq(users.wallet, userWallet));
+
+        // Promote tier on-chain — wrapped so a failure doesn't block the 200 response
+        try {
+          await upgradeKycTierOnChain(userWallet);
+          logger.info(
+            { applicant_id: event.applicantId, userWallet, newTier: "t2_standard" },
+            "[sumsub] user tier upgraded"
+          );
+        } catch (err) {
+          logger.error(
+            { err, applicant_id: event.applicantId, userWallet },
+            "[sumsub] on-chain update_kyc_tier failed (DB already updated)"
+          );
+        }
+      } else {
+        logger.warn({ applicant_id: event.applicantId }, "[sumsub] approved but no matching kyc_session found");
+      }
+    }
   }
 
   return c.json({ received: true }, 200);

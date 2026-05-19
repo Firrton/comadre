@@ -26,9 +26,7 @@ afterEach(() => {
 const ctx = { userWallet: "BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh" };
 
 describe("tool registry", () => {
-  it("exposes the expected number of tools", () => {
-    // Audit COM-032: iniciar_onboarding was removed from the registry. Update
-    // this count when adding/removing tools.
+  it("exposes 20 tools", () => {
     expect(ALL_TOOLS.length).toBe(20);
   });
 
