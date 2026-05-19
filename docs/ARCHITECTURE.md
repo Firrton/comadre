@@ -16,7 +16,7 @@
 | Auth | Privy server-auth | 1.32.5+ |
 | KYC | Sumsub | REST API integrado en `apps/api` (backend-hosted flow via `sumsubClient.ts`). WebSDK 2 móvil es Fase 2. |
 | WhatsApp | Twilio (sandbox `+14155238886`) | — |
-| Agent LLM | Kimi K2 via Moonshot o Groq | `kimi-k2-0905-preview` |
+| Agent LLM | Kimi K2 via Moonshot o Groq | `kimi-k2.6` (Moonshot) / `moonshotai/kimi-k2-instruct` (Groq) |
 | Voice (Fase 2) | ElevenLabs Conv AI | — |
 | RPC Solana | Helius | devnet/mainnet |
 

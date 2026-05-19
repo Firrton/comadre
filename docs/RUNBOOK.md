@@ -58,7 +58,7 @@ TWILIO_API_KEY_SECRET
 TWILIO_WHATSAPP_FROM  # whatsapp:+14155238886 (sandbox)
 LLM_PROVIDER          # moonshot o groq
 MOONSHOT_API_KEY      # o GROQ_API_KEY según LLM_PROVIDER
-KIMI_MODEL            # kimi-k2-0905-preview
+KIMI_MODEL            # kimi-k2.6 (Moonshot) — kimi-k2-0905-preview does NOT exist in /v1/models
 UPSTASH_REDIS_REST_URL
 UPSTASH_REDIS_REST_TOKEN
 DATABASE_URL          # postgresql://... con ?pgbouncer=true&connection_limit=1

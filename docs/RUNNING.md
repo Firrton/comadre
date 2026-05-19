@@ -131,7 +131,7 @@ scripts/**                        ← codegen, deploy
 | `TWILIO_API_KEY_SECRET` | Secret de la API Key |
 | `TWILIO_WHATSAPP_FROM` | `whatsapp:+14155238886` (sandbox) |
 | `MOONSHOT_API_KEY` | `sk-...` para Moonshot Kimi |
-| `KIMI_MODEL` | `moonshot-v1-32k` (rápido, no-reasoning) |
+| `KIMI_MODEL` | `kimi-k2.6` (reasoning; requiere temperature=1) |
 | `LLM_PROVIDER` | `moonshot` (otra opción: `groq`) |
 | `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | Redis state |
 | `INTERNAL_HMAC_SECRET` | Auth interno service-to-service |

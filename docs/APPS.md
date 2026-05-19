@@ -235,7 +235,7 @@ El `COMADRE_SYSTEM_PROMPT` define 4 bloques de reglas:
 | `LLM_PROVIDER` | `moonshot` (default) o `groq` |
 | `MOONSHOT_API_KEY` | Requerido si `LLM_PROVIDER=moonshot` |
 | `GROQ_API_KEY` | Requerido si `LLM_PROVIDER=groq` |
-| `KIMI_MODEL` | Nombre del modelo (ej: `kimi-k2-0905-preview`) |
+| `KIMI_MODEL` | Nombre del modelo (ej: `kimi-k2.6` para Moonshot, `moonshotai/kimi-k2-instruct` para Groq) |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Conversation store + rate limiting |
 | `DATABASE_URL` | Lookup de usuarios (Drizzle) |
 | `INTERNAL_HMAC_SECRET` | Verifica la firma HMAC-SHA256 de las llamadas entrantes desde `apps/whatsapp`. Debe coincidir exactamente con el valor en `apps/whatsapp`. |

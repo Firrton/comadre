@@ -83,7 +83,9 @@ const llmSchema = z
     LLM_PROVIDER: z.enum(["moonshot", "groq"]).default("moonshot"),
     MOONSHOT_API_KEY: z.string().min(1).optional(),
     GROQ_API_KEY: z.string().min(1).optional(),
-    /** Kimi model name; e.g. `kimi-k2-0905-preview` (Moonshot) or `moonshotai/kimi-k2-instruct` (Groq). */
+    /** Kimi model name; e.g. `kimi-k2.6` (Moonshot) or `moonshotai/kimi-k2-instruct` (Groq).
+     *  Note: `kimi-k2-0905-preview` is NOT exposed by Moonshot /v1/models. Use `kimi-k2.5` or `kimi-k2.6`.
+     *  Reasoning models (kimi-k2.*) require temperature=1 — agentLoop.ts handles this conditionally. */
     KIMI_MODEL: z.string().min(1),
   })
   .refine(

@@ -95,7 +95,7 @@
 
 **Conversation key** — Identificador del thread WA (typically el `From` header `whatsapp:+E164`). Index en Redis `agent:conv:{key}` con TTL 24h.
 
-**Moonshot Kimi** — Provider del LLM. Modelo `kimi-k2-0905-preview` (vía Moonshot directo) o `moonshotai/kimi-k2-instruct` (vía Groq). Cliente OpenAI-compatible (mismo SDK).
+**Moonshot Kimi** — Provider del LLM. Modelo `kimi-k2.6` (vía Moonshot directo; los IDs reales en /v1/models son `kimi-k2.5` y `kimi-k2.6` — `kimi-k2-0905-preview` no existe) o `moonshotai/kimi-k2-instruct` (vía Groq). Cliente OpenAI-compatible (mismo SDK). Los modelos `kimi-k2.*` son reasoning models y requieren `temperature: 1`.
 
 ## Operacional
 

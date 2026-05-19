@@ -35,7 +35,7 @@ cp .env.example .env.local
 | `LLM_PROVIDER` | env | `moonshot` o `groq` |
 | `MOONSHOT_API_KEY` | moonshot.ai | requerido si `LLM_PROVIDER=moonshot` |
 | `GROQ_API_KEY` | groq.com | requerido si `LLM_PROVIDER=groq` |
-| `KIMI_MODEL` | env | ej `kimi-k2-0905-preview` (Moonshot) o `moonshotai/kimi-k2-instruct` (Groq) |
+| `KIMI_MODEL` | env | ej `kimi-k2.6` (Moonshot) o `moonshotai/kimi-k2-instruct` (Groq). Nota: `kimi-k2-0905-preview` no existe en Moonshot /v1/models. |
 | `DATABASE_URL` | Supabase | con `?pgbouncer=true&connection_limit=1` |
 | `UPSTASH_REDIS_REST_URL` / `_TOKEN` | upstash.com | Redis HTTP REST |
 | `INTERNAL_HMAC_SECRET` | local | `openssl rand -hex 32` (≥32 chars) |

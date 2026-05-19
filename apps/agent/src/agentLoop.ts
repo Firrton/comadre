@@ -46,7 +46,9 @@ export interface RunAgentResult {
 }
 
 const MAX_TOOL_ITERATIONS = 5;
-const COMADRE_LLM_TEMPERATURE = 0.3;
+// K2.5/K2.6 are reasoning models and Moonshot rejects any temperature != 1.
+// Other Moonshot models (moonshot-v1-*) accept any value; we keep 0.3 for them.
+const COMADRE_LLM_TEMPERATURE = env.KIMI_MODEL.startsWith("kimi-k2.") ? 1 : 0.3;
 // `iniciar_onboarding` removed from the allowlist — the Solana plaintext-key
 // flow is retired (see audit COM-032). The Monad path is `iniciar_cuenta_segura`.
 const TOOLS_ALLOWED_WITHOUT_WALLET = new Set<string>(["iniciar_cuenta_segura"]);

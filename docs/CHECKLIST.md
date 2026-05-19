@@ -17,8 +17,8 @@
 | `packages/db` (Drizzle) | 🟡 | Schemas + client en `feat/drizzle-schemas` (otro agente) |
 | `packages/cache` (Upstash) | 🟡 | Cache helpers en `feat/upstash-cache` |
 | `apps/whatsapp` (Twilio) | ✅ | Webhook + reply HMAC + rate limit (60/min por phone) + HMAC outbound a agent |
-| `apps/agent` (Kimi) | ✅ | Tool-use loop + HMAC inbound verificado + rate limit (30 tool calls/hr) |
-| APIs externas | 🟡 | Helius ✓, Privy ✓, Twilio ✓ (con master token, no API key todavía); Kimi/Upstash pendientes |
+| `apps/agent` (Kimi) | ✅ | Tool-use loop + HMAC inbound verificado + rate limit (30 tool calls/hr); smoke-test E2E pasado (kimi-k2.6, LATAM Spanish, Redis OK) |
+| APIs externas | 🟡 | Helius ✓, Privy ✓, Twilio ✓ (con master token, no API key todavía); Kimi ✓ (kimi-k2.6), Upstash ✓ |
 | Demo E2E | 🔴 | Bloqueado por: agent service no listo + credenciales pendientes |
 
 ---
@@ -213,22 +213,24 @@
   - [ ] `kyc_pendiente`
 - [ ] Deploy a Railway con webhook URL pública
 
-### `apps/agent` ✅ Kimi K2 via Moonshot/Groq
-- [x] **Decidir provider**: Moonshot directo (más barato) vs Groq (más rápido)
+### `apps/agent` ✅ Kimi K2 via Moonshot/Groq — smoke-test verificado
+- [x] **Provider**: Moonshot directo (`kimi-k2.6`). Groq path existe en código pero no verificado.
 - [x] Cliente OpenAI SDK con baseURL custom según provider
-- [x] `POST /process` — recibe `{from, body, conversationKey}`
+- [x] `POST /process` — recibe `{from, body, conversationKey}` — responde en LATAM Spanish
 - [x] HMAC-SHA256 inbound verificado con ventana anti-replay de 5 min → 401 si inválido
 - [x] Rate limiting `agentToolRateLimit` (30 tool calls/hora por conversationKey) wired en POST /process
 - [x] Tool use loop (max 5 iterations)
 - [x] System prompt "tía cariñosa LATAM" en español
-- [x] Conversation state en Redis con TTL 24h
+- [x] Conversation state en Redis con TTL 24h (`agent:conv:<conversationKey>`)
 - [x] Sentry inicializado (`@sentry/bun`)
 - [x] Tests (health, validación, executeTool)
-- [x] Typecheck
+- [x] Typecheck pasa
+- [ ] Tools end-to-end con `apps/api` real (pendiente de test pass separado)
 
 ### `packages/agent-tools` 🟡
-- [ ] Estructura registry de tools
-- [ ] `consultar_perfil` (mock por ahora)
+- [x] Estructura registry de tools (20 tools registradas en ALL_TOOLS)
+- [x] `consultar_balance` — llama `GET /api/v1/wallet/balance` (saldo USDC on-chain real; antes apuntaba por error a `/users/me`)
+- [x] `mis_tandas` — llama `GET /api/v1/tandas`, lista tandas del usuario; sin argumentos
 - [ ] `crear_tanda`, `unirse_tanda`, `consultar_tanda` (post-MVP)
 - [ ] `aportar_turno`
 - [ ] Tools NUNCA firman tx — solo llaman API service
@@ -350,7 +352,7 @@
 - 🟡 **Twilio template approval** — `HX350d...` ya OK, pero los nuevos para Comadre necesitan aprobación 24-48h
 - 🟡 **dApp Store review** — 3-5 días, empezar día 1 del sprint mobile
 - ✅ **Idempotencia E2E** — wired en `apps/api`; rate limiters wired en los 3 servicios
-- 🟡 **Kimi provider TBD** — Moonshot directo vs Groq pendiente decisión final
+- 🟢 **Kimi provider** — Moonshot directo (`kimi-k2.6`). Verificado funcional. Groq path configurado en código pero no testeado.
 - 🟢 **Anchor build pipeline** — resuelto con pin de transitive deps + `procmacro2_semver_exempt` flag
 
 ---

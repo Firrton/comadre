@@ -4,7 +4,7 @@ Conversational orchestrator del bot. Implementa tool-use loop contra **Kimi K2**
 
 **Port:** 3003
 **Stack:** Bun + Hono 4 + OpenAI SDK (apuntado a Moonshot/Groq baseURL)
-**LLM:** Kimi K2 (`kimi-k2-0905-preview` Moonshot, o `moonshotai/kimi-k2-instruct` en Groq)
+**LLM:** Kimi K2 (`kimi-k2.6` Moonshot, o `moonshotai/kimi-k2-instruct` en Groq)
 **Routes:** `GET /health`, `POST /process`
 
 ## Endpoints
@@ -82,7 +82,7 @@ Todas hacen calls a `apps/api` con HMAC-SHA256 (`X-Internal-Signature`). El agen
 LLM_PROVIDER=moonshot              # o "groq"
 MOONSHOT_API_KEY=...               # required si LLM_PROVIDER=moonshot
 GROQ_API_KEY=...                   # required si LLM_PROVIDER=groq
-KIMI_MODEL=kimi-k2-0905-preview    # Moonshot model name (o moonshotai/kimi-k2-instruct para Groq)
+KIMI_MODEL=kimi-k2.6               # Moonshot model name (kimi-k2.5 y kimi-k2.6 son los IDs reales expuestos por /v1/models; kimi-k2-0905-preview NO existe en Moonshot). Para Groq: moonshotai/kimi-k2-instruct
 
 UPSTASH_REDIS_REST_URL=...         # conversation history
 UPSTASH_REDIS_REST_TOKEN=...
@@ -93,9 +93,9 @@ INTERNAL_HMAC_SECRET=...           # 32+ chars; shared con apps/api
 
 ## Quirks de Kimi/Moonshot
 
-- **Temperature**: K2.5/K2.6 reasoning models requieren `temperature: 1` (hardcodeado en `agentLoop.ts`); otros modelos aceptan cualquier valor
+- **Temperature**: K2.5/K2.6 son reasoning models y Moonshot rechaza cualquier valor distinto de 1 con `400 invalid temperature: only 1 is allowed for this model`. `agentLoop.ts` ya usa un condicional: `KIMI_MODEL.startsWith("kimi-k2.") ? 1 : 0.3`.
 - **max_tokens**: 4000 da headroom a reasoning models; non-reasoning usan menos
-- **Latencia**: Moonshot directo es 800-2500ms por turno (variable); Groq es más rápido pero hay rate limits
+- **Latencia**: K2.6 (reasoning model) tarda ~10s por turno en Moonshot — es normal para este modelo, no indica un bug. Modelos no-reasoning son 800-2500ms. Groq es más rápido pero hay rate limits.
 
 ## Observaciones
 
