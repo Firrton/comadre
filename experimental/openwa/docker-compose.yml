@@ -1,0 +1,84 @@
+services:
+  openwa:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Pin to a commit SHA for reproducibility: OPENWA_REF=abc123
+        OPENWA_REF: "${OPENWA_REF:-main}"
+    container_name: comadre-openwa
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Container-internal paths — must match SESSION_DATA_PATH in .env
+      SESSION_DATA_PATH: /app/data/sessions
+      STORAGE_LOCAL_PATH: /app/data/media
+    ports:
+      # Host port configurable via OPENWA_PORT; container always on 2785.
+      # Default 3005 avoids collision with apps/api (3001), apps/agent (3003).
+      - "127.0.0.1:${OPENWA_PORT:-3005}:2785"
+    volumes:
+      # Named volume for WhatsApp session persistence — no re-scan on restart
+      - openwa-sessions:/app/data/sessions
+      # Named volume for media storage
+      - openwa-data:/app/data/media
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://localhost:2785/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+  # Optional Redis — only needed if REDIS_ENABLED=true in .env.
+  # Mapped to host port 6380 to avoid colliding with any local Redis on 6379.
+  # The project uses Upstash (managed Redis) in production; this is local-only.
+  openwa-redis:
+    image: redis:7-alpine
+    container_name: comadre-openwa-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - openwa-redis-data:/data
+    profiles:
+      # Only starts when explicitly requested:
+      #   docker compose --profile redis up -d
+      - redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ---- FUTURE: bridge service ----
+  # Uncomment and implement when ready to forward OpenWA events to apps/agent.
+  #
+  # bridge:
+  #   build:
+  #     context: ../../apps/agent
+  #   container_name: comadre-openwa-bridge
+  #   restart: unless-stopped
+  #   environment:
+  #     OPENWA_API_URL: http://openwa:2785
+  #     OPENWA_API_KEY: "${API_MASTER_KEY}"
+  #     AGENT_WEBHOOK_URL: http://host.docker.internal:3003/webhooks/whatsapp
+  #   depends_on:
+  #     openwa:
+  #       condition: service_healthy
+  #   ports:
+  #     - "127.0.0.1:3006:3006"
+
+volumes:
+  openwa-sessions:
+    # Persistent WhatsApp auth — survives container restarts and rebuilds.
+    # A deleted volume = new QR scan required.
+    driver: local
+  openwa-data:
+    driver: local
+  openwa-redis-data:
+    driver: local

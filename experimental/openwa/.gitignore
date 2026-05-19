@@ -1,0 +1,36 @@
+# ============================================================
+# SECURITY-CRITICAL — WhatsApp session = full account access
+# ============================================================
+
+# Environment files — NEVER commit
+.env
+.env.local
+.env.*
+!.env.example
+
+# WhatsApp session data — NEVER commit
+sessions/
+data/
+*.session
+*.session.json
+wweb-cache/
+.wwebjs_*
+.wwebjs_cache/
+.wwebjs_auth/
+
+# Redis bind-mount data
+redis-data/
+
+# General cache
+cache/
+.cache/
+chrome_debug.log
+
+# Build artifacts
+node_modules/
+dist/
+build/
+
+# Docker volume bind-mount leftovers
+*.pid
+*.lock
