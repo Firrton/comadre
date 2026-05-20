@@ -26,8 +26,8 @@ afterEach(() => {
 const ctx = { userWallet: "BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh" };
 
 describe("tool registry", () => {
-  it("exposes 21 tools", () => {
-    expect(ALL_TOOLS.length).toBe(21);
+  it("exposes 22 tools", () => {
+    expect(ALL_TOOLS.length).toBe(22);
   });
 
   it("includes transfer and onboarding tools", () => {
@@ -45,6 +45,7 @@ describe("tool registry", () => {
     expect(names).toContain("confirmar_guardadito");
     expect(names).toContain("retirar_guardadito");
     expect(names).toContain("cancelar_guardadito");
+    expect(names).toContain("confirmar_codigo_seguridad");
   });
 
   it("every tool name maps to an executor", () => {
@@ -300,6 +301,32 @@ describe("Guardadito tools", () => {
     );
     expect(result.type).toBe("data");
     expect(lastRequest?.url).toContain("/api/v1/savings/actions/00000000-0000-0000-0000-000000000001/confirm");
+  });
+});
+
+describe("confirmar_codigo_seguridad", () => {
+  it("POSTs code to /api/v1/elevated-intents/:id/confirm", async () => {
+    globalThis.fetch = makeMockFetch({ ok: true, intent_id: "intent-1", action: { phoneE164: "+5491112345678" } });
+    const result = await executeTool(
+      "confirmar_codigo_seguridad",
+      { intent_id: "intent-1", code: "123456" },
+      ctx,
+    );
+    expect(result.type).toBe("data");
+    expect(lastRequest?.url).toContain("/api/v1/elevated-intents/intent-1/confirm");
+    expect(lastRequest?.init?.method).toBe("POST");
+    const body = JSON.parse((lastRequest?.init?.body as string) ?? "{}");
+    expect(body.code).toBe("123456");
+  });
+
+  it("returns error summary on 401 invalid_code", async () => {
+    globalThis.fetch = makeMockFetch({ error: "invalid_code" }, false, 401);
+    const result = await executeTool(
+      "confirmar_codigo_seguridad",
+      { intent_id: "intent-1", code: "000000" },
+      ctx,
+    );
+    expect(result.type).toBe("error");
   });
 });
 

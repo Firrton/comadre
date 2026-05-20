@@ -1,5 +1,5 @@
 import { env } from "@comadre/config";
-import { microToUsdc } from "../usdcTransfer.js";
+import { microToUsdc } from "../monadUsdcTransfer.js";
 
 const MICRO_USDC = 1_000_000n;
 

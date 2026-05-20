@@ -1,29 +1,31 @@
 # Data Model
 
-## On-chain (Anchor accounts)
+> **Phase 1 — Monad migration**: el estado on-chain ahora vive en el contrato Solidity `Comadre.sol` (Monad), no más en cuentas Anchor (Solana). El DB Postgres es el espejo off-chain. Ver `packages/monad-contracts/src/Comadre.sol` para el contrato canónico.
 
-| Account | Seeds | Tamaño | Descripción |
-|---|---|---|---|
-| `UserProfile` | `[b"user", wallet]` | ~96 B | Perfil del usuario, KYC tier, reputation denormalizada |
-| `Tanda` | `[b"tanda", creator, tanda_id]` | ~204 B | La tanda en sí. Vault es ATA del PDA. |
-| `Member` | `[b"member", tanda, user]` | ~101 B | Relación user↔tanda, turn_number, contributions |
-| `Dispute` | `[b"dispute", tanda, dispute_id]` | ~125 B | Disputa abierta sobre una tanda |
-| `DisputeVote` | `[b"vote", dispute, voter]` | ~82 B | Voto único por user (PDA-enforced) |
-| `Loan` | `[b"loan", borrower, loan_id]` | ~117 B | Préstamo con colateral social |
-| `LoanCosigner` | `[b"cosigner", loan, cosigner]` | ~90 B | Co-signer de un préstamo |
-| `ReputationBadge` | `[b"badge", user, badge_id]` | ~98 B | SBT-like, no transferable |
-| `ProgramConfig` | `[b"config"]` | ~205 B | Singleton admin config |
+## On-chain (Solidity mappings en Comadre.sol)
 
-## Enums
+| Mapping | Clave | Descripción |
+|---|---|---|
+| `_userProfiles[wallet]` | `address` | `UserProfile { exists, phoneHash, countryCode, kycTier, reputationScore, tandasCreated/Completed/Defaulted }` |
+| `_tandas[tandaKey]` | `bytes32 = keccak256(creator, tandaId)` | `Tanda { exists, creator, name, vault, members, contributionAmount, turn, state, ... }` |
+| `_members[memberKey]` | `bytes32 = keccak256(tandaKey, user)` | `Member { exists, user, turnNumber, contributionsMade, stake, isActive, hasReceivedPayout }` |
+| `_disputes[disputeKey]` | `bytes32 = keccak256(tandaKey, disputeId)` | `Dispute { exists, tandaKey, opener, votes, deadlineTs, state }` |
+| `memberByTurn[tandaKey][turnNumber]` | `bytes32 + uint8` | Helper: turn → user wallet |
+| `hasVoted[disputeKey][voter]` | `bytes32 + address` | Anti-double-vote |
+| `kycLimits` | `uint64[4]` | Caps por tier T0Demo/T1Lite/T2Standard/T3Pro en micro-USDC. Inmutable post-construcción. |
+| `paused` | `bool` | Emergency stop |
+| `feeBps` | `uint16` | Fee en basis points (max `MAX_FEE_BPS = 300` = 3%) |
 
-```rust
-pub enum TandaState { Forming, Active, Paused, Completed, Cancelled }
-pub enum KycTier { T0Demo, T1Lite, T2Standard, T3Pro }
-pub enum DisputeState { Open, Resolved, Expired }
-pub enum LoanState { Pending, Active, Repaid, Defaulted }
-pub enum BadgeType { TandaCompleted, TandaCreatedAndCompleted, LoanRepaidOnTime, DisputeResolvedFairly }
-pub enum PayoutOrder { JoinOrder, CreatorSet, Random }
+## Enums (Solidity)
+
+```solidity
+enum TandaState { Forming, Active, Paused, Completed, Cancelled }
+enum KycTier { T0Demo, T1Lite, T2Standard, T3Pro }
+enum DisputeState { Open, Resolved, Expired }
+enum PayoutOrder { JoinOrder, CreatorSet }
 ```
+
+Loans y badges no están implementados en Solidity (eran Solana-legacy).
 
 ## Decisiones cerradas
 
@@ -38,65 +40,67 @@ pub enum PayoutOrder { JoinOrder, CreatorSet, Random }
 
 ## Postgres tables (materializadas por indexer + escritas por apps/api)
 
-13 tablas en total. Las **on-chain mirrors** se reconstruyen del indexer (slot 0); las **off-chain only** son la verdad para su dominio.
+~18 tablas. Las **on-chain mirrors** reflejan estado en Comadre.sol (Monad); las **off-chain only** son la verdad para su dominio. Las tablas Monad AA (`smart_wallets`, `session_keys`, `auth_sessions`, `elevated_intents`) son nuevas en Phase 1.
 
 | Tabla | Tipo | Qué guarda |
 |---|---|---|
-| `users` | mirror UserProfile | wallet, phone_hash (sha256 hex), country_code, kyc_tier, reputation_score, tandas_completed/defaulted/created, loans_repaid/defaulted, created_at |
-| `tandas` | mirror Tanda | pda, creator_wallet, tanda_id (u64), name_hash, name (denorm), usdc_mint, vault, member_target/current, contribution_amount, stake_amount, frequency_seconds, total_turns/current_turn, state (pgEnum), payout_order_mode, next_payout_ts, started_at, last_synced_at |
-| `members` | mirror Member | pda, tanda_id, user_wallet, turn_number, contributions_made, last_contribution_ts, stake_locked, is_active, has_received_payout, joined_at |
-| `disputes` | mirror Dispute | pda, tanda_id, dispute_id (u8), opener_wallet, reason_hash, reason_text (denorm off-chain), opened_at, deadline_ts, votes_continue/cancel, state (`open`/`resolved_continue`/`resolved_cancel`/`expired`) |
-| `dispute_votes` | mirror DisputeVote | pda, dispute_id, voter_wallet, continue_tanda (bool), voted_at |
-| `loans` | mirror Loan (parcial) | pda, loan_id (u64), borrower_wallet, tanda_backing, principal, apr_bps, total_repaid, disbursed_at, due_ts, cosigner_count/signed, state (`pending`/`active`/`repaid`/`defaulted`) |
-| `loan_cosigners` | mirror LoanCosigner | pda, loan_id, cosigner_wallet, stake_locked, has_signed, signed_at |
-| `badges` | mirror ReputationBadge | pda, badge_id (u64), user_wallet, badge_type, source_account, value, earned_at |
-| `conversations` | off-chain only | user_wallet (nullable until verified), phone_hash, channel (`whatsapp`/`web`), messages (jsonb), state (jsonb), updated_at |
-| `idempotency_keys` | off-chain only | key (pk), user_wallet, endpoint, status_code, response_body (jsonb), expires_at (24h TTL, cleanup cron) |
-| `ramps` | off-chain only | user_wallet, direction (`onramp`/`offramp`), provider, fiat_currency, fiat_amount_cents, usdc_amount, status (`pending`/`quoted`/`confirmed`/`completed`/`failed`), provider_ref |
-| `kyc_sessions` | off-chain only | user_wallet, applicant_id (Sumsub), level_name, status (`init`/`pending`/`approved`/`rejected`/`on_hold`), review_answer (GREEN/RED) |
-| **`transfers`** | **off-chain ledger** | **id (uuid pk), sender_wallet (FK users), sender_phone_hash, recipient_phone_hash, recipient_wallet (nullable for awaiting_recipient), amount_micro_usdc (u64), note, status (`pending`/`awaiting_recipient`/`confirmed`/`expired`/`cancelled`/`failed`), tx_signature, failure_reason, created_at, confirmed_at, expires_at (5min pending / 7d awaiting). Source-of-truth para P2P USDC transfers — no hay event Anchor (es SPL Token Transfer estándar)** |
-| `contact_routes` | off-chain only | Ruta WhatsApp cifrada por usuario (`phone_ciphertext`) para avisos proactivos sin guardar teléfono plano |
-| `savings_positions` | off-chain strategy ledger | Posición Guardadito por provider/strategy (`mock` o `kamino`), monto depositado, shares y valor conocido |
-| `savings_actions` | off-chain action ledger | Acciones pendientes/confirmadas de guardar o retirar USDC; para `mock` confirma contablemente, para `kamino` referencia tx |
-| `savings_nudges` | off-chain notification ledger | Dedupe de sugerencias Guardadito originadas por transferencias internas o Helius USDC incoming |
+| `users` | mirror UserProfile | wallet (lowercase hex `0x...`), phone_hash (sha256 hex), country_code, kyc_tier, reputation_score, tandas_completed/defaulted/created, created_at |
+| `smart_wallets` | identidad Monad | user_wallet, privy_user_id, owner_address (EOA Privy), smart_wallet_address (Kernel v3.1), agent_wallet_address (Turnkey), chain_id |
+| `session_keys` | custodia Turnkey | smart_wallet_id, kind (`daily`/`elevated`), session_address, turnkey_sub_org_id, turnkey_wallet_id, serialized_permission, per_call_cap_micro_usdc, allowed_contracts (jsonb), allowed_recipients (jsonb), valid_until, status |
+| `auth_sessions` | onboarding magic link | phone_hash, magic_token (15min TTL), privy_user_id, owner_address, status, expires_at |
+| `elevated_intents` | OTP escalation | smart_wallet_id, action_payload (jsonb), twilio_verify_sid, status (`pending`/`approved`/`expired`/`consumed`), expires_at |
+| `tandas` | mirror Tanda | id (tandaKey hex), creator_wallet, name, vault address, member_target/current, contribution_amount, stake_amount, frequency_seconds, total_turns/current_turn, state, payout_order_mode, next_payout_ts, started_at |
+| `members` | mirror Member | id (memberKey), tanda_id, user_wallet, turn_number, contributions_made, stake_locked, is_active, has_received_payout |
+| `disputes` | mirror Dispute | id (disputeKey), tanda_id, opener_wallet, reason_hash, deadline_ts, votes_continue/cancel, state |
+| `dispute_votes` | mirror | dispute_id, voter_wallet, continue_tanda, voted_at |
+| `conversations` | off-chain only | user_wallet, phone_hash, channel, messages (jsonb), state (jsonb) |
+| `idempotency_keys` | off-chain only | key (pk), user_wallet, endpoint, status_code, response_body (jsonb), expires_at (24h TTL) |
+| `ramps` | off-chain only | user_wallet, direction, provider, fiat_currency, fiat_amount_cents, usdc_amount, status, provider_ref |
+| `kyc_sessions` | off-chain only | user_wallet, applicant_id (Sumsub), level_name, status, review_answer |
+| **`transfers`** | **off-chain ledger** | id, sender_wallet, sender_phone_hash, recipient_phone_hash, recipient_wallet, amount_micro_usdc, note, status, tx_hash (Monad UserOp), failure_reason, expires_at |
+| `contact_routes` | off-chain only | Ruta WhatsApp cifrada con `phone_ciphertext` (AES-256-GCM, `CONTACT_ENCRYPTION_KEY`) |
+| `savings_positions/actions/nudges` | off-chain | Guardadito (Phase 2 — pendiente de wireado contra contratos Monad) |
 
-**On-chain (Anchor) es la verdad para tandas/loans/disputes/badges.** Si Postgres se corrompe, reindexamos desde slot 0 (excepto las tablas off-chain only como `conversations`, `transfers` y `savings_*`, que son ledgers operacionales).
+**On-chain (Solidity Comadre.sol) es la verdad para tandas/disputes.** Estado autoritative reconstructible vía events en Monadscan.
 
-## Costos estimados (mainnet)
+## Costos estimados
 
-Tanda de 10 miembros lifecycle completo:
-- Tanda + Vault ATA: ~0.0035 SOL
-- 10x Member: ~0.015 SOL
-- 1x Dispute (si aplica): ~0.0019 SOL
-- 10x ReputationBadge: ~0.014 SOL
-- ~50 tx fees: ~0.0001 SOL
-- **Total: ~0.034 SOL ≈ $5 USD**
+Costos en MON (Monad testnet gas; precios mainnet pendientes del launch). Cada UserOp ERC-4337 consume gas equivalente a una tx EOA + overhead del bundler.
 
-Con fee 0.5% sobre $5,000 USD de tanda total = $25 fee → margen 80%.
+Si se activa Pimlico paymaster (Phase 2), el usuario paga $0 en gas — el paymaster sponsorea con MON propio.
 
 ---
 
-## Custodial signing — `user_keypairs`
+## Custodia de claves — Turnkey
 
-Agregada en migración `0003_needy_puff_adder.sql`.
+A partir de Phase 1, **no hay más `user_keypairs` con secret keys en plaintext**. La custodia se delega a Turnkey HSM:
 
 ```sql
-CREATE TABLE user_keypairs (
-  wallet          TEXT PRIMARY KEY REFERENCES users(wallet),
-  secret_key_b58  TEXT NOT NULL,    -- 64-byte secret key, base58-encoded
-  created_at      TIMESTAMPTZ DEFAULT now()
+-- session_keys table (post Phase 1)
+CREATE TABLE session_keys (
+  id                          UUID PRIMARY KEY,
+  smart_wallet_id             UUID REFERENCES smart_wallets(id),
+  kind                        session_key_kind,  -- 'daily' | 'elevated'
+  session_address             TEXT NOT NULL,     -- 0x... agent wallet address
+  turnkey_sub_org_id          TEXT NOT NULL,     -- sub-org en Turnkey (1 per user)
+  turnkey_wallet_id           TEXT NOT NULL,     -- wallet en Turnkey
+  serialized_permission       TEXT NOT NULL,     -- blob ZeroDev Kernel permission
+  permission_id               TEXT NOT NULL DEFAULT '',  -- COM-033: para revoke
+  per_call_cap_micro_usdc     BIGINT NOT NULL,
+  allowed_contracts           JSONB NOT NULL,
+  allowed_recipients          JSONB NOT NULL,
+  valid_until                 TIMESTAMPTZ NOT NULL,
+  status                      session_key_status NOT NULL DEFAULT 'active',
+  ...
 );
 ```
 
-### Trade-off de seguridad (leer ANTES de producción)
+### Modelo de seguridad
 
-`secret_key_b58` se guarda como base58 plano. Esto es **intencional** para minimizar complejidad operacional en el hackathon. **Producción requiere:**
-
-- **Encryption-at-rest**: AES-GCM con clave en un KMS (AWS KMS, GCP Cloud KMS o Azure Key Vault).
-- **Idealmente**: las keys nunca dejan un HSM; solo las operaciones de firma se delegan al HSM.
-- **Mínimo aceptable**: encryption a nivel columna con jerarquía de claves DEK/KEK manejada por KMS, con rotación.
-
-**No guardar secret keys plain text en producción.**
+- **Private key NUNCA está en el backend ni en la DB** — vive en AWS Nitro Enclaves bajo control de Turnkey
+- **Backend pide firmas por referencia**: `turnkey.signEvmPayload({ subOrgId, walletId, payload })` → firma
+- **Aislamiento por usuario**: sub-org Turnkey separada → un compromiso afecta a 1 usuario, no a todos
+- **Defense in depth**: cap on-chain (Kernel session permission) + cap off-chain (en `signMonadTransfer`) + policies opcionales en Turnkey
 
 ### `savings_nudges`
 

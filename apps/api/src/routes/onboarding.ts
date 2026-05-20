@@ -1,14 +1,15 @@
 /**
- * /api/v1/onboarding — phone-based user onboarding.
+ * /api/v1/onboarding — phone-based user onboarding (Monad).
  *
  * Internal-HMAC-authenticated routes (agent → API):
- *   POST /init                           (legacy Solana path; gated by SOLANA_ONBOARDING_ENABLED)
  *   POST /monad/start                    (issue magic-link)
  *
  * Magic-token-authenticated routes (browser → API):
  *   GET  /monad/session/:token
  *   POST /monad/finalize                 (now requires phoneJwt — see COM-026)
  *   POST /monad/install-session-key      (now wrapped in db.transaction — see COM-009)
+ *
+ * NOTE: POST /init (legacy Solana onboarding) returns 410 — removed in Monad migration.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
@@ -18,21 +19,14 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import twilio from "twilio";
 
-import { onboardPhone } from "../lib/onboarding.js";
 import { getLogger } from "../middlewares/logger.js";
-import { upsertContactRoute } from "../lib/savings/contactCrypto.js";
 import { db, authSessions, smartWallets, sessionKeys, users } from "@comadre/db";
 import {
   sessionKey as walletSessionKey,
-  kms as walletKms,
   privy as walletPrivy,
 } from "@comadre/wallet-infra";
 
 export const onboardingRouter = new Hono();
-
-const InitBody = z.object({
-  phone: z.string().regex(/^\+\d{6,15}$/, "phone must be E.164"),
-});
 
 // Audit COM-022: tightened from 5 min to 90s. With anti-replay nonce dedup
 // below, this narrows the replay window to clock-skew tolerance only.
@@ -105,54 +99,10 @@ export const requireInternalSignature: MiddlewareHandler = async (c, next) => {
   return next();
 };
 
-onboardingRouter.post(
-  "/init",
-  requireInternalSignature,
-  zValidator("json", InitBody, (result, c) => {
-    if (!result.success) {
-      return c.json({ error: "validation", issues: result.error.format() }, 400);
-    }
-  }),
-  async (c) => {
-    const { phone } = c.req.valid("json");
-    const log = getLogger(c);
-
-    try {
-      const result = await onboardPhone(phone);
-      await upsertContactRoute({
-        userWallet: result.walletAddress,
-        phoneE164: phone,
-      });
-      log.info(
-        {
-          phone: phone.slice(0, 4) + "..." + phone.slice(-3),
-          walletAddress: result.walletAddress,
-          alreadyExisted: result.alreadyExisted,
-        },
-        "user onboarded",
-      );
-
-      return c.json(
-        {
-          walletAddress: result.walletAddress,
-          alreadyExisted: result.alreadyExisted,
-        },
-        200,
-      );
-    } catch (err) {
-      log.error(
-        { err, phone: phone.slice(0, 4) + "..." },
-        "onboarding failed",
-      );
-      return c.json(
-        {
-          error: "ONBOARDING_FAILED",
-          message: err instanceof Error ? err.message : String(err),
-        },
-        502,
-      );
-    }
-  },
+// POST /init (legacy Solana onboarding) — removed during Monad migration.
+// Use /monad/start instead.
+onboardingRouter.post("/init", requireInternalSignature, (c) =>
+  c.json({ error: "gone", message: "Solana onboarding removed. Use /monad/start." }, 410),
 );
 
 const MONAD_DEFAULT_CHAIN_ID = 10143;
@@ -161,27 +111,31 @@ const SESSION_PK_TTL_SECONDS = 5 * 60;
 const DAILY_PER_CALL_CAP_MICRO_USDC = 50_000_000n;
 const DAILY_VALIDITY_MS = 30 * 24 * 60 * 60 * 1000;
 
-interface SessionPkEntry {
-  pk: string;
-  address: string;
+interface SessionAgentEntry {
+  subOrgId: string;
+  walletId: string;
+  agentAddress: string;
   expiresAt: number;
 }
-const sessionPkMemory = new Map<string, SessionPkEntry>();
+const sessionAgentMemory = new Map<string, SessionAgentEntry>();
 
-function rememberSessionPk(token: string, pk: string, address: string): void {
+function rememberSessionAgent(
+  token: string,
+  provisioned: { subOrgId: string; walletId: string; agentAddress: string },
+): void {
   const expiresAt = Date.now() + SESSION_PK_TTL_SECONDS * 1000;
-  sessionPkMemory.set(token, { pk, address, expiresAt });
+  sessionAgentMemory.set(token, { ...provisioned, expiresAt });
   setTimeout(() => {
-    const row = sessionPkMemory.get(token);
-    if (row && row.expiresAt <= Date.now()) sessionPkMemory.delete(token);
+    const row = sessionAgentMemory.get(token);
+    if (row && row.expiresAt <= Date.now()) sessionAgentMemory.delete(token);
   }, SESSION_PK_TTL_SECONDS * 1000).unref?.();
 }
 
-function takeSessionPk(token: string): SessionPkEntry | null {
-  const row = sessionPkMemory.get(token);
+function takeSessionAgent(token: string): SessionAgentEntry | null {
+  const row = sessionAgentMemory.get(token);
   if (!row) return null;
   if (row.expiresAt <= Date.now()) {
-    sessionPkMemory.delete(token);
+    sessionAgentMemory.delete(token);
     return null;
   }
   return row;
@@ -338,10 +292,13 @@ onboardingRouter.post(
       .set({ privyUserId, ownerAddress: normalizedOwner })
       .where(eq(authSessions.magicToken, token));
 
-    const generated = walletSessionKey.generateSessionKey();
-    rememberSessionPk(token, generated.privateKey, generated.address);
+    const provisioned = await walletSessionKey.provisionSessionKeyAgent({
+      userExternalId: row.phoneHash,
+      displayName: `comadre-agent-${row.phoneHash.slice(0, 8)}`,
+    });
+    rememberSessionAgent(token, provisioned);
 
-    return c.json({ sessionAddress: generated.address }, 200);
+    return c.json({ sessionAddress: provisioned.agentAddress }, 200);
   },
 );
 
@@ -388,13 +345,8 @@ onboardingRouter.post(
       return c.json({ error: "unauthorized", message: "ownerAddress mismatch" }, 401);
     }
 
-    const sessionEntry = takeSessionPk(token);
-    if (!sessionEntry) return c.json({ error: "session_expired" }, 410);
-
-    const envelope = await walletKms.encryptSessionKey({
-      blob: serializedBlob,
-      sessionPrivateKey: sessionEntry.pk as `0x${string}`,
-    });
+    const sessionAgent = takeSessionAgent(token);
+    if (!sessionAgent) return c.json({ error: "session_expired" }, 410);
 
     const chainId = Number(process.env["MONAD_CHAIN_ID"] ?? MONAD_DEFAULT_CHAIN_ID);
     const comadreAddr = process.env["COMADRE_CONTRACT_ADDRESS"] ?? "0x0";
@@ -430,7 +382,7 @@ onboardingRouter.post(
           });
         }
 
-        const inserted = await tx
+        const insertedSmartWallet = await tx
           .insert(smartWallets)
           .values({
             userWallet,
@@ -438,26 +390,26 @@ onboardingRouter.post(
             ownerAddress: normalizedOwner,
             smartWalletAddress: normalizedSmart,
             chainId,
+            agentWalletAddress: sessionAgent.agentAddress,
           })
           .returning({ id: smartWallets.id });
 
-        const smartWalletId = inserted[0]!.id;
+        const smartWalletId = insertedSmartWallet[0]!.id;
 
         await tx.insert(sessionKeys).values({
           smartWalletId,
           kind: "daily",
-          sessionAddress: sessionEntry.address.toLowerCase(),
-          // TODO(monad-onboarding): extract on-chain permissionId from serializedBlob (audit COM-033).
+          sessionAddress: sessionAgent.agentAddress.toLowerCase(),
+          // TODO COM-033: capture permissionId from on-chain install response.
           permissionId: "",
-          ciphertext: envelope.ciphertext,
-          dekCiphertext: envelope.dekCiphertext,
-          iv: envelope.iv,
-          encryptionVersion: envelope.encryptionVersion,
-          policiesJson: { kind: "daily", cap: 50 },
+          turnkeySubOrgId: sessionAgent.subOrgId,
+          turnkeyWalletId: sessionAgent.walletId,
+          serializedPermission: serializedBlob,
+          policiesJson: {},
           perCallCapMicroUsdc: DAILY_PER_CALL_CAP_MICRO_USDC,
           allowedContracts: [comadreAddr, usdcAddr],
-          // TODO(audit COM-004): populate from user contact allowlist; empty = no transfers
-          //                       allowed once the signer enforces this list.
+          // TODO COM-004: populate from user contact allowlist; empty = no enforcement
+          //               until contacts are added post-onboarding.
           allowedRecipients: [],
           validUntil: new Date(now.getTime() + DAILY_VALIDITY_MS),
           status: "active",
@@ -475,7 +427,7 @@ onboardingRouter.post(
       return c.json({ error: "install_failed", message: "Database transaction failed" }, 500);
     }
 
-    sessionPkMemory.delete(token);
+    sessionAgentMemory.delete(token);
     log.info({ normalizedSmart }, "[onboarding] monad session key installed");
 
     return c.json({ ok: true, smartWalletAddress: normalizedSmart }, 200);

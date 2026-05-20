@@ -2,6 +2,8 @@
 
 > Setup local del backend. Para deploy y operations ver `docs/RUNBOOK.md`.
 
+> **Phase 1 — Monad migration (2026-05-20)**: el setup ahora requiere credenciales Turnkey + Privy + Pimlico en vez de Solana CLI/Anchor. Las secciones abajo que mencionan `solana-keygen`, `anchor build`, `FEE_PAYER_SK`, `HELIUS_API_KEY` son **legacy** y se reescribirán post-Phase 1F. Para el setup actual ver `.env.example` (Monad + Turnkey vars).
+
 ## Prerrequisitos
 
 | Tool | Versión |

@@ -1,8 +1,26 @@
 # Comadre — Checklist MVP Hackathon
 
-> Última actualización: 2026-05-08
+> Última actualización: 2026-05-20 (Phase 1 — Monad migration)
 > Convenciones: 🔴 blocker crítico · 🟡 en progreso · ✅ hecho · ⏳ esperando
 > Marca cada item como `- [x]` cuando esté hecho.
+
+---
+
+## 🚀 Phase 1 — Monad migration (2026-05-20)
+
+Estado: en progreso. Cambios arquitectónicos completados o en marcha:
+
+- [x] **Turnkey HSM custody** para session keys (replaces AWS KMS envelope encryption)
+- [x] **Sub-organization per user** — cada usuario tiene su propia sub-org Turnkey con su agent wallet
+- [x] **DB schema migration** — drop `user_keypairs`; `session_keys` ahora apunta a Turnkey (no más ciphertext local)
+- [ ] **Solana legacy code eliminado** — packages `anchor-program`, `anchor-client`, `solana` borrados; lib files Solana removidos de `apps/api`; `apps/indexer` borrado
+- [ ] **Onboarding flow Monad** wireado con Turnkey (provisión de sub-org en `/monad/finalize`)
+- [ ] **Transfer flow Monad** wireado con Turnkey signing + allowlist enforcement (COM-004)
+- [ ] **Elevated intents (OTP escalation)** wireado para montos > cap KYC tier
+- [ ] **Docs refresh** — ARCHITECTURE, BACKEND, APPS, SECURITY, RUNBOOK migrados a Monad-only
+- [ ] **All tests passing** — bun test cross-apps + forge test
+
+Las secciones Solana abajo se mantienen como **historia del proyecto** (Phase 0). Todo lo marcado relacionado con Anchor/Solana es **legacy** y se está reemplazando con la stack Monad/Turnkey/Privy/Kernel descripta arriba.
 
 ---
 

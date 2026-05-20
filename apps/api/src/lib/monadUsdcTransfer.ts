@@ -4,9 +4,12 @@
  * Builds ERC-20 `transfer(to, amount)` calldata that the wallet-infra
  * `signAndSendContractCall` helper signs and submits as a UserOperation
  * through the user's Kernel smart wallet.
+ *
+ * Also exports `decodeUsdcTransferCalldata` for recipient allowlist enforcement
+ * in the session signer (COM-004).
  */
 
-import { encodeFunctionData, parseAbi, type Address, type Hex } from "viem";
+import { encodeFunctionData, decodeFunctionData, parseAbi, type Address, type Hex } from "viem";
 
 const USDC_DECIMALS = 6;
 const USDC_MICRO_FACTOR = 10n ** BigInt(USDC_DECIMALS);
@@ -44,4 +47,34 @@ export function buildUsdcTransferCalldata(to: Address, amountMicro: bigint): Hex
     functionName: "transfer",
     args: [to, amountMicro],
   });
+}
+
+/**
+ * Decode ERC-20 `transfer(to, amount)` calldata.
+ *
+ * Used by the session signer for COM-004 recipient allowlist enforcement.
+ * Returns null if the calldata is not a USDC `transfer` call (e.g. `approve`).
+ */
+const _decodeAbi = [
+  {
+    name: "transfer",
+    type: "function",
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+  },
+] as const;
+
+export function decodeUsdcTransferCalldata(
+  data: `0x${string}`,
+): { to: `0x${string}`; amount: bigint } | null {
+  try {
+    const decoded = decodeFunctionData({ abi: _decodeAbi, data });
+    if (decoded.functionName !== "transfer") return null;
+    const [to, amount] = decoded.args as [`0x${string}`, bigint];
+    return { to, amount };
+  } catch {
+    return null;
+  }
 }

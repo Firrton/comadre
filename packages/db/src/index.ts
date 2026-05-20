@@ -9,7 +9,6 @@
 // Tables
 export {
   users,
-  userKeypairs,
   tandas,
   members,
   disputes,

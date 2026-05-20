@@ -2,6 +2,8 @@
 
 > Procedimientos paso-a-paso para deploy, bootstrap on-chain, y troubleshooting común. Para setup del entorno de desarrollo local ver `DEVELOPMENT.md`. Para el estado del MVP ver `CHECKLIST.md`.
 
+> **NOTA Phase 1 (2026-05-20)**: El proyecto migró de Solana/Anchor a Monad/Solidity como única chain. Las secciones de Anchor build/deploy abajo son **legacy** y se reemplazan por `forge build` / `forge create` en Monad. La custodia de claves se hace con **Turnkey HSM** (sub-org por usuario) en vez de AWS KMS o `user_keypairs` plaintext. Los procedimientos abajo se reescribirán completamente en Phase 1F.
+
 ## TOC
 
 1. [Setup local](#1-setup-local)

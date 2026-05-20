@@ -1,9 +1,16 @@
-import type { TransactionInstruction } from "@solana/web3.js";
+/**
+ * Savings strategy adapter contract.
+ *
+ * NOTE: The `instructions` field previously typed as Solana `TransactionInstruction[]`
+ * has been replaced with a generic array in the Monad migration. On-chain Monad savings
+ * integration is pending — for now only the `mock` provider is functional.
+ */
 
 export interface BuiltStrategyTx {
   provider: "mock" | "kamino";
   strategyId: string;
-  instructions: TransactionInstruction[];
+  /** Chain-specific instructions (currently unused; reserved for Monad integration). */
+  instructions: unknown[];
   unsignedTxBase64?: string;
   summary: string;
 }

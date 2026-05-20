@@ -1,6 +1,8 @@
 # Comadre — End-to-end flows
 
-> Sequence diagrams Mermaid de los flujos críticos. Para detalles de cada servicio ver `RUNNING.md`. Para detalles del modelo de datos ver `DATA_MODEL.md`.
+> Sequence diagrams Mermaid de los flujos críticos. Para detalles de cada servicio ver `APPS.md`. Para detalles del modelo de datos ver `DATA_MODEL.md`.
+
+> **Phase 1 — Monad migration (2026-05-20)**: los diagramas abajo todavía describen el flujo Solana legacy. La arquitectura actual usa **Monad + Privy + Turnkey + Kernel v3.1 + Pimlico bundler**. Los flujos canónicos se documentan en `ARCHITECTURE.md` → "Tx signing flow (Monad + Turnkey)" hasta que estos diagramas se reescriban en Phase 2.
 
 ## TOC
 

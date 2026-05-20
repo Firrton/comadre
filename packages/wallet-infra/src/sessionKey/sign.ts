@@ -1,17 +1,21 @@
-import { createPublicClient, encodeFunctionData, http, type Address, type Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { createPublicClient, http, type Address, type Hex } from "viem";
 import { createKernelAccountClient } from "@zerodev/sdk";
 import { getEntryPoint, KERNEL_V3_1 } from "@zerodev/sdk/constants";
 import { deserializePermissionAccount } from "@zerodev/permissions";
 import { toECDSASigner } from "@zerodev/permissions/signers";
+import { createAccount } from "@turnkey/viem";
 
-import { decryptSessionKey } from "../kms/client.js";
+import { getTurnkeyClient } from "../turnkey/client.js";
 import { monadTestnet } from "../chains.js";
 import { loadWalletInfraEnv, pimlicoBundlerUrl } from "../config.js";
-import type { SessionKeyCiphertext } from "../types.js";
 
 export interface SignAndSendInput {
-  envelope: SessionKeyCiphertext;
+  /** Turnkey sub-organization ID that owns the agent wallet. */
+  subOrgId: string;
+  /** Wallet ID (or address) within the sub-org to sign with. */
+  walletId: string;
+  /** ZeroDev serialized permission blob (from DB serializedPermission column). */
+  serializedPermissionBlob: string;
   to: Address;
   data: Hex;
   /** Native MON value to send with the call. Default 0. */
@@ -26,42 +30,51 @@ export interface SignAndSendResult {
 }
 
 /**
- * The single security-critical entry point: decrypt → deserialize → sign → bundle.
+ * The single security-critical entry point: Turnkey sign → deserialize → bundle.
+ *
+ * Uses Turnkey as the key custodian instead of KMS. The session private key never
+ * leaves Turnkey — we construct a viem wallet client backed by Turnkey and use it
+ * as the ECDSA signer for ZeroDev's permission account.
  *
  * Failure modes — all caught and surfaced upstream:
- *   - decrypt fail   → KMS denied / key rotated / DB row tampered
- *   - deserialize fail → blob corrupted / encryption version mismatch
- *   - sendUserOperation fail → policy rejected the call (best case) or bundler is down
+ *   - Turnkey sign fail  → policy rejected / org not found / key not authorized
+ *   - deserialize fail   → blob corrupted / permission version mismatch
+ *   - sendUserOperation fail → on-chain policy rejected the call or bundler is down
  *
- * Caller is responsible for pre-checking allowedRecipients / amount caps against the
- * `policiesJson` digest in the DB row BEFORE invoking this function. Don't call KMS
- * to discover that the user wanted to transfer more than the daily cap allows.
+ * Caller is responsible for pre-checking allowedRecipients / amount caps BEFORE
+ * invoking this function.
  */
 export async function signAndSendUserOp(input: SignAndSendInput): Promise<SignAndSendResult> {
-  const env = loadWalletInfraEnv();
+  const walletInfraEnv = loadWalletInfraEnv();
 
   const publicClient = createPublicClient({
     chain: monadTestnet,
-    transport: http(env.MONAD_RPC_URL),
+    transport: http(walletInfraEnv.MONAD_RPC_URL),
   });
   const entryPoint = getEntryPoint("0.7");
 
-  const plaintext = await decryptSessionKey(input.envelope);
-
-  const sessionKeySigner = await toECDSASigner({
-    signer: privateKeyToAccount(plaintext.sessionPrivateKey),
+  // Build a Turnkey-backed viem LocalAccount for the agent wallet.
+  // createAccount returns a LocalAccount that implements signMessage/signTransaction.
+  // We then wrap it with toECDSASigner to satisfy ZeroDev's ModularSigner interface.
+  const tk = getTurnkeyClient();
+  const turnkeyAccount = await createAccount({
+    client: tk.apiClient(),
+    organizationId: input.subOrgId,
+    signWith: input.walletId,
   });
+
+  const ecdsaSigner = await toECDSASigner({ signer: turnkeyAccount });
 
   const sessionKeyAccount = await deserializePermissionAccount(
     publicClient,
     entryPoint,
     KERNEL_V3_1,
-    plaintext.blob,
-    sessionKeySigner,
+    input.serializedPermissionBlob,
+    ecdsaSigner,
   );
 
   const bundlerUrl =
-    input.bundlerUrlOverride ?? pimlicoBundlerUrl(env.MONAD_CHAIN_ID, env.PIMLICO_API_KEY);
+    input.bundlerUrlOverride ?? pimlicoBundlerUrl(walletInfraEnv.MONAD_CHAIN_ID, walletInfraEnv.PIMLICO_API_KEY);
 
   const kernelClient = createKernelAccountClient({
     account: sessionKeyAccount,
@@ -94,13 +107,16 @@ export async function signAndSendContractCall<
   TAbi extends readonly unknown[],
   TFunctionName extends string,
 >(args: {
-  envelope: SessionKeyCiphertext;
+  subOrgId: string;
+  walletId: string;
+  serializedPermissionBlob: string;
   to: Address;
   abi: TAbi;
   functionName: TFunctionName;
   args: readonly unknown[];
   value?: bigint;
 }): Promise<SignAndSendResult> {
+  const { encodeFunctionData } = await import("viem");
   const data = encodeFunctionData({
     abi: args.abi,
     functionName: args.functionName,
@@ -108,7 +124,9 @@ export async function signAndSendContractCall<
   } as Parameters<typeof encodeFunctionData>[0]) as Hex;
 
   return signAndSendUserOp({
-    envelope: args.envelope,
+    subOrgId: args.subOrgId,
+    walletId: args.walletId,
+    serializedPermissionBlob: args.serializedPermissionBlob,
     to: args.to,
     data,
     value: args.value,

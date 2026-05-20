@@ -1,31 +1,25 @@
 /**
- * @comadre/db — Drizzle ORM schema
+ * @comadre/db — Drizzle ORM schema (Monad-only post Phase 1)
  *
- * Originally 12 tables mirroring on-chain Anchor accounts (read by the indexer)
- * plus off-chain state for the agent, ramps, KYC, and idempotency. The Monad
- * migration added: smart_wallets, session_keys, auth_sessions, elevated_intents
- * (see docs/WALLET_SECURITY.md §8 for the full design).
+ * Tables: users, smart_wallets, session_keys, auth_sessions, elevated_intents,
+ * tandas (Solidity mirror), members, disputes, dispute_votes, conversations,
+ * idempotency_keys, ramps, kyc_sessions, transfers, contact_routes,
+ * savings_positions, savings_actions, savings_nudges.
  *
  * Design decisions:
- * - Pubkeys stored as TEXT — base58 for Solana legacy rows, lowercase hex 0x...
- *   for Monad rows. Mixed-mode coexistence during migration is expected.
- * - u64 on-chain amounts stored as BIGINT with mode:'bigint' — returns native
- *   BigInt, no IEEE 754 precision loss.
+ * - EVM addresses stored as TEXT, lowercase hex `0x...`.
+ * - u256 on-chain amounts stored as BIGINT with mode:'bigint' — native BigInt,
+ *   no IEEE 754 precision loss.
  * - Timestamps with timezone, mode:'date' — returns JS Date objects.
  * - Enums are Postgres native pgEnum — enforced at the DB level.
  *
- * Known gaps tracked in docs/audits/00-master-findings.md:
- * - `session_keys.permissionId` is currently persisted as empty string at
- *   install time (audit COM-033). The on-chain `uninstallValidator(permissionId)`
- *   revocation path (WALLET_SECURITY.md §7) is unavailable until populated.
- *   Soft revoke (delete the row) still works.
- * - `user_keypairs.secret_key_b58` is the legacy Solana plaintext-key column
- *   being retired (audit COM-005). New onboarding flows MUST use the Monad
- *   `smart_wallets` + `session_keys` path; the Solana path is gated by
- *   `SOLANA_ONBOARDING_ENABLED` and disabled in production.
- * - `session_keys.allowedRecipients` is populated as `[]` at install time and
- *   not consulted by the signer (audit COM-004). The "backend-enforced
- *   allowlist" described in WALLET_SECURITY.md §10/§11 is not yet wired.
+ * Known gaps:
+ * - `session_keys.permissionId` is empty at install time (audit COM-033).
+ *   The on-chain `uninstallValidator(permissionId)` revocation path is
+ *   unavailable until populated. Soft revoke (delete the row) still works.
+ * - `session_keys.allowedRecipients` enforcement is wired in monadSessionSigner
+ *   (audit COM-004 fix Phase 1B): if the list is non-empty, recipients are
+ *   checked off-chain before signing.
  */
 
 import { sql } from "drizzle-orm";
@@ -229,18 +223,6 @@ export const users = pgTable(
     index("users_country_code_idx").on(t.countryCode),
   ]
 );
-
-// ---------------------------------------------------------------------------
-// 1b. user_keypairs — backend-managed signing keys (custodial-with-consent)
-// HACKATHON ONLY: keys stored as plain base58. For production, encrypt at rest.
-// ---------------------------------------------------------------------------
-export const userKeypairs = pgTable("user_keypairs", {
-  wallet: text("wallet")
-    .primaryKey()
-    .references(() => users.wallet),
-  secretKeyB58: text("secret_key_b58").notNull(),
-  createdAt: tsNow("created_at").notNull(),
-});
 
 // ---------------------------------------------------------------------------
 // 2. tandas — mirrors Tanda on-chain account
@@ -745,6 +727,8 @@ export const smartWallets = pgTable(
     kernelVersion: text("kernel_version").notNull().default("v3.1"),
     /** True once we've observed the wallet's bytecode on-chain (post first UserOp). */
     deployedOnChain: boolean("deployed_on_chain").notNull().default(false),
+    /** Turnkey-managed agent wallet address for this smart wallet (Phase 1A). */
+    agentWalletAddress: text("agent_wallet_address"),
     createdAt: tsNow("created_at").notNull(),
     updatedAt: tsNow("updated_at").notNull(),
   },
@@ -759,11 +743,15 @@ export const smartWallets = pgTable(
 );
 
 /**
- * Encrypted ZeroDev session keys.
+ * ZeroDev session keys — Turnkey-backed (Phase 1A migration).
  *
- * `ciphertext` = AES-256-GCM(JSON.stringify({ blob, sessionPrivateKey }), DEK, iv)
- * `dek_ciphertext` = KMS-wrapped DEK (envelope encryption).
- * Layout, IV length, and version are all checked in `@comadre/wallet-infra/kms`.
+ * KMS envelope fields (ciphertext/dek_ciphertext/iv/encryption_version) have
+ * been replaced with Turnkey sub-org/wallet references. The private key never
+ * leaves Turnkey; we only store the org/wallet IDs needed to request a signature.
+ *
+ * `serialized_permission` = the ZeroDev serialized permission blob (the
+ * permissioned-account blob that deserializePermissionAccount() expects), stored
+ * so the signer can reconstruct the session key account without re-installing.
  *
  * `policies_json` carries the exact policy config used at install time — needed
  * to rebuild the same permission plugin for on-chain revocation, since
@@ -779,10 +767,12 @@ export const sessionKeys = pgTable(
     kind: sessionKeyKindEnum("kind").notNull(),
     sessionAddress: text("session_address").notNull(),
     permissionId: text("permission_id").notNull(),
-    ciphertext: text("ciphertext").notNull(),
-    dekCiphertext: text("dek_ciphertext").notNull(),
-    iv: text("iv").notNull(),
-    encryptionVersion: text("encryption_version").notNull(),
+    /** Turnkey sub-organization ID (UUID) that owns the agent wallet. */
+    turnkeySubOrgId: text("turnkey_sub_org_id").notNull(),
+    /** Wallet ID within the Turnkey sub-org. */
+    turnkeyWalletId: text("turnkey_wallet_id").notNull(),
+    /** ZeroDev serialized permission blob for this session key. */
+    serializedPermission: text("serialized_permission").notNull(),
     policiesJson: jsonb("policies_json").notNull(),
     /** Per-call cap in micro-USDC (fast pre-check before KMS decrypt). */
     perCallCapMicroUsdc: bigint("per_call_cap_micro_usdc", {

@@ -10,10 +10,11 @@
  *
  * Routers mounted:
  *   /api/v1/users/*         — users router
- *   /api/v1/tandas/*        — tandas router
+ *   /api/v1/tandas/*        — tandas router (GETs live; POSTs are 501 — Monad pending)
  *   /api/v1 (disputes)      — disputes router (mixed paths)
  *   /api/v1/kyc/*           — kyc router
  *   /api/v1 (ramps)         — ramps router
+ *   /api/v1/elevated-intents/* — elevated intents router (OTP confirmation)
  *   /webhooks/*             — webhooks router (public, no auth)
  */
 
@@ -32,11 +33,11 @@ import { disputesRouter } from "./routes/disputes.js";
 import { kycRouter } from "./routes/kyc.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { rampsRouter } from "./routes/ramps.js";
-import { transfersRouter } from "./routes/transfers.js";
 import { transfersMonadRouter } from "./routes/transfersMonad.js";
 import { onboardingRouter } from "./routes/onboarding.js";
 import { walletRouter } from "./routes/wallet.js";
 import { savingsRouter } from "./routes/savings.js";
+import { elevatedIntentsRouter } from "./routes/elevatedIntents.js";
 
 const app = new Hono();
 
@@ -113,9 +114,9 @@ app.route("/api/v1/users", usersRouter);
 app.route("/api/v1/wallet", walletRouter);
 app.route("/api/v1/savings", savingsRouter);
 app.route("/api/v1/tandas", tandasRouter);
-app.route("/api/v1/transfers", transfersRouter);
 app.route("/api/v1", disputesRouter);
 app.route("/api/v1/kyc", kycRouter);
 app.route("/api/v1", rampsRouter);
+app.route("/api/v1/elevated-intents", elevatedIntentsRouter);
 
 export default app;

@@ -3,63 +3,21 @@
  *
  * POST /webhooks/sumsub  — KYC applicant events
  * POST /webhooks/privy   — wallet linking events
- * POST /webhooks/helius  — Solana transaction events (log only; indexer is authoritative)
+ *
+ * NOTE: POST /webhooks/helius (Solana transaction events) was removed in the Monad migration.
+ * TODO(monad-webhook): replace with Monad indexer webhook when contracts are deployed.
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { eq } from "drizzle-orm";
-import { PublicKey } from "@solana/web3.js";
-import { Keypair } from "@solana/web3.js";
-import { Wallet } from "@coral-xyz/anchor";
 import { db, kycSessions, users } from "@comadre/db";
 import {
   SumsubWebhookEvent,
-  HeliusWebhookPayload,
 } from "@comadre/types";
-import { getComadreProgram } from "@comadre/anchor-client";
-import {
-  getConnection,
-  getFeePayerKeypair,
-  getKycOracleKeypair,
-  buildUnsignedTx,
-  submitWithRetry,
-} from "@comadre/solana";
 import { rootLogger } from "../middlewares/logger.js";
-import { VersionedTransaction } from "@solana/web3.js";
 import pino from "pino";
-
-// ---------------------------------------------------------------------------
-// Helper — promote a wallet's KYC tier on-chain
-// ---------------------------------------------------------------------------
-
-async function upgradeKycTierOnChain(walletAddress: string): Promise<void> {
-  const connection = getConnection();
-  const feePayer = getFeePayerKeypair();
-  const kycOracle = getKycOracleKeypair();
-
-  const walletPubkey = new PublicKey(walletAddress);
-  const dummyWallet = new Wallet(Keypair.generate());
-  const program = getComadreProgram(connection, dummyWallet);
-
-  const kycIx = await program.methods
-    .updateKycTier({ t2Standard: {} })
-    .accounts({
-      wallet: walletPubkey,
-      kycOracle: kycOracle.publicKey,
-    })
-    .instruction();
-
-  const built = await buildUnsignedTx({
-    instructions: [kycIx],
-    payer: feePayer,
-    signers: [kycOracle],
-  });
-
-  const tx = VersionedTransaction.deserialize(Buffer.from(built.unsignedTxBase64, "base64"));
-  await submitWithRetry(tx);
-}
 
 export const webhooksRouter = new Hono();
 
@@ -93,8 +51,6 @@ webhooksRouter.post("/sumsub", async (c) => {
   const webhookSecret = process.env["SUMSUB_WEBHOOK_SECRET"];
 
   // Audit COM-024: fail CLOSED in production if the webhook secret is unset.
-  // Previously an unset secret would silently accept every request — including
-  // forged ones — which is catastrophic for a KYC channel.
   if (!webhookSecret) {
     if (IS_PRODUCTION) {
       logger.error("[sumsub] SUMSUB_WEBHOOK_SECRET unset in production — rejecting");
@@ -154,7 +110,6 @@ webhooksRouter.post("/sumsub", async (c) => {
     logger.info({ applicant_id: event.applicantId, status: newStatus }, "[sumsub] kyc session updated");
 
     if (approved) {
-      // Find the wallet address linked to this applicant
       const sessionRows = await db
         .select({ userWallet: kycSessions.userWallet })
         .from(kycSessions)
@@ -170,19 +125,13 @@ webhooksRouter.post("/sumsub", async (c) => {
           .set({ kycTier: "t2_standard", updatedAt: new Date() })
           .where(eq(users.wallet, userWallet));
 
-        // Promote tier on-chain — wrapped so a failure doesn't block the 200 response
-        try {
-          await upgradeKycTierOnChain(userWallet);
-          logger.info(
-            { applicant_id: event.applicantId, userWallet, newTier: "t2_standard" },
-            "[sumsub] user tier upgraded"
-          );
-        } catch (err) {
-          logger.error(
-            { err, applicant_id: event.applicantId, userWallet },
-            "[sumsub] on-chain update_kyc_tier failed (DB already updated)"
-          );
-        }
+        logger.info(
+          { applicant_id: event.applicantId, userWallet, newTier: "t2_standard" },
+          "[sumsub] user tier upgraded (DB only — TODO(monad-kyc): on-chain tier update pending)",
+        );
+        // TODO(monad-kyc): call Monad smart contract to update KYC tier on-chain
+        // once the contract is deployed. Previously called upgradeKycTierOnChain()
+        // via Solana Anchor program — removed in Monad migration.
       } else {
         logger.warn({ applicant_id: event.applicantId }, "[sumsub] approved but no matching kyc_session found");
       }
@@ -197,9 +146,7 @@ webhooksRouter.post("/sumsub", async (c) => {
 //
 // Audit COM-025: was previously unauthenticated. Now requires an HMAC-SHA256
 // signature in `X-Privy-Signature` (hex), computed over the raw body using
-// PRIVY_WEBHOOK_SECRET. Privy production uses Svix-style multi-sig; integrating
-// the full Svix verifier is a follow-up (COM-025 phase 2). For now this closes
-// the latent landmine — an unsigned request is rejected.
+// PRIVY_WEBHOOK_SECRET.
 // ---------------------------------------------------------------------------
 webhooksRouter.post("/privy", async (c) => {
   const logger = log(c);
@@ -235,44 +182,5 @@ webhooksRouter.post("/privy", async (c) => {
   }
 
   logger.info({ payload }, "[privy] webhook received");
-  return c.json({ received: true }, 200);
-});
-
-// ---------------------------------------------------------------------------
-// POST /webhooks/helius — Solana tx events (log only)
-// ---------------------------------------------------------------------------
-webhooksRouter.post("/helius", async (c) => {
-  const logger = log(c);
-
-  const heliusSecret = process.env["HELIUS_WEBHOOK_SECRET"];
-  if (heliusSecret) {
-    const auth = c.req.header("Authorization") ?? "";
-    // Audit COM-023 (Helius variant): timing-safe equality on shared-secret check.
-    const a = Buffer.from(auth);
-    const b = Buffer.from(heliusSecret);
-    const ok = a.length === b.length && timingSafeEqual(a, b);
-    if (!ok) {
-      return c.json({ error: "unauthorized" }, 401);
-    }
-  } else if (IS_PRODUCTION) {
-    return c.json({ error: "service_unavailable", message: "Webhook secret missing" }, 503);
-  }
-
-  const body = await c.req.json().catch(() => null);
-  const parsed = HeliusWebhookPayload.safeParse(body);
-
-  if (!parsed.success) {
-    // Return 200 to suppress Helius retries on schema mismatch
-    logger.warn({ err: parsed.error.format() }, "[helius] invalid payload shape, returning 200 to suppress retries");
-    return c.json({ received: true }, 200);
-  }
-
-  for (const tx of parsed.data) {
-    logger.info(
-      { signature: tx.signature, type: tx.type },
-      "[helius] tx event received (log only — apps/indexer is authoritative)"
-    );
-  }
-
   return c.json({ received: true }, 200);
 });

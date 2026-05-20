@@ -44,15 +44,21 @@ Comadre maneja fondos de usuarios en LATAM vía WhatsApp. Las amenazas principal
 - **`senderPhone`** no expuesto al LLM como parámetro de tool (server-injected)
 - **Validación Zod estricta** en todos los endpoints
 
-### Capa 5 — Smart contracts
+### Capa 5 — Custodia de claves (Turnkey)
 
-**Solana Anchor** (`packages/anchor-program`):
+Phase 1 migró toda la custodia de claves de session keys a Turnkey:
 
-| Fix | Detalle |
-|---|---|
-| `init_user_profile` signer constraint | `wallet` es `Signer<'info>` — previene impersonación/brick attacks (CRIT-1) |
-| `payout` rolling schedule | `next_payout_ts = prev_ts + frequency_seconds` — previene drift (HIGH-4) |
-| `pause` event emission | Emite `ProgramPauseStateChanged` con admin + timestamp (HIGH-5) |
+- **Session keys del usuario**: vivían encriptadas con AWS KMS envelope encryption. Ahora viven dentro de **Turnkey HSM** (AWS Nitro Enclaves backing). El backend nunca tiene acceso al material privado.
+- **Sub-organization por usuario**: cada usuario tiene su propia sub-org en Turnkey aislada. Compromiso de credenciales = blast radius limitado a 1 usuario.
+- **Policy enforcement** en Turnkey: scoped ALLOW policies por wallet, signing operations restringidas (SIGN_RAW_PAYLOAD_V2, SIGN_TRANSACTION_V2, ETH_SEND_TRANSACTION).
+- **AWS KMS removido**: ya no hay envelope encryption local; ya no se necesita `KMS_KEY_ARN` ni `AWS_REGION` env vars.
+
+Configuración requerida (env vars):
+- `TURNKEY_API_PUBLIC_KEY` — del dashboard Turnkey
+- `TURNKEY_API_PRIVATE_KEY` — del dashboard Turnkey
+- `TURNKEY_ORGANIZATION_ID` — UUID de la org parent
+
+### Capa 6 — Smart contracts (Monad)
 
 **Solidity Comadre.sol** (`packages/monad-contracts`):
 
@@ -68,7 +74,7 @@ Comadre maneja fondos de usuarios en LATAM vía WhatsApp. Las amenazas principal
 | MAX_FEE_BPS | Reducido de 1000 (10%) a 300 (3%) (MED-08) |
 | MAX_FREQUENCY | `createTanda` exige `frequency <= 90 days` (LOW-05) |
 
-### Capa 6 — Observabilidad
+### Capa 7 — Observabilidad
 
 - **Sentry**: inicializado en `api`, `agent`, `whatsapp` (gated por `SENTRY_DSN`)
 - **CORS**: restringido a `comadre.lat` en producción
@@ -90,27 +96,20 @@ El system prompt del agente incluye las siguientes reglas con prioridad máxima:
 
 ## Riesgos conocidos no resueltos (must-fix antes de producción)
 
-### Solana
+### Solidity (Monad)
 
 | ID | Descripción | Ubicación |
 |---|---|---|
-| CRIT-3 | Slash bloquea vault permanentemente — fondos quedan atrapados | `slash.rs` (comentario `SECURITY-TODO`) |
-| CRIT-4 | Stake del slasheo va a treasury en vez de cubrir contribución faltante | `slash.rs` (comentario `SECURITY-TODO`) |
-
-### Solidity
-
-| ID | Descripción | Ubicación |
-|---|---|---|
-| CRIT-01 | Vault lockup tras slash — mismo issue que Anchor | `slashDefaulter` (comentario `SECURITY-TODO`) |
-| CRIT-04 | Dispute griefing gratuito — miembro malicioso puede pausar tanda 7 días indefinidamente sin costo | `openDispute` (comentario `SECURITY-TODO`) |
+| CRIT-01 | Vault lockup tras slash — el `member_target` no se decrementa al slashear, así que `payout` queda bloqueado | `slashDefaulter` (comentario `SECURITY-TODO`) |
+| CRIT-04 | Dispute griefing gratuito — un miembro malicioso puede pausar tanda 7 días indefinidamente sin costo | `openDispute` (comentario `SECURITY-TODO`) |
 
 ### Infraestructura
 
 | Riesgo | Detalle |
 |---|---|
-| `user_keypairs.secret_key_b58` en plaintext | Secret keys de usuarios almacenadas en DB sin encriptación. Migrar a KMS (AWS KMS, Google Cloud KMS) antes de mainnet. |
-| `transfers-monad` sin allowlist | Solo hay per-call cap; no hay verificación de allowlist de recipientes. Requiere allowlist enforcement. |
+| `transfers-monad` sin allowlist (COM-004) | Solo hay per-call cap; falta verificación de allowlist de recipientes. Phase 1B agrega esto. |
 | Redis sin encriptación | Historial de conversaciones en Redis en plaintext. Considerar encriptación at-rest. |
+| `session_keys.permission_id` vacío (COM-033) | El permission ID no se captura al instalar; afecta la ruta de revoke on-chain. Phase 1B agrega esto. |
 
 ## Auditorías realizadas
 
@@ -118,6 +117,7 @@ El system prompt del agente incluye las siguientes reglas con prioridad máxima:
 |---|---|---|---|
 | 2026-05-19 | Sprint A — API + Agent (seguridad) | CRIT-1 a 4, HIGH-1,3,5, MED-5,9 | 9/9 corregidos |
 | 2026-05-19 | Audit completo — Anchor + Solidity | CRIT-1,4 (Anchor), HIGH-4,5 (Anchor), CRIT-01,02,03,04 (Solidity), HIGH-01,02,05,06, MED-05,08, LOW-05 | Mayoría corregidos; 4 CRIT documentados para próximo sprint |
+| 2026-05-20 | Phase 1 — Migración a Monad-only + Turnkey custody | AWS KMS reemplazado por Turnkey HSM; Solana legacy code eliminado; allowlist enforcement añadido | En curso |
 
 ## Procedimiento para reportar vulnerabilidades
 

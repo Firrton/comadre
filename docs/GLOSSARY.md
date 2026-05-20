@@ -1,14 +1,14 @@
 # Comadre — Glosario técnico
 
-> Términos del dominio (financiero + Solana + arquitectura) que aparecen seguido en el código y los docs. Si encontrás un acrónimo y no sabés qué significa, este es el lugar.
+> Términos del dominio (financiero + Monad/EVM + arquitectura) que aparecen seguido en el código y los docs. Si encontrás un acrónimo y no sabés qué significa, este es el lugar.
 
 ## Dominio financiero — tandas
 
-**Tanda** — Grupo rotativo de ahorro. 3-20 personas aportan un monto fijo cada N días; en cada turno una persona se lleva el pot completo. También conocida como *cundina* (México), *susu* (África Occidental), *pasanaku* (Bolivia), *ROSCA* (rotating savings and credit association). En Comadre cada tanda es un PDA + un vault USDC en Solana.
+**Tanda** — Grupo rotativo de ahorro. 3-20 personas aportan un monto fijo cada N días; en cada turno una persona se lleva el pot completo. También conocida como *cundina* (México), *susu* (África Occidental), *pasanaku* (Bolivia), *ROSCA* (rotating savings and credit association). En Comadre cada tanda es una entry en el mapping `_tandas[tandaKey]` del contrato Solidity `Comadre.sol` + un vault USDC interno (`vaultBalance` field).
 
 **Stake-to-join** — Garantía que un miembro deposita al unirse. Si default-ea (no contribuye en su turno), el stake se queda. En Comadre el stake = 1× el aporte por turno (decisión cerrada).
 
-**Payout** — Distribución del pot del turno actual al miembro cuyo `turn_number` coincide con `tanda.current_turn`. Lo dispara `apps/cron payoutCrank` cada 5 min, o cualquiera puede invocar `payout` instruction post-deadline.
+**Payout** — Distribución del pot del turno actual al miembro cuyo `turnNumber` coincide con `tanda.currentTurn`. Lo dispara la función `payout()` del contrato, callable por el `crankAuthority` (o cualquiera post-deadline).
 
 **PayoutOrder** — Estrategia de turnos: `JoinOrder` (1ro en sumarse, 1ro en cobrar — único activo en MVP), `CreatorSet` (creador asigna), `Random` (VRF — no implementado, hard-rejected en `start_tanda`).
 

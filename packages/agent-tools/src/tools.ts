@@ -1,5 +1,5 @@
 /**
- * The 9 Comadre agent tools.
+ * The Comadre agent tools.
  *
  * Convention per tool:
  *   - <toolName>Definition: OpenAI-compatible tool schema given to Kimi via Moonshot
@@ -131,13 +131,13 @@ export const consultarTandaDefinition: ToolDefinition = {
   function: {
     name: "consultar_tanda",
     description:
-      "Consulta los detalles de una tanda específica (estado, miembros, turno actual, próximo payout). Args: tanda_id (Solana pubkey base58 de la tanda).",
+      "Consulta los detalles de una tanda específica (estado, miembros, turno actual, próximo payout). Args: tanda_id (identificador único de la tanda).",
     parameters: {
       type: "object",
       properties: {
         tanda_id: {
           type: "string",
-          description: "Pubkey base58 de la tanda (32-44 chars).",
+          description: "Identificador único de la tanda.",
         },
       },
       required: ["tanda_id"],
@@ -263,7 +263,7 @@ export const unirseTandaDefinition: ToolDefinition = {
     parameters: {
       type: "object",
       properties: {
-        tanda_id: { type: "string", description: "Pubkey base58 de la tanda a unirse." },
+        tanda_id: { type: "string", description: "Identificador único de la tanda a unirse." },
       },
       required: ["tanda_id"],
       additionalProperties: false,
@@ -314,7 +314,7 @@ export const aportarTurnoDefinition: ToolDefinition = {
     parameters: {
       type: "object",
       properties: {
-        tanda_id: { type: "string", description: "Pubkey base58 de la tanda." },
+        tanda_id: { type: "string", description: "Identificador único de la tanda." },
       },
       required: ["tanda_id"],
       additionalProperties: false,
@@ -357,7 +357,7 @@ export const abrirDisputaDefinition: ToolDefinition = {
     parameters: {
       type: "object",
       properties: {
-        tanda_id: { type: "string", description: "Pubkey base58 de la tanda." },
+        tanda_id: { type: "string", description: "Identificador único de la tanda." },
         reason: {
           type: "string",
           maxLength: 280,
@@ -404,7 +404,7 @@ export const votarDisputaDefinition: ToolDefinition = {
     parameters: {
       type: "object",
       properties: {
-        dispute_id: { type: "string", description: "Pubkey base58 de la disputa." },
+        dispute_id: { type: "string", description: "Identificador único de la disputa." },
         continue_tanda: { type: "boolean", description: "true = seguir tanda, false = cancelar." },
       },
       required: ["dispute_id", "continue_tanda"],
@@ -691,46 +691,8 @@ export const cancelarTransferExecute: ToolExecutor = async (args, context) => {
   };
 };
 
-// --------------------------------------------------------------------------
-// 14. iniciar_onboarding (no userWallet — uses senderPhone from context)
-// --------------------------------------------------------------------------
-export const iniciarOnboardingDefinition: ToolDefinition = {
-  type: "function",
-  function: {
-    name: "iniciar_onboarding",
-    description:
-      "Crea la billetera Solana del usuario actual usando su número de teléfono (Privy embedded wallet). Llamala SOLO después de consentimiento explícito del usuario. No tiene parámetros — usa el phone del contexto.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-  },
-};
-export const iniciarOnboardingExecute: ToolExecutor = async (_args, context) => {
-  if (!context.senderPhone) {
-    return {
-      type: "error",
-      error: "iniciar_onboarding requires senderPhone in context",
-    };
-  }
-  const data = await apiCall<{
-    walletAddress: string;
-    walletId: string;
-    privyUserId: string;
-    alreadyExisted: boolean;
-  }>({
-    method: "POST",
-    path: "/api/v1/onboarding/init",
-    userWallet: "",
-    idempotencyKey: newIdempotencyKey(),
-    body: { phone: context.senderPhone },
-  });
-  const walletPreview = `${data.walletAddress.slice(0, 4)}...${data.walletAddress.slice(-4)}`;
-  return {
-    type: "data",
-    data: redactSensitiveFields(data),
-    summary: data.alreadyExisted
-      ? `Ya tenías un wallet: ${walletPreview}`
-      : `Wallet creada: ${walletPreview}`,
-  };
-};
+// iniciar_onboarding (legacy Solana onboarding) — removed in Monad migration.
+// Use iniciar_cuenta_segura instead.
 
 // --------------------------------------------------------------------------
 // 15. iniciar_cuenta_segura (Monad onboarding via magic link / SMS)
@@ -1033,12 +995,54 @@ export const cancelarGuardaditoExecute: ToolExecutor = async (args, context) => 
 };
 
 // --------------------------------------------------------------------------
+// 22. confirmar_codigo_seguridad — OTP escalation confirmation
+// --------------------------------------------------------------------------
+export const confirmarCodigoSeguridadDefinition: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "confirmar_codigo_seguridad",
+    description:
+      "Cuando el usuario te pasa un código que recibió por SMS para confirmar una operación grande, llamá esta tool. Args: intent_id (devuelto por la operación anterior) + code (lo que el usuario te dijo).",
+    parameters: {
+      type: "object",
+      properties: {
+        intent_id: {
+          type: "string",
+          description: "ID del intent pendiente (devuelto por enviar_plata cuando excede el cap).",
+        },
+        code: {
+          type: "string",
+          description: "Código de 4-8 dígitos que el usuario recibió por SMS.",
+        },
+      },
+      required: ["intent_id", "code"],
+      additionalProperties: false,
+    },
+  },
+};
+
+export const confirmarCodigoSeguridadExecute: ToolExecutor = async (args, context) => {
+  const { intent_id, code } = args as { intent_id: string; code: string };
+  const data = await apiCall<unknown>({
+    method: "POST",
+    path: `/api/v1/elevated-intents/${encodeURIComponent(intent_id)}/confirm`,
+    body: { code },
+    userWallet: context.userWallet,
+    idempotencyKey: newIdempotencyKey(),
+  });
+  return {
+    type: "data",
+    data: redactSensitiveFields(data),
+    summary: "Código verificado y operación confirmada",
+  };
+};
+
+// --------------------------------------------------------------------------
 // Registry
 // --------------------------------------------------------------------------
-// `iniciarOnboardingDefinition`/`iniciar_onboarding` are intentionally NOT in
-// the registry: that flow created plaintext Solana keys and is being retired in
-// favor of `iniciar_cuenta_segura` (Monad + KMS-encrypted session keys).
-// See audit COM-032 / COM-005.
+// `iniciar_onboarding` (legacy Solana onboarding) is removed — was creating
+// plaintext Solana keys in DB. `iniciar_cuenta_segura` (Monad + KMS session keys)
+// is the replacement. See audit COM-032 / COM-005.
 export const ALL_TOOLS: readonly ToolDefinition[] = [
   consultarPerfilDefinition,
   consultarTandaDefinition,
@@ -1061,6 +1065,7 @@ export const ALL_TOOLS: readonly ToolDefinition[] = [
   confirmarGuardaditoDefinition,
   retirarGuardaditoDefinition,
   cancelarGuardaditoDefinition,
+  confirmarCodigoSeguridadDefinition,
 ];
 
 export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
@@ -1078,7 +1083,6 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   iniciar_transfer: iniciarTransferExecute,
   confirmar_transfer: confirmarTransferExecute,
   cancelar_transfer: cancelarTransferExecute,
-  // iniciar_onboarding intentionally excluded — see ALL_TOOLS comment above.
   iniciar_cuenta_segura: iniciarCuentaSeguraExecute,
   enviar_plata: enviarPlataExecute,
   consultar_guardadito: consultarGuardaditoExecute,
@@ -1086,6 +1090,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   confirmar_guardadito: confirmarGuardaditoExecute,
   retirar_guardadito: retirarGuardaditoExecute,
   cancelar_guardadito: cancelarGuardaditoExecute,
+  confirmar_codigo_seguridad: confirmarCodigoSeguridadExecute,
 };
 
 export async function executeTool(name: string, args: unknown, context: ToolContext): Promise<ToolResult> {

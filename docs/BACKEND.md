@@ -17,14 +17,14 @@
 
 ## ¿Qué es Comadre?
 
-**Comadre** es un agente de WhatsApp que ayuda a familias y comunidades en LATAM a manejar plata en USDC sobre Solana, con cuatro features core:
+**Comadre** es un agente de WhatsApp que ayuda a familias y comunidades en LATAM a manejar plata en USDC sobre Monad, con cuatro features core:
 
 1. **Phone-to-phone USDC transfers** — manda 10 USDC a un número de teléfono (registrado o no — onboarding implícito).
 2. **Tandas** — grupos rotativos de ahorro on-chain (3-20 personas aportan, cada turno una se lleva el pot).
-3. **Guardadito USDC** — ahorro con bóveda: mock seguro por default, Kamino detrás de flag/env.
+3. **Guardadito USDC** — ahorro con bóveda (planeado para Phase 2, sobre contratos Monad).
 4. **Crédito comunitario** — préstamos con cosigners (Phase 2).
 
-El bot vive en WhatsApp; la inteligencia es **Kimi K2** (Moonshot/Groq) con tool-use; la plata es **USDC en Solana**; las wallets son embedded **Privy** (custodial-feel, controlled por phone OTP).
+El bot vive en WhatsApp; la inteligencia es **Kimi K2** (Moonshot/Groq) con tool-use; la plata es **USDC en Monad** (testnet en dev, mainnet pendiente del launch); las **user wallets** son embedded **Privy** + Kernel v3.1 smart wallet (ERC-4337); el **session key** que firma operaciones del agente vive en **Turnkey HSM** (sub-organization por usuario).
 
 ### Pitch de mercado
 - Remesas LATAM: $150B/año, fees 3-7%
@@ -45,21 +45,21 @@ cp .env.example .env.local
 bun run dev
 ```
 
-**El sistema arranca 5 servicios backend**:
-- `apps/api` :3001 — REST API (Privy JWT auth, builds unsigned txs)
+**El sistema arranca 4 servicios backend**:
+- `apps/api` :3001 — REST API (Privy JWT auth, builds + relays Monad UserOps)
 - `apps/whatsapp` :3002 — Twilio webhook + reply
 - `apps/agent` :3003 — Kimi tool-use loop
-- `apps/cron` :3005 — 4 jobs scheduled
-- `apps/indexer` :3004 — esqueleto (TODO post-MVP)
+- `apps/cron` :3005 — jobs scheduled (dispute, reminder, kycRefresh)
 
-**Flujo end-to-end**: usuario manda `"manda 10 USDC al +52..."` por WhatsApp → Twilio → `apps/whatsapp` → `apps/agent` (Kimi tool_call `iniciar_transfer`) → `apps/api` (build SPL Token Transfer ix, partial-sign con `fee_payer`, stash en Redis) → confirmación al user → `confirmar_transfer` → Privy server-sign con embedded wallet → broadcast → `✅ tx: solscan.io/...`. Ver `docs/FLOWS.md#1` para el sequence diagram completo.
+**Flujo end-to-end**: usuario manda `"manda 10 USDC al +52..."` por WhatsApp → Twilio → `apps/whatsapp` → `apps/agent` (Kimi tool_call `enviar_plata`) → `apps/api` `/transfers-monad` (decodifica calldata USDC, valida allowlist, llama a `signMonadTransfer` → Turnkey firma con la session key del usuario → Pimlico bundler submite el UserOp → tx en Monad) → `✅ tx: monadscan/...`. Ver `docs/FLOWS.md` para el sequence diagram completo.
 
 **Para crear/modificar algo, decidí qué tocás**:
-- ¿Lógica on-chain nueva (nueva instruction, nuevo state)? → `packages/anchor-program/`. Despues `anchor build && anchor deploy && bun run codegen:client`.
+- ¿Lógica on-chain nueva en Comadre.sol? → `packages/monad-contracts/src/Comadre.sol`. Después `forge build && forge test`.
 - ¿Nuevo endpoint REST? → `apps/api/src/routes/X.ts` + mount en `server.ts`.
 - ¿Nueva tool del agente? → `packages/agent-tools/src/tools.ts` (append a `ALL_TOOLS` y `TOOL_EXECUTORS`).
-- ¿Schema DB nuevo? → `packages/db/src/schema.ts` + `bun run db:generate`.
+- ¿Schema DB nuevo? → `packages/db/src/schema.ts` + nueva migration en `packages/db/drizzle/`.
 - ¿Validación shared? → `packages/types/src/{inputs,responses}.ts`.
+- ¿Nueva operación que requiere firma del agente? → `packages/wallet-infra/src/turnkey/` (cliente Turnkey) + `apps/api/src/lib/monadSessionSigner.ts`.
 
 **Si querés más profundidad** sobre algún componente, andá al sub-doc:
 
@@ -82,31 +82,37 @@ bun run dev
 
 | Capa | Tech | Versión |
 |---|---|---|
-| Smart contract | Rust + Anchor | 0.31 |
+| Smart contract | Solidity + Foundry | 0.8.28 / Forge 1.5+ |
+| Chain | Monad | testnet (mainnet pendiente del launch) |
+| Account abstraction | ZeroDev Kernel v3.1 + ERC-4337 | — |
+| Bundler | Pimlico | — |
 | Backend runtime | Bun | 1.2+ |
 | Web framework | Hono | 4.x |
 | Lenguaje | TypeScript | 5.7+ strict + `verbatimModuleSyntax` + `noUncheckedIndexedAccess` |
 | ORM | Drizzle | 0.36+ |
 | DB | Postgres | 15 (Supabase) |
 | Cache | Upstash Redis | REST |
-| Auth | Privy server-auth | 1.32.5+ con embedded Solana wallets |
-| WhatsApp | Twilio | sandbox `whatsapp:+14155238886` |
+| User wallet | Privy embedded wallet (EVM) | 1.32.5+ |
+| Session key custody | Turnkey HSM | sub-organization por usuario |
+| WhatsApp | Twilio | sandbox `whatsapp:+14155238886` + Twilio Verify para OTP |
+| KYC | Sumsub WebSDK + REST API | level `id-and-liveness` |
 | LLM | Kimi K2 vía Moonshot directo o Groq | OpenAI-compatible SDK |
-| RPC Solana | Helius | devnet |
 | Validation | Zod | 3.23+ |
 | Logging | Pino | 9+ |
-| Test runner | Bun test | — |
+| Test runner | Bun test (TS) + Forge test (Solidity) | — |
 | Observabilidad | Sentry (`@sentry/bun`) | inicializado en `apps/api`, `apps/agent`, `apps/whatsapp` si `SENTRY_DSN` está seteado |
 
 ### Decisiones técnicas cerradas
 
-- **Stake-to-join**: 1× contribution
-- **PayoutOrder MVP**: solo `JoinOrder` (CreatorSet/Random hard-rejected hasta VRF)
-- **Backend paga rent + tx fees** (descontados del fee 0.5%)
+- **Chain única**: Monad (Solana fue eliminado en Phase 1)
+- **Token único**: USDC (no multi-token en Phase 1)
+- **Custodia**: Privy custodia owner key + Turnkey custodia session key — backend nunca tiene material privado en memory
+- **Tx signing**: Turnkey API (no más AWS KMS envelope encryption)
+- **Stake-to-join (tandas)**: 1× contribution
+- **PayoutOrder MVP**: solo `JoinOrder`
 - **Crank híbrido**: `apps/cron` interno + callable por anyone (resiliencia)
-- **Guardadito USDC**: strategy adapter híbrido (`mock` default, `kamino` detrás de env)
-- **Tx signing**: 100% server-side (Privy `walletApi.solana.signTransaction`)
-- **Lock model en transfers diferidos**: earmark off-chain (no on-chain escrow PDA por scope hackathon)
+- **Lock model en transfers diferidos**: earmark off-chain (no on-chain escrow PDA)
+- **Gas**: usuarios pagan en MON (paymaster sponsorship vía Pimlico planeado para Phase 2)
 
 ---
 
@@ -138,27 +144,23 @@ bun run dev
                     ┌──────────────────────────┐         ┌──────────────────┐
                     │  apps/api :3001          │◄───────►│  apps/cron :3005 │
                     │  Hono + Privy + Drizzle  │  HMAC   │  node-cron jobs  │
-                    │  - 8 routers REST        │         │  - payoutCrank   │
-                    │  - Privy server-sign     │         │  - dispute       │
-                    │  - SPL Token Transfer    │         │  - reminder      │
-                    │  - idempotency Redis     │         │  - kycRefresh    │
+                    │  - REST routers          │         │  - dispute       │
+                    │  - signMonadTransfer →   │         │  - reminder      │
+                    │    Turnkey API           │         │  - kycRefresh    │
+                    │  - idempotency Redis     │         │                  │
                     └─┬───────────┬────────────┘         └──────────────────┘
                       │           │
             ┌─────────┘           └─────────┐
             ▼                               ▼
    ┌──────────────┐              ┌────────────────────┐
-   │  Postgres    │              │  Solana devnet     │
-   │  (Supabase)  │              │  + Helius RPC      │
-   │  13 tables   │              │  + Privy embedded  │
-   └──────────────┘              │     wallets        │
-                                 └────────┬───────────┘
-                                          │ webhook (post-deploy)
-                                          ▼
-                              ┌──────────────────────┐
-                              │  apps/indexer :3004  │
-                              │  (esqueleto MVP)     │
-                              │  Helius → Postgres   │
-                              └──────────────────────┘
+   │  Postgres    │              │  Monad testnet     │
+   │  (Supabase)  │              │  + Pimlico bundler │
+   │  ~18 tables  │              │  + Privy embedded  │
+   └──────────────┘              │     EVM wallets    │
+                                 │  + Kernel v3.1     │
+                                 │  + Turnkey HSM     │
+                                 │    (session keys)  │
+                                 └────────────────────┘
 ```
 
 Para más detalle de cada servicio (puerto, middlewares, routers, env vars consumidas) ver [APPS.md](./APPS.md).

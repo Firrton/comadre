@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { env } from "@comadre/config";
 import { db, savingsNudges } from "@comadre/db";
-import { microToUsdc } from "../usdcTransfer.js";
+import { microToUsdc } from "../monadUsdcTransfer.js";
 import { getWhatsAppRoute } from "./contactCrypto.js";
 
 export const GUARDADITO_NUDGE_MESSAGE =

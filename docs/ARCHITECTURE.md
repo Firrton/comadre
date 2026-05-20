@@ -4,31 +4,32 @@
 
 | Capa | Tech | Versión |
 |---|---|---|
-| Smart contracts | Rust + Anchor | 0.31 |
+| Smart contracts | Solidity + Foundry | 0.8.28 / Forge 1.5+ |
+| Chain | Monad (EVM-compatible L1) | testnet en dev; mainnet pendiente del launch |
+| Account abstraction | ZeroDev Kernel v3.1 (ERC-4337) | — |
+| Bundler | Pimlico | — |
 | Backend runtime | Bun | 1.2+ |
 | Web framework | Hono | 4.x |
 | Lenguaje backend | TypeScript | 5.7+ strict |
 | ORM | Drizzle | 0.36+ |
 | DB | Postgres (Supabase) | 15 |
 | Cache/queue | Redis (Upstash REST) | — |
-| Mobile | React Native + Expo | SDK 52 |
 | Web | Next.js | 15 (App Router) |
-| Auth | Privy server-auth | 1.32.5+ |
-| KYC | Sumsub | REST API integrado en `apps/api` (backend-hosted flow via `sumsubClient.ts`). WebSDK 2 móvil es Fase 2. |
-| WhatsApp | Twilio (sandbox `+14155238886`) | — |
-| Agent LLM | Kimi K2 via Moonshot o Groq | `kimi-k2.6` (Moonshot) / `moonshotai/kimi-k2-instruct` (Groq) |
-| Voice (Fase 2) | ElevenLabs Conv AI | — |
-| RPC Solana | Helius | devnet/mainnet |
+| User wallet | Privy embedded EVM wallet | 1.32.5+ |
+| Session key custody | Turnkey HSM (sub-org por usuario) | `@turnkey/sdk-server` 6.x |
+| KYC | Sumsub REST API (level `id-and-liveness`) | backend-hosted via `sumsubClient.ts` |
+| WhatsApp | Twilio (sandbox `+14155238886`) + Twilio Verify (OTP) | — |
+| Agent LLM | Kimi K2 via Moonshot o Groq | `kimi-k2.6` / `moonshotai/kimi-k2-instruct` |
 
 ## Topología
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                          CLIENTES                                    │
-│  📱 Expo (RN + Solana Mobile)  🌐 Web (Next.js)  💬 WhatsApp/Twilio │
-└────────┬────────────────┬────────────────────────┬──────────────────┘
-         │                │                        │
-         ▼                ▼                        ▼ Twilio webhook
+│         🌐 Web (Next.js, Privy embedded wallet)  💬 WhatsApp        │
+└────────────────┬────────────────────────────────────┬───────────────┘
+                 │                                    │ Twilio webhook
+                 ▼                                    ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                     EDGE — Cloudflare (prod) / ngrok (dev)           │
 └────────┬─────────────────────────┬────────────────┬─────────────────┘
@@ -37,7 +38,7 @@
 ┌──────────────────┐    ┌────────────────────┐   ┌──────────────────┐
 │   apps/api       │    │  apps/whatsapp     │   │  apps/web        │
 │   Hono :3001     │    │  Hono :3002        │   │  Next.js :3000   │
-│   Auth: Privy JWT│    │  Auth: Twilio sig  │   │                  │
+│   Auth: Privy JWT│    │  Auth: Twilio sig  │   │  (magic link UI)│
 │   + HMAC interna │    │  + HMAC interna    │   │                  │
 └────────┬─────────┘    └─────────┬──────────┘   └──────────────────┘
          │                        │
@@ -47,46 +48,46 @@
          │              │  Hono :3003        │
          │              │  Kimi K2 tool-loop │
          │              └─────────┬──────────┘
-         │                        │ llama API service
+         │                        │ HMAC interno
          ▼                        ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                  CORE PACKAGES                                        │
-│  @comadre/anchor-client · @comadre/db · @comadre/cache               │
-│  @comadre/types · @comadre/solana · @comadre/agent-tools             │
+│  @comadre/db · @comadre/cache · @comadre/types · @comadre/config     │
+│  @comadre/agent-tools · @comadre/wallet-infra (Turnkey + Kernel)     │
 └─────────────────────────────────────────────────────────────────────┘
          │              │              │
          ▼              ▼              ▼
-┌──────────────┐ ┌──────────────┐ ┌────────────────┐
-│  Postgres    │ │  Redis       │ │  Solana        │
-│  (Supabase)  │ │  (Upstash)   │ │  devnet        │
-└──────────────┘ └──────────────┘ └────────┬───────┘
-                                           │ Helius enhanced webhooks
-                                           ▼
-                                ┌──────────────────┐
-                                │  apps/indexer    │
-                                │  Hono :3004      │
-                                └──────────────────┘
+┌──────────────┐ ┌──────────────┐ ┌─────────────────────────┐
+│  Postgres    │ │  Redis       │ │  Monad testnet          │
+│  (Supabase)  │ │  (Upstash)   │ │  + Pimlico bundler      │
+└──────────────┘ └──────────────┘ │  + Privy embedded EVM   │
+                                  │  + Kernel v3.1 smart    │
+                                  │    wallets              │
+                                  │                          │
+                                  │  Turnkey HSM ───────────┤
+                                  │  (session keys per user)│
+                                  └─────────────────────────┘
 ```
 
 ## Servicios
 
 | Servicio | Puerto | Responsabilidad |
 |---|---|---|
-| `apps/api` | 3001 | REST API pública. Auth via Privy JWT. Construye unsigned txs, firma con Privy server SDK, broadcast. |
+| `apps/api` | 3001 | REST API pública. Auth via Privy JWT. Build + relay de UserOps Monad. Llama a Turnkey para firmar con session keys. |
 | `apps/whatsapp` | 3002 | Twilio webhook inbound + outbound REST. Verifica `X-Twilio-Signature`. Reenvía al agent service. |
 | `apps/agent` | 3003 | Kimi K2 tool-use loop (max 5 iteraciones). Historial en Redis. NUNCA firma tx. |
-| `apps/indexer` | 3004 | Helius enhanced webhook → Anchor EventParser → upsert Postgres idempotente. |
-| `apps/cron` | — | `payoutCrank` (5 min), `disputeResolveCrank` (1 h), `reminderJob` (9 am diario). |
-| `apps/web` | 3000 | Landing + admin dashboard (Next.js, Privy gate). |
+| `apps/cron` | — | `disputeResolveCrank`, `reminderJob`, `kycRefreshJob`. |
+| `apps/web` | 3000 | Landing + magic-link onboarding UI (Next.js, Privy gate). |
 
-## Wallets controladas por backend
+## Custodia de claves (modelo de wallets)
 
-| Wallet | Variable de entorno | Uso |
+| Capa | Custodio | Uso |
 |---|---|---|
-| `fee_payer` | `FEE_PAYER_SK` | Paga rents + tx fees. Debe tener SOL. |
-| `crank_authority` | `CRANK_AUTHORITY_SK` | Firma `payout`, `complete_tanda`, `resolve_dispute`. Sin riesgo financiero directo. |
-| `kyc_oracle` | `KYC_ORACLE_SK` | Firma `update_kyc_tier` post-webhook Sumsub. |
-| `admin` | `ADMIN_SK` | `init_config`, `pause`/`unpause`. Multisig Squads en mainnet. |
+| **User wallet** (Privy embedded EVM) | Privy enclaves | EOA del usuario. Firma una sola vez en onboarding (SMS OTP) para autorizar la session key. La key nunca toca el backend. |
+| **Kernel v3.1 smart wallet** | Owned por user wallet on-chain | Cuenta principal del usuario. Holds USDC. Pays gas en MON. Tiene session key instalada con permission plugin. |
+| **Session key del agente** | Turnkey HSM (sub-org por usuario) | Firma UserOps en nombre del usuario. Scoped a USDC `transfer`/`approve` + funciones Comadre.sol. Per-call cap $50, validity 30d. |
+| **KYC oracle key** | Turnkey HSM (org master) | Llama `updateKycTier` en Comadre.sol después de webhook Sumsub `GREEN`. |
+| **Admin key** | Multisig (planeado mainnet) | Pause/unpause + role rotation. Phase 1: dev key en `.env`. |
 
 ## Auth model
 
@@ -105,24 +106,45 @@ Dev bypass:
    X-Dev-Wallet: <address>  →  omite Privy verify, solo en NODE_ENV !== production
 ```
 
-## Tx signing flow (server-side via Privy)
+## Tx signing flow (Monad + Turnkey)
+
+### Onboarding (1-time, user-visible)
 
 ```
-1. POST /api/v1/transfers  (body, X-Idempotency-Key)
-2. API construye SPL Token Transfer instruction + buildUnsignedTx(fee_payer partial-sign)
-3. Persiste row (status=pending), stash unsignedTxBase64 en Redis (TTL 5 min)
-4. Devuelve al agent: { transferId, unsignedTxBase64 }
-
-5. Agent confirma con usuario y llama POST /api/v1/transfers/:id/confirm
-6. API fetches unsignedTxBase64 de Redis
-7. API → Privy walletApi.solana.signTransaction({ walletId, transaction })
-   — el walletId viene de los linkedAccounts del Privy JWT
-8. Privy devuelve { signedTransaction }
-9. API → Solana submitWithRetry(signedTx)
-10. API persiste { status: confirmed, tx_signature }
+1. User manda primer mensaje WhatsApp → agent llama iniciar_cuenta_segura
+2. apps/api /onboarding/monad/start envía magic link por Twilio SMS
+3. User abre link → browser carga Privy SDK con OTP SMS
+4. User pone OTP UNA VEZ en la UI de Privy → embedded EVM wallet creado
+5. apps/api /onboarding/monad/finalize:
+   - Verifica Privy JWT
+   - Llama a Turnkey: provisionUserAgent → crea sub-org + agent wallet
+   - Devuelve agent_wallet_address al browser
+6. Browser instala permission plugin en Kernel smart wallet
+   (firma con Privy owner, autoriza al agent_wallet a operar)
+7. apps/api /onboarding/monad/install-session-key persiste:
+   { turnkey_sub_org_id, turnkey_wallet_id, serialized_permission }
 ```
 
-**Nota MVP**: el signing es completamente server-side (custodial). El usuario nunca toca la llave privada — Privy custodia el embedded wallet y firma bajo instrucción del servidor autenticado.
+### Transfer (invisible para el user, post-onboarding)
+
+```
+1. User: "manda 10 USDC al +52..." vía WhatsApp
+2. Agent llama enviar_plata tool → POST /api/v1/transfers-monad
+3. apps/api:
+   - Decodifica calldata USDC transfer(to, amount)
+   - Verifica to ∈ allowedRecipients (COM-004)
+   - Verifica amount <= per_call_cap
+   - Llama signMonadTransfer({ subOrgId, walletId, ... })
+4. monadSessionSigner.ts:
+   - Recupera (subOrgId, walletId, serialized_permission) de DB
+   - Llama Turnkey.signEvmPayload → firma del UserOp digest
+   - Construye Kernel client con esa firma
+   - Pimlico bundler submite el UserOp
+5. UserOp ejecuta en Kernel del user → USDC.transfer(to, amount)
+6. apps/api persiste { status: confirmed, tx_hash }
+```
+
+**El usuario NUNCA ve un popup de firma post-onboarding.** La session key vive en Turnkey HSM, el backend pide firmas por referencia (`subOrgId + walletId + payload`), y Turnkey enforza policies a nivel HSM.
 
 ## Observabilidad
 
@@ -130,7 +152,7 @@ Dev bypass:
 |---|---|---|
 | Logs | Pino → BetterStack (opcional) | Pino activo en todos los servicios; BetterStack pendiente de wiring |
 | Errors | Sentry (`@sentry/bun`) | Inicializado en api, agent y whatsapp. Gated por `SENTRY_DSN` (opcional). Trace sampling: 10% prod, 100% dev. |
-| Tx tracing | Helius dashboard | Activo |
+| Tx tracing | Monadscan + Pimlico dashboard | Activo |
 | Uptime | BetterStack monitor (opcional) | Pendiente |
 
 Convención: todo log lleva `req_id` (del middleware Hono), `user_id` o `from` (WA), y `tx_signature` cuando aplique.
@@ -169,11 +191,6 @@ Convención: todo log lleva `req_id` (del middleware Hono), `user_id` o `from` (
 
 ### Smart contracts (audit sprint A)
 
-**Solana Anchor** (`packages/anchor-program`):
-- `init_user_profile` — `wallet` es ahora `Signer<'info>` (previene impersonación/brick attacks, CRIT-1).
-- `payout` — `next_payout_ts` usa schedule rolling (`prev_ts + frequency_seconds`), no `now + frequency` (previene drift, HIGH-4).
-- `pause` — emite evento `ProgramPauseStateChanged` con admin + timestamp (HIGH-5).
-
 **Solidity Comadre.sol** (`packages/monad-contracts`):
 - Disputes vinculadas al `tandaKey` del origen; cross-tanda voting bloqueado con `DisputeTandaMismatch` (CRIT-02).
 - Quorum mínimo `ceil(memberTarget/2)` para resolver disputa; sin quorum → estado `Expired` y tanda vuelve a `Active` (CRIT-03).
@@ -184,46 +201,34 @@ Convención: todo log lleva `req_id` (del middleware Hono), `user_id` o `from` (
 
 ---
 
-## Modelo de signing (actualizado — custodial backend)
+## Toolset wallet-state-aware del agente
 
-> **NOTA**: Este modelo reemplaza el modelo Privy-custodial documentado más arriba en este archivo. La sección anterior se mantiene por contexto histórico.
+`apps/agent/src/agentLoop.ts` llama a `toolsForWalletState(userWallet)` antes de cada invocación al LLM. Si el user ya tiene fila en la DB, `iniciar_cuenta_segura` es **excluido** del toolset. El system prompt tiene una "REGLA ABSOLUTA #1" en el tope que le dice al LLM: "si `iniciar_cuenta_segura` no está en tu toolset, el user ya está registrado — no menciones crear billetera".
 
-### Auth-by-channel (custodial)
-
-La autenticación deriva del número de teléfono verificado en cada webhook de Twilio. El backend valida el header `X-Twilio-Signature` en cada request; un mensaje que falla esta verificación se descarta antes de llegar a lógica de negocio. **La posesión del número es el límite de autenticación.**
-
-El manejo de wallets es 100% server-side:
-
-1. Al primer consentimiento ("sí"), `apps/api/src/lib/onboarding.ts` llama a `Keypair.generate()`.
-2. La public key se vuelve la dirección del wallet del user (guardada en `users.wallet`).
-3. La secret key (base58) se guarda en `user_keypairs.secret_key_b58`.
-4. Toda instrucción posterior se firma vía `signWithUserKeypair(walletAddress)`, que carga el secret de la DB, reconstruye el `Keypair` y firma la transacción.
-
-**¿Por qué NO Privy?** El diseño original usaba embedded wallets de Privy. La API server-side de Privy para firma requiere authorization keys que no se pudieron provisionar en el plazo del hackathon. Privy fue removido; su complejidad de signing se reemplaza por custodia directa de keys. **No hay SDK de Privy en el codebase actual.**
-
-### Agente con toolset wallet-state-aware
-
-`apps/agent/src/agentLoop.ts` llama a `toolsForWalletState(userWallet)` antes de cada invocación al LLM. Si el user ya tiene fila en la DB, `iniciar_onboarding` es **excluido** del toolset. El system prompt tiene una "REGLA ABSOLUTA #1" en el tope que le dice al LLM: "si `iniciar_onboarding` no está en tu toolset, el user ya está registrado — no menciones crear billetera".
-
-### Topología de deployment
+## Topología de deployment
 
 ```
 Internet
-   │  HTTPS (Let's Encrypt vía sslip.io)
+   │  HTTPS (Let's Encrypt)
    ▼
-nginx (:443) ─── 158-23-57-124.sslip.io
+nginx (:443)
    │
    ├─► :3002  comadre-whatsapp  (recibe webhooks Twilio)
-   │              │
-   │              └─► comadre-agent  (LLM tool loop)
-   │                        │
-   │                        └─► comadre-api  (REST + Anchor ix builder)
+   │              │ HMAC interno
+   │              └─► :3003  comadre-agent  (Kimi K2 tool loop)
+   │                        │ HMAC interno
+   │                        └─► :3001  comadre-api
    │                                  │
-   │                          ┌───────┴──────────┐
-   │                        Postgres           Upstash Redis
-   │                       (nativo VPS)        (cloud REST)
+   │                          ┌───────┴──────────┬──────────────────┐
+   │                          ▼                  ▼                  ▼
+   │                       Postgres        Upstash Redis      Turnkey API
+   │                       (Supabase)      (cloud REST)       (HSM signing)
    │
-   └─► Solana Devnet (RPC vía Helius)
+   ├─► :3000  comadre-web (Next.js — magic link onboarding)
+   │              │
+   │              └─► Privy SDK (browser OTP, embedded EVM wallet)
+   │
+   └─► Monad testnet (RPC + Pimlico bundler)
 ```
 
-VPS: Azure Ubuntu 22.04. Los 3 servicios son units `systemd --user`. TLS via `certbot` (snap).
+VPS: Azure Ubuntu 22.04. Los servicios son units `systemd --user`. TLS via `certbot` (snap).

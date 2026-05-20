@@ -2,9 +2,9 @@
  * tandas.test.ts
  *
  * Tests:
- * - POST /api/v1/tandas with valid body returns stub UnsignedTransactionResponse shape
+ * - POST /api/v1/tandas returns 501 (Monad migration pending)
+ * - POST /api/v1/tandas with invalid body returns 400 validation error
  * - GET  /api/v1/tandas/:id 404 when not found
- * - Shape validation: stub tx response has unsigned_tx, idempotency_key, plan
  */
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import app from "../server.js";
@@ -40,24 +40,16 @@ describe("POST /api/v1/tandas", () => {
     usdc_mint: VALID_PUBKEY,
   };
 
-  it("returns stub UnsignedTransactionResponse shape with valid body", async () => {
+  it("returns 501 not_implemented for valid body (Monad migration pending)", async () => {
     const res = await app.request("/api/v1/tandas", {
       method: "POST",
       headers: devHeaders,
       body: JSON.stringify(validBody),
     });
 
-    // 200 or 500 (if Redis/cache unavailable in CI)
-    if (res.status === 500) {
-      // acceptable — tx-build stub doesn't need external services
-      return;
-    }
-
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(501);
     const body = await res.json() as Record<string, unknown>;
-    expect(typeof body["unsigned_tx"]).toBe("string");
-    expect(typeof body["idempotency_key"]).toBe("string");
-    expect(typeof body["plan"]).toBe("object");
+    expect(body["error"]).toBe("not_implemented");
   });
 
   it("returns 400 on missing required field", async () => {

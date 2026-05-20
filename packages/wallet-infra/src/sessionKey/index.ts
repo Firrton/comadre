@@ -5,6 +5,11 @@ export {
   type ApproveSessionKeyResult,
 } from "./approve.js";
 export {
+  provisionSessionKeyAgent,
+  type ProvisionSessionKeyAgentParams,
+  type ProvisionSessionKeyAgentResult,
+} from "./provision.js";
+export {
   buildPolicies,
   buildDailyPolicies,
   buildElevatedPolicies,

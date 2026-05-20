@@ -3,25 +3,24 @@
  *
  * User-facing product language is "Guardadito"; technical providers remain
  * internal strategy adapters (`mock` by default, `kamino` behind env).
+ *
+ * NOTE: non-mock providers that required Solana SPL signing (Privy + submitWithRetry)
+ * now return 501 pending Monad migration.
  */
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { eq } from "drizzle-orm";
-import { VersionedTransaction } from "@solana/web3.js";
-import { env } from "@comadre/config";
 import { db, savingsActions, savingsPositions, users } from "@comadre/db";
 import { getRedis } from "@comadre/cache";
-import { buildUnsignedTx, getConnection, getFeePayerKeypair, submitWithRetry } from "@comadre/solana";
 import { GuardaditoActionAmountInput } from "@comadre/types";
 import { getSavingsAdapter } from "../lib/savings/index.js";
 import {
   calculateGuardaditoSuggestion,
   formatMicroUsdc,
 } from "../lib/savings/amounts.js";
-import { usdcToMicro } from "../lib/usdcTransfer.js";
+import { usdcToMicro } from "../lib/monadUsdcTransfer.js";
 import { enforceKycLimit, KycLimitExceededError, type KycTier } from "../lib/kycLimits.js";
-import { signWithPrivy } from "../lib/privySigner.js";
 import type { AuthUser } from "../middlewares/auth.js";
 import { readUserUsdcBalanceMicro } from "./wallet.js";
 
@@ -29,23 +28,6 @@ export const savingsRouter = new Hono();
 
 const SAVINGS_ACTION_TTL_SECONDS = 5 * 60;
 const SAVINGS_TX_KEY_PREFIX = "savings:tx:";
-
-function explorerUrlFor(signature: string): string {
-  const suffix = env.SOLANA_CLUSTER === "mainnet-beta" ? "" : `?cluster=${env.SOLANA_CLUSTER}`;
-  return `https://explorer.solana.com/tx/${signature}${suffix}`;
-}
-
-function extractPrivyWalletId(user: AuthUser): string | null {
-  const accounts = user.linkedAccounts as Array<{
-    type?: string;
-    chainType?: string;
-    id?: string;
-  }>;
-  const solanaWallet = accounts.find(
-    (a) => a.type === "wallet" && (a.chainType === "solana" || a.chainType === undefined),
-  );
-  return solanaWallet?.id ?? null;
-}
 
 async function getAuthedUserRow(walletAddress: string) {
   const rows = await db.select().from(users).where(eq(users.wallet, walletAddress)).limit(1);
@@ -150,15 +132,10 @@ async function prepareAction(
     ? await adapter.buildDeposit({ wallet: user.walletAddress, amountMicroUsdc })
     : await adapter.buildWithdraw({ wallet: user.walletAddress, amountMicroUsdc });
 
-  let unsignedTxBase64 = built.unsignedTxBase64;
-  if (!unsignedTxBase64 && built.instructions.length > 0) {
-    const tx = await buildUnsignedTx({
-      instructions: built.instructions,
-      payer: getFeePayerKeypair(),
-      connection: getConnection(),
-    });
-    unsignedTxBase64 = tx.unsignedTxBase64;
-  }
+  // Non-mock providers that built Solana transactions are not supported post-migration.
+  // Only the mock provider (unsignedTxBase64 absent) is functional; on-chain Monad
+  // savings integration is pending.
+  const unsignedTxBase64: string | undefined = built.unsignedTxBase64 ?? undefined;
 
   const expiresAt = new Date(Date.now() + SAVINGS_ACTION_TTL_SECONDS * 1000);
   const inserted = await db
@@ -263,31 +240,15 @@ savingsRouter.post("/actions/:id/confirm", async (c) => {
     return c.json({ actionId: action.id, status: "confirmed" as const });
   }
 
-  if (!action.unsignedTxKey) {
-    return c.json({ error: "MISSING_TX", message: "No transaction found for this action." }, 409);
-  }
-
-  const unsignedTxBase64 = await getRedis().get<string>(action.unsignedTxKey).catch(() => null);
-  if (!unsignedTxBase64) return c.json({ error: "EXPIRED" }, 409);
-
-  const walletId = extractPrivyWalletId(user);
-  if (!walletId) return c.json({ error: "NO_WALLET" }, 400);
-
-  const tx = VersionedTransaction.deserialize(Buffer.from(unsignedTxBase64, "base64"));
-  const signed = await signWithPrivy({ walletId, transaction: tx });
-  const result = await submitWithRetry(signed.signedTransaction);
-
-  await db
-    .update(savingsActions)
-    .set({ status: "confirmed", confirmedAt: new Date(), txSignature: result.signature })
-    .where(eq(savingsActions.id, action.id));
-
-  return c.json({
-    actionId: action.id,
-    status: "confirmed" as const,
-    signature: result.signature,
-    explorerUrl: explorerUrlFor(result.signature),
-  });
+  // Non-mock providers that required Solana signing are not yet implemented on Monad.
+  // TODO(monad-savings): implement on-chain Guardadito confirm via Monad session key.
+  return c.json(
+    {
+      error: "not_implemented",
+      message: "On-chain savings confirmation via Monad is pending migration. Coming soon.",
+    },
+    501,
+  );
 });
 
 savingsRouter.post("/actions/:id/cancel", async (c) => {
@@ -303,3 +264,4 @@ savingsRouter.post("/actions/:id/cancel", async (c) => {
   if (action.unsignedTxKey) await getRedis().del(action.unsignedTxKey).catch(() => undefined);
   return c.json({ actionId: action.id, status: "cancelled" as const });
 });
+

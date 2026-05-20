@@ -43,6 +43,22 @@ const privySchema = z.object({
 });
 
 // -----------------------------------------------------------------------
+// Turnkey — EVM wallet infrastructure (Monad path)
+// -----------------------------------------------------------------------
+// Required for the Monad/ERC-4337 signing path. Optional in local dev so
+// the WhatsApp bot MVP can start without Turnkey credentials configured.
+// Production MUST set all three; the getTurnkeyClient() helper in
+// wallet-infra/turnkey/client.ts enforces this at call-time.
+const turnkeySchema = z.object({
+  /** Turnkey API key — public component (33-byte SEC1-compressed P-256, 66 hex chars). */
+  TURNKEY_API_PUBLIC_KEY: z.string().min(1, "TURNKEY_API_PUBLIC_KEY required").optional(),
+  /** Turnkey API key — private component (32-byte P-256 scalar, 64 hex chars). */
+  TURNKEY_API_PRIVATE_KEY: z.string().min(1, "TURNKEY_API_PRIVATE_KEY required").optional(),
+  /** Turnkey organization UUID — root org ID from the Turnkey Dashboard. */
+  TURNKEY_ORGANIZATION_ID: z.string().min(1, "TURNKEY_ORGANIZATION_ID required").optional(),
+});
+
+// -----------------------------------------------------------------------
 // Sumsub — KYC (Phase 2; optional for the WhatsApp bot MVP)
 // -----------------------------------------------------------------------
 const sumsubSchema = z.object({
@@ -199,6 +215,7 @@ const appSchema = z.object({
 const baseSchema = solanaSchema
   .merge(walletsSchema)
   .merge(privySchema)
+  .merge(turnkeySchema)
   .merge(sumsubSchema)
   .merge(twilioSchema)
   .merge(elevenLabsSchema)

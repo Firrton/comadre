@@ -53,8 +53,6 @@ export {
   confirmarTransferExecute,
   cancelarTransferExecute,
   // Onboarding
-  iniciarOnboardingDefinition,
-  iniciarOnboardingExecute,
   iniciarCuentaSeguraDefinition,
   iniciarCuentaSeguraExecute,
   consultarGuardaditoDefinition,
@@ -62,9 +60,11 @@ export {
   confirmarGuardaditoDefinition,
   retirarGuardaditoDefinition,
   cancelarGuardaditoDefinition,
+  confirmarCodigoSeguridadDefinition,
   consultarGuardaditoExecute,
   prepararGuardaditoExecute,
   confirmarGuardaditoExecute,
   retirarGuardaditoExecute,
   cancelarGuardaditoExecute,
+  confirmarCodigoSeguridadExecute,
 } from "./tools";

@@ -1,16 +1,15 @@
 # Comadre — Apps reference
 
-> Referencia técnica de los 5 servicios backend. Cada uno corre en su propio proceso Bun con Hono (excepto `apps/cron`, que usa node-cron + Hono solo para `/health`). El monorepo se orquesta con Turbo: `bun run dev` desde la raíz levanta todos los servicios en modo hot-reload.
+> Referencia técnica de los 4 servicios backend. Cada uno corre en su propio proceso Bun con Hono (excepto `apps/cron`, que usa node-cron + Hono solo para `/health`). El monorepo se orquesta con Turbo: `bun run dev` desde la raíz levanta todos los servicios en modo hot-reload.
 
 ## Service map
 
 | App | Puerto | Responsabilidad principal | Stack clave |
 |---|---|---|---|
-| `apps/api` | 3001 | REST API público — Privy JWT auth, builds unsigned txs, persiste off-chain state | Hono + Drizzle + Privy SDK + Solana web3 |
+| `apps/api` | 3001 | REST API público — Privy JWT auth, build + relay de Monad UserOps via Turnkey + Pimlico bundler, persiste off-chain state | Hono + Drizzle + Privy SDK + Turnkey SDK + Kernel v3.1 |
 | `apps/whatsapp` | 3002 | Webhook entrada/salida Twilio; HMAC inter-service en `/reply` | Hono + Twilio SDK |
 | `apps/agent` | 3003 | Tool-use loop con Moonshot Kimi K2; conversation state en Redis | Hono + OpenAI SDK → Moonshot/Groq baseURL |
-| `apps/cron` | 3005 | Jobs scheduled (payout 5 min, dispute 1 h, reminder/kyc diarios) | node-cron + Hono `/health` |
-| `apps/indexer` | 3004 | (esqueleto) Helius webhook + Anchor EventParser → upsert Postgres | Hono (TODO post-MVP) |
+| `apps/cron` | 3005 | Jobs scheduled (dispute 1 h, reminder/kyc diarios) | node-cron + Hono `/health` |
 
 ## TOC
 
@@ -49,8 +48,10 @@
 | — | GET | `/health` | prod | Liveness check, no auth |
 | `/webhooks` | POST | `/webhooks/sumsub` | prod | Verifica `X-Payload-Digest` HMAC-SHA256 si `SUMSUB_WEBHOOK_SECRET` está seteado. En evento `applicantReviewed` con resultado GREEN: actualiza `kyc_sessions.status`, actualiza `users.kycTier = "t2_standard"`, y llama `update_kyc_tier` on-chain vía `kyc_oracle`. Fallo on-chain es capturado y logueado pero no bloquea el 200. |
 | `/webhooks` | POST | `/webhooks/privy` | stub | Recibe eventos de wallet linking. Loguea y responde 200. |
-| `/webhooks` | POST | `/webhooks/helius` | log-only | Verifica `Authorization` header si `HELIUS_WEBHOOK_SECRET` está seteado. Loguea eventos; `apps/indexer` es el authoritative consumer. |
-| `/api/v1/onboarding` | POST | `/api/v1/onboarding/init` | prod | Sin auth (usuario no tiene JWT aún). Body `{ phone: E.164 }`. Llama `onboardPhone()` → Privy `importUser` + embedded Solana wallet + insert en `users`. Idempotente. |
+| `/api/v1/onboarding` | POST | `/api/v1/onboarding/monad/start` | prod | HMAC interno. Body `{ phone: E.164 }`. Crea `auth_sessions` row con magic token TTL 15 min. Envía link por Twilio SMS. |
+| `/api/v1/onboarding` | GET | `/api/v1/onboarding/monad/session/:token` | prod | Devuelve `{ privyAppId, chainId, comadreAddr, usdcAddr }` para inicializar Privy en el browser. |
+| `/api/v1/onboarding` | POST | `/api/v1/onboarding/monad/finalize` | prod | Body `{ token, privyUserId, ownerAddress, phoneJwt }`. Verifica JWT Privy. Llama `provisionUserAgent()` → crea sub-org + agent wallet en Turnkey. Stash `subOrgId/walletId` en memoria 5 min keyed por token. Devuelve `{ sessionAddress }`. |
+| `/api/v1/onboarding` | POST | `/api/v1/onboarding/monad/install-session-key` | prod | Body `{ token, serializedBlob, smartWalletAddress, phoneJwt }`. Inserta `smart_wallets` + `session_keys` (con `turnkey_sub_org_id`, `turnkey_wallet_id`, `serialized_permission`). |
 | `/api/v1/users` | POST | `/api/v1/users/init` | stub | Build stub de `init_user_profile` ix. Requiere `CreateUserProfileInput`. |
 | `/api/v1/users` | POST | `/api/v1/users/:wallet/confirm` | prod | Upsert de row en `users`. Recibe `{ signature }` (verificación on-chain pendiente). El wallet del path **debe coincidir** con el usuario autenticado (CRIT-4). |
 | `/api/v1/users` | GET | `/api/v1/users/me` | prod | Perfil del usuario autenticado desde Postgres. |
@@ -67,23 +68,17 @@
 | `/api/v1` (ramps) | POST | `/api/v1/onramp/quote` | mock | Fiat → USDC quote con tasas hardcodeadas (USD/ARS/MXN/COP/BRL/CLP/PEN). Válido 5 min. |
 | `/api/v1` (ramps) | POST | `/api/v1/offramp/quote` | mock | USDC → Fiat quote. Mismo motor mock. |
 | `/api/v1/transfers` | GET | `/api/v1/transfers/lookup` | prod | Resuelve `?phone=+E164` → registro. Respuesta reducida a `{ registered, walletPreview }` — sin `wallet`, `kycTier` ni `phoneHash` (CRIT-3). Rate limit dedicado: 20 req/min por usuario (`phoneLookupRateLimit`). |
-| `/api/v1/transfers` | POST | `/api/v1/transfers` | prod | Crea transferencia P2P USDC. Dos paths: **immediate** (destinatario registrado) builds SPL Transfer ix, firma fee_payer, stashea unsigned tx en Redis (TTL 5 min), devuelve `unsignedTxBase64`; **deferred** (no registrado) inserta row `awaiting_recipient` (TTL 7 d) + envía WA al destinatario vía `/reply` interno. |
-| `/api/v1/transfers` | POST | `/api/v1/transfers/:id/confirm` | prod | Fetches unsigned tx de Redis, firma server-side con Privy embedded wallet del usuario, broadcast via `submitWithRetry`, persiste `tx_signature`. |
-| `/api/v1/transfers` | POST | `/api/v1/transfers/:id/cancel` | prod | Cancela transferencia `pending` o `awaiting_recipient`. Limpia Redis. |
-
-**Tx-build stubs**: todos los endpoints de build de tx devuelven `{ unsigned_tx, idempotency_key, plan }`. `plan` documenta la instrucción Anchor planeada. Se reemplaza cuando `@comadre/anchor-client` se conecta post-deploy del programa.
+| `/api/v1/transfers-monad` | POST | `/api/v1/transfers-monad` | prod | HMAC interno. Body `{ senderPhone, toPhone, amountUsdc, note }`. Construye `USDC.transfer(to, amount)` calldata, valida allowlist (COM-004), llama `signMonadTransfer()` → Turnkey firma → Pimlico bundler. Path inmediato (registrado) o deferred (`awaiting_recipient` TTL 7d). Persiste `transfers` row con `tx_hash`. |
+| `/api/v1/elevated-intents` | POST | `/api/v1/elevated-intents/:id/confirm` | prod | Body `{ code }`. Verifica OTP via Twilio Verify. Marca `elevated_intents.status = approved` y ejecuta la acción pendiente con elevated policy ($1000 cap por 24h). |
 
 ### Lib helpers
 
 | Archivo | Función | Descripción |
 |---|---|---|
-| `lib/phoneLookup.ts` | `lookupByPhone(e164)` | Resolución phone → wallet. Orden: (1) DB por `phone_hash`, (2) Privy `getUserByPhoneNumber` fallback. Retorna `{ registered, wallet, kycTier, walletPreview }` internamente; el endpoint `/transfers/lookup` expone solo `{ registered, walletPreview }` (CRIT-3). Errores de Privy se tratan uniformemente como "no registrado" para evitar fingerprinting (HIGH-5). |
-| `lib/kycLimits.ts` | `enforceKycLimit(tier, amount)` | Lee `kyc_limits[T0..T3]` del PDA `ProgramConfig` on-chain. Cache en proceso 60 s. Fallback hardcodeado si el PDA no existe: T0=$10, T1=$100, T2=$1000, T3=$10000 (micro-USDC). Lanza `KycLimitExceededError` si excede. |
-| `lib/usdcTransfer.ts` | `buildUsdcTransferIxs(params)` | Construye instrucciones SPL Token Transfer. Si el ATA del destinatario no existe → prepende `createAssociatedTokenAccountInstruction` (payer = fee_payer). Incluye `usdcToMicro` / `microToUsdc` para conversión decimal ↔ bigint. |
-| `lib/privySigner.ts` | `signWithPrivy(params)` | Wraps `privy.walletApi.solana.signTransaction({ walletId, transaction })`. El fee_payer firma primero (parcial); Privy agrega la firma del usuario. Requiere `@privy-io/server-auth >= 1.32.5`. |
-| `lib/onboarding.ts` | `onboardPhone(phone)` | Privy `importUser` (o lookup si ya existe) + `createWallets` si no tiene Solana wallet. Inserta row en `users` (idempotente por wallet). Retorna `{ walletAddress, walletId, privyUserId, alreadyExisted }`. |
+| `lib/phoneLookup.ts` | `lookupByPhone(e164)` | Resolución phone → wallet. Orden: (1) DB por `phone_hash`, (2) Privy `getUserByPhoneNumber` fallback. Retorna `{ registered, wallet, walletPreview }` internamente; el endpoint `/transfers/lookup` expone solo `{ registered, walletPreview }` (CRIT-3). Errores de Privy se tratan uniformemente como "no registrado" para evitar fingerprinting (HIGH-5). |
+| `lib/monadSessionSigner.ts` | `signMonadTransfer(input)` | Recupera `turnkey_sub_org_id` + `turnkey_wallet_id` + `serialized_permission` de `session_keys`. Verifica allowlist (COM-004). Llama `turnkey.signEvmPayload()` para firmar el UserOp digest. Construye Kernel client, submite UserOp via Pimlico, espera receipt. |
+| `lib/monadUsdcTransfer.ts` | `buildUsdcTransferCalldata({ to, amount })` | Encoda `transfer(address,uint256)` con viem `encodeFunctionData`. |
 | `lib/phoneNormalize.ts` | `normalizePhoneE164` | E.164 con quirks MX/AR (eliminación de dígito redundante). |
-| `lib/stubs.ts` | `makeTxStub(key, plan)` | Devuelve `UnsignedTransactionResponse` con `unsigned_tx` de 32 bytes cero (base64). Usado en todos los endpoints de tx-build que aún no tienen anchor-client real. |
 | `lib/savings/contactCrypto.ts` | AES-256-GCM para contactos | `CONTACT_ENCRYPTION_KEY` es **requerida** en todos los entornos (mínimo 32 caracteres). Startup falla si no está configurada (MED-9). |
 | `middlewares/errorHandler.ts` | Manejo de errores Zod | En producción retorna solo `[{path, code}]`. El `format()` completo de Zod se expone únicamente en entornos no-producción (MED-5). |
 | `lib/sumsubClient.ts` | `createApplicant(userId)`, `generateAccessToken(applicantId)` | Cliente REST de Sumsub con autenticación HMAC-SHA256 por request. `createApplicant` hace POST a `/resources/applicants`; `generateAccessToken` hace POST a `/resources/accessTokens` y devuelve `{ token, url }` donde `url` apunta a `cockpit.sumsub.com/checkus#/accessToken={token}`. Requiere `SUMSUB_APP_TOKEN` + `SUMSUB_SECRET_KEY`. |
@@ -97,10 +92,11 @@
 | `PRIVY_APP_ID` / `PRIVY_APP_SECRET` | sí | Verificación JWT + wallet API (auth, onboarding, signer) |
 | `DATABASE_URL` | sí | Drizzle + Postgres (Supabase recomendado) |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | sí (prod) | Rate limiting, idempotency, stash de unsigned tx |
-| `SOLANA_RPC_URL` / `SOLANA_CLUSTER` | sí | Conexión RPC para tx-build y on-chain reads |
-| `COMADRE_PROGRAM_ID` | sí | Derive PDAs Anchor (kycLimits, onboarding) |
-| `USDC_MINT` | sí | Mint address USDC (devnet vs mainnet) |
-| `FEE_PAYER_SK` | sí | Keypair base58; firma transacciones como payer |
+| `MONAD_RPC_URL` | sí | RPC endpoint para Monad testnet/mainnet |
+| `PIMLICO_API_KEY` / `PIMLICO_BUNDLER_URL` | sí | Bundler ERC-4337 |
+| `COMADRE_CONTRACT_ADDRESS` | sí | Address del contrato Comadre.sol deployado en Monad |
+| `USDC_CONTRACT_ADDRESS` | sí | Address del token USDC en Monad |
+| `TURNKEY_API_PUBLIC_KEY` / `TURNKEY_API_PRIVATE_KEY` / `TURNKEY_ORGANIZATION_ID` | sí | Cliente Turnkey HSM para session key signing |
 | `SUMSUB_APP_TOKEN` / `SUMSUB_SECRET_KEY` | no | Auth del cliente REST Sumsub (HMAC-SHA256 por request). Sin estas variables el endpoint `/api/v1/kyc/session` usa path stub. |
 | `SUMSUB_WEBHOOK_SECRET` | no | Verificación del header `X-Payload-Digest` en `/webhooks/sumsub`. |
 | `HELIUS_WEBHOOK_SECRET` | no | Auth header `/webhooks/helius` |
@@ -112,13 +108,16 @@
 
 ### Tests
 
-3 suites en `src/lib/__tests__/`:
+Suites en `src/__tests__/` y `src/lib/__tests__/`:
 
-- `kycLimits.test.ts` — verifica límites T0–T3, cache hit, fallback hardcodeado cuando RPC falla.
-- `privySigner.test.ts` — valida que `assertPrivySolanaCapability` detecta SDK shapes incorrectas.
-- `usdcTransfer.test.ts` — cubre `usdcToMicro` / `microToUsdc` y construcción de ix (con y sin ATA creation).
+- `health.test.ts` — health check liveness
+- `auth.test.ts` — Privy JWT verification + dev bypass
+- `idempotency.test.ts` — middleware idempotency con Redis cache
+- `onboarding.test.ts` — Monad flow: HMAC guard, validación de schema
+- `transfers.test.ts` — validación Zod de body (cap, E.164, idempotency)
+- `tandas.test.ts` — validación de input (member_target range, etc.)
 
-Comando: `bun test --env-file .env.test` (requiere `ANTHROPIC_API_KEY=test-key` por runtime quirk).
+Comando: `NODE_ENV=test bun test apps/api/` desde la raíz.
 
 ---
 

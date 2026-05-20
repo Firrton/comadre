@@ -145,12 +145,36 @@ transfersMonadRouter.post(
         .update(transfers)
         .set({ status: "failed", failureReason: signResult.reason })
         .where(eqId(row.id));
+
+      if (signResult.reason === "recipient_not_allowed") {
+        // COM-004: recipient not in user's contact allowlist.
+        // Return 403 — caller should prompt user to add contact.
+        return c.json(
+          {
+            error: "RECIPIENT_NOT_ALLOWED",
+            message: "Ese destinatario no está en tu lista de contactos permitidos.",
+          },
+          403,
+        );
+      }
+
+      if (signResult.reason === "cap_exceeded") {
+        // Phase 1D handles the elevated-intent flow; for now signal the caller
+        // that a higher-auth path is required.
+        return c.json(
+          {
+            error: "CAP_EXCEEDED",
+            message: "Esa cantidad supera tu límite de 50 USDC por operación. Para más grande te pido un código por SMS.",
+            elevatedIntentRequired: true,
+          },
+          402,
+        );
+      }
+
       const message =
-        signResult.reason === "cap_exceeded"
-          ? `Esa cantidad supera tu límite de 50 USDC por operación. Para más grande te pido un código por SMS.`
-          : signResult.reason === "no_session"
-            ? `Tu sesión expiró. Te paso un link para renovarla.`
-            : `No encontré tu cuenta. ¿Hacemos el alta?`;
+        signResult.reason === "no_session"
+          ? `Tu sesión expiró. Te paso un link para renovarla.`
+          : `No encontré tu cuenta. ¿Hacemos el alta?`;
       return c.json({ error: signResult.reason.toUpperCase(), message }, 400);
     }
 
