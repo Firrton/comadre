@@ -20,6 +20,7 @@
 | KYC | Sumsub REST API (level `id-and-liveness`) | backend-hosted via `sumsubClient.ts` |
 | WhatsApp | Twilio (sandbox `+14155238886`) + Twilio Verify (OTP) | — |
 | Agent LLM | Kimi K2 via Moonshot o Groq | `kimi-k2.6` / `moonshotai/kimi-k2-instruct` |
+| Yield (Guardadito) | Neverland (Aave V3 fork en Monad mainnet) | APY ~13% en USDC; fee 20% sobre yield solamente |
 
 ## Topología
 
@@ -146,6 +147,77 @@ Dev bypass:
 
 **El usuario NUNCA ve un popup de firma post-onboarding.** La session key vive en Turnkey HSM, el backend pide firmas por referencia (`subOrgId + walletId + payload`), y Turnkey enforza policies a nivel HSM.
 
+### Guardadito — depósito/retiro (paralelo a transfers)
+
+```
+1. User: "guardá 50 USDC" vía WhatsApp
+2. Agent llama preparar_guardadito → POST /api/v1/savings/deposit
+3. apps/api:
+   - Verifica amount >= 1 USDC (mínimo), sin máximo
+   - Construye UserOp atómico con 2 calls:
+     (a) USDC.approve(neverlandPool, amount)
+     (b) NeverlandPool.supply(usdc, amount, userKernelWallet, 0)
+   - Llama signMonadTransfer con ese UserOp
+4. monadSessionSigner.ts:
+   - Session key tiene políticas adicionales: USDC.approve(pool,*), Pool.supply, Pool.withdraw, USDC.transfer(feeWallet,*)
+   - Turnkey firma el UserOp digest
+   - Pimlico bundler submite el UserOp
+5. UserOp ejecuta en Kernel del user → fondos van User Kernel wallet → Neverland Pool
+   Comadre NUNCA toca los fondos.
+6. Al retirar:
+   - Adapter calcula yield = underlyingValue − principal (proporcional)
+   - Fee = yield × 20% → USDC.transfer(COMADRE_FEE_WALLET, fee) en el mismo UserOp
+   - Remanente de USDC va al Kernel wallet del usuario
+```
+
+## Modelo de yield (Guardadito)
+
+### Flujo de fondos
+
+```
+Usuario              Kernel wallet (ERC-4337)            Neverland Pool (Aave V3)
+  │                        │                                      │
+  │── "guardá 50 USDC" ──► │                                      │
+  │                        │── approve(pool, 50 USDC) ──────────► │
+  │                        │── supply(usdc, 50, wallet, 0) ──────► │ recibe nUSDC
+  │◄─ confirmación ─────── │◄───────────── nUSDC emitido ─────────│
+  │                        │                                      │
+  │── "retirá todo" ──────► │                                      │
+  │                        │── withdraw(amount) ─────────────────► │ burn nUSDC
+  │                        │◄─────── USDC (principal + yield) ────│
+  │                        │── transfer(feeWallet, yield×20%) ───► COMADRE_FEE_WALLET
+  │◄─ USDC neto ─────────── │
+```
+
+### Modelo de fee
+
+| Concepto | Valor |
+|---|---|
+| Fee de Comadre | 20% sobre yield solamente (`COMADRE_YIELD_FEE_BPS = 2000`) |
+| Base mínima de cálculo | El fee se aplica sobre `underlyingValue − principalNet` en el momento del retiro |
+| Fee sobre principal | NUNCA — si no hay yield, no hay fee |
+| Monto mínimo depósito | $1 USDC (1_000_000 micro-USDC) |
+| Monto máximo depósito | Sin límite |
+| Recompensas MON + DUST | 100% a `COMADRE_FEE_WALLET` (sustentabilidad operativa) |
+
+### Contratos Neverland verificados (Monad mainnet)
+
+| Contrato | Address |
+|---|---|
+| Pool (Proxy) | `0x80F00661b13CC5F6ccd3885bE7b4C9c67545D585` |
+| USDC | `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` |
+| nUSDC | `0x38648958836eA88b368b4ac23b86Ad44B0fe7508` |
+| UiPoolDataProviderV3 | `0x0733e79171dd5A5E8aF41E387c6299bCfE6a7e55` |
+| DustRewardsController | `0x57ea245cCbFAb074baBb9d01d1F0c60525E52cec` |
+
+### Decisiones de arquitectura
+
+- **Sin contratos propios de yield**: Comadre llama directamente los contratos auditados de Neverland. Sin superficie de ataque adicional.
+- **UserOp único**: approve + supply (o withdraw + fee transfer) se ejecutan atómicamente en un solo UserOp Kernel. No hay estado intermedio explotable.
+- **Session key con scope mínimo**: las 4 políticas adicionales en el Kernel permission plugin son exactamente `USDC.approve(pool,*)`, `Pool.supply`, `Pool.withdraw`, `USDC.transfer(feeWallet,*)`. Sin permiso de sweep general.
+
+---
+
 ## Observabilidad
 
 | Área | Tool | Estado |
@@ -171,6 +243,7 @@ Convención: todo log lleva `req_id` (del middleware Hono), `user_id` o `from` (
 - **Sentry**: inicializado en api, agent y whatsapp. Solo se activa si `SENTRY_DSN` está configurado (opcional). Trace sampling: 10% en producción, 100% en dev.
 - Todas las SKs de wallets viven en `.env` durante hackathon. En producción → Doppler/Infisical.
 - El programa Anchor tiene un guard deployer-only en `init_config` para prevenir front-run.
+- **Guardadito (Neverland)**: Comadre **nunca custodia fondos de yield**. El flujo es siempre User Kernel wallet ↔ Neverland Pool directamente. El fee se cobra en el mismo UserOp del retiro — no hay paso separado en el que los fondos del usuario pasen por una wallet de Comadre. Si `COMADRE_FEE_WALLET` no está configurado, el endpoint de retiro falla con 503 antes de ejecutar nada on-chain.
 
 ### Controles de autorización por endpoint (audit sprint A)
 

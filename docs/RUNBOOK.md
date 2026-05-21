@@ -806,6 +806,57 @@ Para empezar 100% desde cero (incluyendo Privy):
 | `relation "users" does not exist` | Migraciones no aplicadas | `bun run --filter packages/db migrate:push` |
 | `unique constraint violation` en `phone_hash` | Race condition de onboarding doble | El handler debe usar `ON CONFLICT DO NOTHING` o `DO UPDATE` |
 
+### Guardadito — Neverland
+
+| Error | Causa | Fix |
+|---|---|---|
+| `503 Service Unavailable` en `POST /api/v1/savings/deposit` | `NEVERLAND_POOL_ADDRESS` no está seteado en el entorno | Agregar `NEVERLAND_POOL_ADDRESS=0x80F00661b13CC5F6ccd3885bE7b4C9c67545D585` al `.env` y reiniciar `apps/api` |
+| `503 Service Unavailable` en `POST /api/v1/savings/withdraw` | `COMADRE_FEE_WALLET` no está seteado | Agregar `COMADRE_FEE_WALLET=<dirección EVM de la wallet de fees>` al `.env` y reiniciar `apps/api` |
+| `UserOp revertido` en depósito (supply) | USDC insuficiente en la Kernel wallet del usuario, o approve falló | Verificar balance USDC del usuario en Monad. El UserOp es atómico — si approve falla, supply no ejecuta. Revisar logs de Pimlico con el `userOpHash`. |
+| `UserOp revertido` en retiro | Saldo nUSDC insuficiente, o pool de Neverland con liquidez temporalmente baja | Verificar `readNeverlandPosition(wallet)`. Si el pool tiene liquidez baja, reintentar más tarde. |
+| `Policy denied` en Turnkey al depositar/retirar | La session key del usuario fue instalada antes de Phase 2 y no incluye las políticas de Neverland | El usuario necesita reinstalar su session key. Flujo de upgrade pendiente de implementar. Workaround temporal: revocar session key antigua y pedir al usuario que haga onboarding de nuevo. |
+| `readNeverlandApy()` devuelve 0 o falla | `NEVERLAND_UI_POOL_DATA_PROVIDER` no configurado, o el RPC de Monad no responde | Verificar `NEVERLAND_UI_POOL_DATA_PROVIDER=0x0733e79171dd5A5E8aF41E387c6299bCfE6a7e55`. Checkear el RPC endpoint en `MONAD_RPC_URL`. |
+
+### Operaciones Neverland (día a día)
+
+**Consultar el APY actual del pool:**
+```bash
+# Via el endpoint de savings summary
+curl -s http://localhost:3001/api/v1/savings/summary \
+  -H "X-Dev-Wallet: <wallet>" \
+  -H "X-Dev-User-Id: <userId>" \
+  | jq '.apy'
+# O leer directamente desde UiPoolDataProviderV3 en Monad Explorer
+# Contract: 0x0733e79171dd5A5E8aF41E387c6299bCfE6a7e55
+```
+
+**Monitorear el balance de la fee wallet:**
+```bash
+# La fee wallet recibe el 20% del yield en USDC en cada retiro
+# También recibe recompensas MON + DUST del DustRewardsController
+# Verificar balance en Monadscan: https://monadscan.io/address/<COMADRE_FEE_WALLET>
+```
+
+**Reclamar recompensas DUST + MON:**
+```bash
+# Las recompensas se acumulan en DustRewardsController: 0x57ea245cCbFAb074baBb9d01d1F0c60525E52cec
+# Llamar la función de claim desde la wallet de Comadre (COMADRE_FEE_WALLET)
+# Usando cast (Foundry):
+cast send 0x57ea245cCbFAb074baBb9d01d1F0c60525E52cec \
+  "claim(address)" <COMADRE_FEE_WALLET> \
+  --rpc-url $MONAD_RPC_URL \
+  --private-key $FEE_WALLET_PRIVATE_KEY
+```
+
+**Verificar posición de un usuario:**
+```bash
+# Endpoint de posición (requiere auth o dev bypass)
+curl -s "http://localhost:3001/api/v1/savings/position" \
+  -H "X-Dev-Wallet: <wallet>" \
+  -H "X-Dev-User-Id: <userId>" \
+  | jq '.'
+```
+
 ### Sumsub KYC
 
 | Error | Causa | Fix |

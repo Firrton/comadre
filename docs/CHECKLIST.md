@@ -1,8 +1,26 @@
 # Comadre — Checklist MVP Hackathon
 
-> Última actualización: 2026-05-20 (Phase 1 — Monad migration)
+> Última actualización: 2026-05-20 (Phase 2 — Neverland yield)
 > Convenciones: 🔴 blocker crítico · 🟡 en progreso · ✅ hecho · ⏳ esperando
 > Marca cada item como `- [x]` cuando esté hecho.
+
+---
+
+## 🌱 Phase 2 — Yield (Neverland) (2026-05-20)
+
+Estado: ✅ implementado. Pendiente: activación en producción (env vars) + upgrade de session keys para usuarios pre-Phase 2.
+
+- [x] **`neverlandAdapter.ts`** — core adapter: `depositToNeverland`, `withdrawFromNeverland` (fee 20% en yield), `readNeverlandPosition`, `readNeverlandApy`
+- [x] **`neverlandSavingsAdapter.ts`** — implementación de la interfaz `SavingsAdapter` en la capa de estrategia
+- [x] **`packages/wallet-infra/src/sessionKey/policies.ts`** — 4 políticas Neverland opcionales (USDC.approve, Pool.supply, Pool.withdraw, USDC.transfer a feeWallet)
+- [x] **`packages/db/drizzle/migrations/0004_neverland.sql`** — migración: enum `neverland` en `savings_provider`, columna `principal_withdrawn_micro_usdc` en `savings_positions`
+- [x] **`packages/config/src/env.ts`** — variables de entorno: `NEVERLAND_POOL_ADDRESS`, `NEVERLAND_POOL_ADDRESSES_PROVIDER`, `NEVERLAND_UI_POOL_DATA_PROVIDER`, `NEVERLAND_N_USDC_ADDRESS`, `NEVERLAND_DUST_REWARDS_CONTROLLER`, `COMADRE_YIELD_FEE_BPS`, `COMADRE_FEE_WALLET`, `YIELD_STRATEGY_PROVIDER`
+- [x] **`apps/agent/src/lib/systemPrompt.ts`** — sección Guardadito reescrita: comparación banco Bolivia, lenguaje "tu chanchito", transparencia del fee 20%
+- [x] **23 unit tests** de fee math en `neverlandAdapter.test.ts`
+- [ ] **Activar `YIELD_STRATEGY_PROVIDER=neverland` en producción** — configurar todas las vars `NEVERLAND_*` y `COMADRE_FEE_WALLET` en el entorno de producción
+- [ ] **Upgrade de session keys** para usuarios que hicieron onboarding antes de Phase 2 (no tienen políticas Neverland en su Kernel permission)
+- [ ] **Migración DB** `0004_neverland.sql` aplicada en Supabase producción
+- [ ] **Verificar addresses Neverland** en Monad mainnet antes de activar (Pool: `0x80F00661b13CC5F6ccd3885bE7b4C9c67545D585`, nUSDC: `0x38648958836eA88b368b4ac23b86Ad44B0fe7508`)
 
 ---
 
@@ -68,7 +86,7 @@ Las secciones Solana abajo se mantienen como **historia del proyecto** (Phase 0)
 - Payout order MVP: `CreatorSet`
 - Backend paga rents (descuenta del fee 0.5%)
 - Crank híbrido (cron interno + callable por anyone)
-- Yield on-chain vía Neverland (Aave V3 fork en Monad) — integrado en `YIELD_STRATEGY_PROVIDER=neverland`
+- Yield on-chain vía Neverland (Aave V3 fork en Monad mainnet) — integrado en `YIELD_STRATEGY_PROVIDER=neverland`. Fee: 20% sobre yield únicamente. Mínimo $1 USDC. Recompensas MON+DUST al 100% a Comadre.
 - Tandas autónomas (1 persona crea), grupo WhatsApp solo si hay tiempo
 
 ---

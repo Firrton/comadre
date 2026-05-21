@@ -36,7 +36,7 @@ Loans y badges no están implementados en Solidity (eran Solana-legacy).
 | Rent del backend | Sí en MVP | Invisible al user, descontado del fee |
 | Crank | Híbrido | Backend cron + callable por cualquiera (resiliencia) |
 | Fee del protocolo | En `payout` | Más visible para el user |
-| Guardadito USDC | Adapter híbrido | `mock` default para demo; `kamino` detrás de env/flag |
+| Guardadito USDC | Neverland (Phase 2) | `mock` default; `neverland` activo cuando `YIELD_STRATEGY_PROVIDER=neverland`. Kamino fue considerado y descartado (solo en Solana, fuera de scope post-migration). |
 
 ## Postgres tables (materializadas por indexer + escritas por apps/api)
 
@@ -61,6 +61,25 @@ Loans y badges no están implementados en Solidity (eran Solana-legacy).
 | `contact_routes` | off-chain only | Ruta WhatsApp cifrada con `phone_ciphertext` (AES-256-GCM, `CONTACT_ENCRYPTION_KEY`) |
 | `savings_positions` | off-chain | user_wallet, provider (`mock`\|`kamino`\|`neverland`), strategy_id, deposited_micro_usdc, **principal_withdrawn_micro_usdc** (nuevo), share_amount, last_known_underlying_micro_usdc, status |
 | `savings_actions` | off-chain | user_wallet, provider, strategy_id, type, amount_micro_usdc, status, tx_signature, expires_at |
+
+### Phase 2 — Yield (Guardadito con Neverland)
+
+El campo `principal_withdrawn_micro_usdc` en `savings_positions` permite rastrear cuánto del capital original ya fue retirado. El cálculo de fee en cada retiro usa la siguiente lógica:
+
+```
+principalNet = deposited_micro_usdc − principal_withdrawn_micro_usdc
+yieldEarned  = underlyingValue (leído de Neverland) − principalNet
+fee          = yieldEarned × (COMADRE_YIELD_FEE_BPS / 10_000)
+userReceives = underlyingValue − fee
+```
+
+El fee es **cero** si `underlyingValue <= principalNet` (no hay yield acumulado). Cuando el usuario retira parcialmente, `principal_withdrawn_micro_usdc` se incrementa proporcionalmente al porcentaje retirado del total, de modo que los cálculos subsiguientes sean correctos.
+
+Ejemplo: usuario depositó $50 USDC, el pool tiene $53 USDC en su posición.
+- `principalNet = 50_000_000`
+- `yieldEarned = 53_000_000 − 50_000_000 = 3_000_000`
+- `fee = 3_000_000 × 20% = 600_000` (0.60 USDC)
+- `userReceives = 53_000_000 − 600_000 = 52_400_000` (52.40 USDC)
 | `savings_nudges` | off-chain | Guardadito nudge cooldown (24h gate) |
 
 **On-chain (Solidity Comadre.sol) es la verdad para tandas/disputes.** Estado autoritative reconstructible vía events en Monadscan.

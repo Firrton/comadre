@@ -46,12 +46,14 @@ Comadre maneja fondos de usuarios en LATAM vía WhatsApp. Las amenazas principal
 
 ### Capa 5 — Custodia de claves (Turnkey)
 
-Phase 1 migró toda la custodia de claves de session keys a Turnkey:
+Phase 1 migró toda la custodia de claves de session keys a Turnkey. Phase 2 (Neverland yield) **no cambia este modelo**:
 
 - **Session keys del usuario**: vivían encriptadas con AWS KMS envelope encryption. Ahora viven dentro de **Turnkey HSM** (AWS Nitro Enclaves backing). El backend nunca tiene acceso al material privado.
 - **Sub-organization por usuario**: cada usuario tiene su propia sub-org en Turnkey aislada. Compromiso de credenciales = blast radius limitado a 1 usuario.
 - **Policy enforcement** en Turnkey: scoped ALLOW policies por wallet, signing operations restringidas (SIGN_RAW_PAYLOAD_V2, SIGN_TRANSACTION_V2, ETH_SEND_TRANSACTION).
 - **AWS KMS removido**: ya no hay envelope encryption local; ya no se necesita `KMS_KEY_ARN` ni `AWS_REGION` env vars.
+
+Las operaciones de yield (Guardadito) también pasan por Turnkey — la session key ahora incluye 4 políticas adicionales con scope mínimo: `USDC.approve(pool,*)`, `Pool.supply`, `Pool.withdraw`, `USDC.transfer(feeWallet,*)`. El backend nunca accede al material de clave privado.
 
 Configuración requerida (env vars):
 - `TURNKEY_API_PUBLIC_KEY` — del dashboard Turnkey
@@ -110,6 +112,29 @@ El system prompt del agente incluye las siguientes reglas con prioridad máxima:
 | `transfers-monad` sin allowlist (COM-004) | Solo hay per-call cap; falta verificación de allowlist de recipientes. Phase 1B agrega esto. |
 | Redis sin encriptación | Historial de conversaciones en Redis en plaintext. Considerar encriptación at-rest. |
 | `session_keys.permission_id` vacío (COM-033) | El permission ID no se captura al instalar; afecta la ruta de revoke on-chain. Phase 1B agrega esto. |
+| Dependencia de Neverland | El producto Guardadito requiere que Neverland esté operativo en Monad mainnet. Si el protocolo pausa, es atacado, o es deprecado, los retiros fallan. El capital del usuario permanece en los contratos de Neverland (no hay riesgo de pérdida por falla del backend de Comadre). |
+| Usuarios con session key pre-Neverland | Usuarios que hicieron onboarding antes de Phase 2 no tienen las 4 políticas de Neverland en su session key. Intentar depositar/retirar fallará con error de policy en Turnkey/Kernel. Requiere reinstalación de session key (flujo pendiente de implementar). |
+
+## Auditorías de Neverland (protocolo de yield externo)
+
+Comadre no escribe contratos de yield propios. La exposición al riesgo de smart contracts es la superficie de Neverland. Auditorías públicas completadas:
+
+| Fecha | Auditor | Scope | Resultado |
+|---|---|---|---|
+| Agosto 2025 | Composable Security | DustLock, DustRewardsController, RevenueReward | Todos los hallazgos críticos y altos resueltos |
+| Octubre 2025 | Composable Security | Self-repaying loans, vault, rewards | Zero críticos/altos |
+| Febrero 2026 | Octane | Price oracle | Todos los hallazgos remediados |
+
+## Riesgos de protocolo de lending (Guardadito)
+
+La participación en Neverland expone al usuario a riesgos estándar de DeFi lending:
+
+| Riesgo | Descripción | Mitigación actual |
+|---|---|---|
+| Riesgo de smart contract | Bug en Neverland (Aave V3 fork) podría resultar en pérdida de fondos | Neverland tiene 3 auditorías. Comadre no escribe contratos propios de yield. |
+| Riesgo de liquidez | Situación extrema podría impedir retiros temporalmente | Neverland es lending USDC; sin deudas overcollateralizadas que afecten al LP de USDC. |
+| Riesgo de bad debt | Prestatarios que no pagan pueden reducir el capital del pool | Aave V3 tiene mecanismos de liquidación. Las tasas variables reflejan el riesgo. |
+| Dependencia operativa | Si Neverland deja de operar, los retiros fallan | Se documenta en Riesgos no resueltos. El capital del usuario sigue en los contratos de Neverland. |
 
 ## Auditorías realizadas
 

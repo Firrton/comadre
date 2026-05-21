@@ -97,6 +97,7 @@ bun run dev
 | WhatsApp | Twilio | sandbox `whatsapp:+14155238886` + Twilio Verify para OTP |
 | KYC | Sumsub WebSDK + REST API | level `id-and-liveness` |
 | LLM | Kimi K2 vía Moonshot directo o Groq | OpenAI-compatible SDK |
+| Yield (Guardadito) | Neverland — Aave V3 fork en Monad mainnet | `neverlandAdapter.ts` + `neverlandSavingsAdapter.ts` |
 | Validation | Zod | 3.23+ |
 | Logging | Pino | 9+ |
 | Test runner | Bun test (TS) + Forge test (Solidity) | — |
@@ -113,6 +114,9 @@ bun run dev
 - **Crank híbrido**: `apps/cron` interno + callable por anyone (resiliencia)
 - **Lock model en transfers diferidos**: earmark off-chain (no on-chain escrow PDA)
 - **Gas**: usuarios pagan en MON (paymaster sponsorship vía Pimlico planeado para Phase 2)
+- **Yield (Guardadito)**: Neverland (Aave V3 fork en Monad mainnet). Fee del 20% **solo sobre yield**, nunca sobre principal. Mínimo $1 USDC, sin máximo. Recompensas MON + DUST al 100% a Comadre.
+- **Custodia en yield**: Comadre nunca custodia fondos. El flujo es siempre User Kernel wallet ↔ Neverland Pool directamente. UserOp único y atómico (approve + supply / withdraw + fee transfer).
+- **Sin contratos propios de yield**: Comadre llama los contratos auditados de Neverland. Zero contratos Solidity escritos por Comadre para esta feature.
 
 ---
 
@@ -179,7 +183,7 @@ Para más detalle de cada servicio (puerto, middlewares, routers, env vars consu
 - ✅ `apps/agent`: tool-use loop (max 5 iters) con onboarding via Privy y contexto Guardadito. HMAC-SHA256 inbound verificado con ventana anti-replay de 5 min. Rate limiting (30 tool calls/hora por conversación).
 - ✅ Sentry inicializado en los 3 servicios principales (`apps/api`, `apps/agent`, `apps/whatsapp`) con trace sampling 10% prod / 100% dev.
 - ✅ Guardadito v1: savings API, mock adapter, Kamino boundary, nudges por Twilio y detección Helius de ingresos USDC.
-- ✅ Guardadito Neverland: adaptador Neverland (Aave V3 en Monad) conectado. `YIELD_STRATEGY_PROVIDER=neverland` activa el path on-chain: `depositToNeverland`, `withdrawFromNeverland` con fee en yield, `readNeverlandPosition`. Schema DB extendido con `principal_withdrawn_micro_usdc` y enum `neverland`. Session keys ahora incluyen políticas de Neverland cuando `NEVERLAND_POOL_ADDRESS` y `COMADRE_FEE_WALLET` están configurados.
+- ✅ **Guardadito — Neverland (Phase 2)**: adaptador Neverland (Aave V3 en Monad mainnet) conectado. `YIELD_STRATEGY_PROVIDER=neverland` activa el path on-chain. Fee del 20% sobre yield solamente (`COMADRE_YIELD_FEE_BPS=2000`). Funciones: `depositToNeverland`, `withdrawFromNeverland` (con cobro de fee en el mismo UserOp), `readNeverlandPosition`, `readNeverlandApy`. Schema DB extendido con `principal_withdrawn_micro_usdc` en `savings_positions` y enum `neverland`. Session keys incluyen 4 políticas adicionales cuando `NEVERLAND_POOL_ADDRESS` y `COMADRE_FEE_WALLET` están configurados. 23 unit tests de fee math.
 - ✅ `apps/cron`: 4 jobs scheduled.
 - ✅ Repo tidy completo (PR #21): apps con `lib/` + `__tests__/`, docs consolidados.
 

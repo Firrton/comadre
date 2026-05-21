@@ -70,6 +70,10 @@
 | `/api/v1/transfers` | GET | `/api/v1/transfers/lookup` | prod | Resuelve `?phone=+E164` → registro. Respuesta reducida a `{ registered, walletPreview }` — sin `wallet`, `kycTier` ni `phoneHash` (CRIT-3). Rate limit dedicado: 20 req/min por usuario (`phoneLookupRateLimit`). |
 | `/api/v1/transfers-monad` | POST | `/api/v1/transfers-monad` | prod | HMAC interno. Body `{ senderPhone, toPhone, amountUsdc, note }`. Construye `USDC.transfer(to, amount)` calldata, valida allowlist (COM-004), llama `signMonadTransfer()` → Turnkey firma → Pimlico bundler. Path inmediato (registrado) o deferred (`awaiting_recipient` TTL 7d). Persiste `transfers` row con `tx_hash`. |
 | `/api/v1/elevated-intents` | POST | `/api/v1/elevated-intents/:id/confirm` | prod | Body `{ code }`. Verifica OTP via Twilio Verify. Marca `elevated_intents.status = approved` y ejecuta la acción pendiente con elevated policy ($1000 cap por 24h). |
+| `/api/v1/savings` | POST | `/api/v1/savings/deposit` | prod | Inicia un depósito en Guardadito. Body `{ amountMicroUsdc }`. Construye un UserOp atómico con dos calls: `USDC.approve(pool, amount)` + `Pool.supply(usdc, amount, wallet, 0)`. El dinero va **directamente** del Kernel wallet del usuario al Pool de Neverland — Comadre nunca custodia fondos. Mínimo: 1 USDC. Sin máximo. Persiste `savings_positions` row con `provider=neverland`. |
+| `/api/v1/savings` | POST | `/api/v1/savings/withdraw` | prod | Inicia un retiro de Guardadito. Body `{ amountMicroUsdc }`. Calcula proporcionalmente cuánto es yield vs principal. El fee del 20% se aplica **solo sobre el yield** mediante `USDC.transfer(feeWallet, feeAmount)` en el mismo UserOp atómico. Actualiza `principal_withdrawn_micro_usdc` en DB. |
+| `/api/v1/savings` | GET | `/api/v1/savings/position` | prod | Consulta el balance actual de Guardadito. Lee `nUSDC` balance y underlying USDC via `UiPoolDataProviderV3`. Devuelve `{ depositedMicroUsdc, currentValueMicroUsdc, yieldEarnedMicroUsdc, apy }`. |
+| `/api/v1/savings` | GET | `/api/v1/savings/summary` | prod | Resumen de savings para el agent (incluye APY actual). Usado por `apps/agent` para inyectar la tasa al system prompt. |
 
 ### Lib helpers
 
@@ -80,6 +84,8 @@
 | `lib/monadUsdcTransfer.ts` | `buildUsdcTransferCalldata({ to, amount })` | Encoda `transfer(address,uint256)` con viem `encodeFunctionData`. |
 | `lib/phoneNormalize.ts` | `normalizePhoneE164` | E.164 con quirks MX/AR (eliminación de dígito redundante). |
 | `lib/savings/contactCrypto.ts` | AES-256-GCM para contactos | `CONTACT_ENCRYPTION_KEY` es **requerida** en todos los entornos (mínimo 32 caracteres). Startup falla si no está configurada (MED-9). |
+| `lib/neverlandAdapter.ts` | Integración Neverland (Aave V3 en Monad) | `depositToNeverland(wallet, amountMicroUsdc)` — approve + supply en un UserOp atómico. `withdrawFromNeverland(wallet, amountMicroUsdc)` — withdraw + cobro de fee (20% solo sobre yield). `readNeverlandPosition(wallet)` — lee saldo nUSDC + underlying USDC vía `UiPoolDataProviderV3`. `readNeverlandApy()` — devuelve APY actual del pool. |
+| `lib/savings/neverlandSavingsAdapter.ts` | Implementación del proveedor Neverland en la capa de estrategia de savings | Implementa la interfaz `SavingsAdapter`. Delega a `neverlandAdapter.ts`. Activado cuando `YIELD_STRATEGY_PROVIDER=neverland`. |
 | `middlewares/errorHandler.ts` | Manejo de errores Zod | En producción retorna solo `[{path, code}]`. El `format()` completo de Zod se expone únicamente en entornos no-producción (MED-5). |
 | `lib/sumsubClient.ts` | `createApplicant(userId)`, `generateAccessToken(applicantId)` | Cliente REST de Sumsub con autenticación HMAC-SHA256 por request. `createApplicant` hace POST a `/resources/applicants`; `generateAccessToken` hace POST a `/resources/accessTokens` y devuelve `{ token, url }` donde `url` apunta a `cockpit.sumsub.com/checkus#/accessToken={token}`. Requiere `SUMSUB_APP_TOKEN` + `SUMSUB_SECRET_KEY`. |
 
@@ -95,7 +101,15 @@
 | `MONAD_RPC_URL` | sí | RPC endpoint para Monad testnet/mainnet |
 | `PIMLICO_API_KEY` / `PIMLICO_BUNDLER_URL` | sí | Bundler ERC-4337 |
 | `COMADRE_CONTRACT_ADDRESS` | sí | Address del contrato Comadre.sol deployado en Monad |
-| `USDC_CONTRACT_ADDRESS` | sí | Address del token USDC en Monad |
+| `USDC_CONTRACT_ADDRESS` | sí | Address del token USDC en Monad (`0x754704Bc059F8C67012fEd69BC8A327a5aafb603` en mainnet) |
+| `NEVERLAND_POOL_ADDRESS` | sí (si `YIELD_STRATEGY_PROVIDER=neverland`) | Address del Pool proxy de Neverland (`0x80F00661b13CC5F6ccd3885bE7b4C9c67545D585`). Sin esta variable, el endpoint de depósito devuelve 503. |
+| `NEVERLAND_POOL_ADDRESSES_PROVIDER` | sí (Neverland) | Address del `PoolAddressesProvider` de Neverland en Monad. |
+| `NEVERLAND_UI_POOL_DATA_PROVIDER` | sí (Neverland) | `UiPoolDataProviderV3` (`0x0733e79171dd5A5E8aF41E387c6299bCfE6a7e55`). Usado por `readNeverlandApy()` y `readNeverlandPosition()`. |
+| `NEVERLAND_N_USDC_ADDRESS` | sí (Neverland) | Address del token nUSDC (recibo de depósito) (`0x38648958836eA88b368b4ac23b86Ad44B0fe7508`). |
+| `NEVERLAND_DUST_REWARDS_CONTROLLER` | no | `DustRewardsController` (`0x57ea245cCbFAb074baBb9d01d1F0c60525E52cec`). Necesario para reclamar recompensas DUST + MON. |
+| `COMADRE_YIELD_FEE_BPS` | sí (Neverland) | Fee de Comadre sobre yield en basis points. Valor configurado: `2000` (20%). Se aplica **solo sobre el yield**, nunca sobre el principal. |
+| `COMADRE_FEE_WALLET` | sí (Neverland) | Wallet que recibe el fee de Comadre en cada retiro. Sin esta variable, el endpoint de retiro devuelve 503. |
+| `YIELD_STRATEGY_PROVIDER` | no | `mock` (default) \| `neverland`. Selecciona el adapter activo en `lib/savings/strategy.ts`. |
 | `TURNKEY_API_PUBLIC_KEY` / `TURNKEY_API_PRIVATE_KEY` / `TURNKEY_ORGANIZATION_ID` | sí | Cliente Turnkey HSM para session key signing |
 | `SUMSUB_APP_TOKEN` / `SUMSUB_SECRET_KEY` | no | Auth del cliente REST Sumsub (HMAC-SHA256 por request). Sin estas variables el endpoint `/api/v1/kyc/session` usa path stub. |
 | `SUMSUB_WEBHOOK_SECRET` | no | Verificación del header `X-Payload-Digest` en `/webhooks/sumsub`. |
@@ -229,6 +243,7 @@ El `COMADRE_SYSTEM_PROMPT` define 5 bloques de reglas:
 | Onboarding (sin wallet) | 3 escenarios: saludo → pedir consentimiento con texto; acción → explicar necesidad + esperar "sí"; consentido → llamar `iniciar_onboarding` |
 | Transferencias | Siempre mostrar confirmación (monto + número + `walletPreview`) antes de `confirmar_transfer` |
 | KYC | Tiers T0 ($20/tx) → T1 ($50) → T2 ($500) → T3 (sin límite). `solicitar_kyc` devuelve `{ url, session_id, expires_at }`. El agente debe incluir el `url` en su respuesta al usuario para que pueda completar la verificación en Sumsub. |
+| Guardadito (Neverland) | 5 tools: `consultar_guardadito` (lee posición + APY), `preparar_guardadito` (inicia depósito, devuelve preview), `confirmar_guardadito` (confirma el UserOp de depósito), `retirar_guardadito` (inicia retiro + preview del fee), `cancelar_guardadito` (cancela intent pendiente). El system prompt describe Guardadito como "tu chanchito digital" con lenguaje Bolivia-bank-comparison, e indica explícitamente el fee del 20% sobre yield solamente. El APY actual se inyecta en el system prompt via `GET /api/v1/savings/summary`. |
 
 ### Redacción de PII en respuestas de tools
 

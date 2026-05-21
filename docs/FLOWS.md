@@ -11,6 +11,9 @@
 3. [Onboarding (primer mensaje WA → wallet creada)](#3-onboarding)
 4. [Tanda lifecycle (create → join → start → contribute → payout × N → complete)](#4-tanda-lifecycle)
 5. [Dispute resolution](#5-dispute-resolution)
+6. [Guardadito — depositar (Neverland)](#6-guardadito-depositar)
+7. [Guardadito — retirar con fee collection (Neverland)](#7-guardadito-retirar)
+8. [Guardadito — consultar balance](#8-guardadito-consultar)
 
 ---
 
@@ -524,6 +527,169 @@ comadre-api  POST /api/v1/tandas/:id/join
 LLM relayea confirmación + explorer_url
 ```
 
+---
+
+## 6. Guardadito — depositar (Neverland)
+
+### Pre-condiciones
+
+- Usuario registrado y con session key que incluye políticas Neverland.
+- Tiene USDC en su Kernel wallet (mínimo 1 USDC).
+
+### Sequence
+
+```mermaid
+sequenceDiagram
+  participant U as Usuario WhatsApp
+  participant TW as Twilio
+  participant W as apps/whatsapp :3002
+  participant A as apps/agent :3003
+  participant K as Moonshot/Kimi K2
+  participant R as Redis (Upstash)
+  participant API as apps/api :3001
+  participant DB as Postgres
+  participant TK as Turnkey HSM
+  participant PIM as Pimlico bundler
+  participant NV as Neverland Pool (Monad)
+
+  U->>TW: "guardá 50 USDC en mi chanchito"
+  TW->>W: POST /webhook (X-Twilio-Signature)
+  W->>A: POST /process { from, body, conversationKey }
+  A->>DB: resolveUserFromTwilio(from) → { wallet }
+  A->>R: loadHistory(conversationKey)
+  A->>K: chat.completions.create(system+history+userMsg, tools)
+  K-->>A: tool_calls=[{ name: "preparar_guardadito", args: { amountUsdc: 50 } }]
+  A->>API: POST /api/v1/savings/deposit { amountMicroUsdc: 50_000_000 }
+  API->>DB: SELECT session_keys WHERE wallet (recupera subOrgId + walletId + permission)
+  API->>API: Verifica amount >= 1_000_000 (mínimo 1 USDC)
+  API->>API: Construye UserOp con 2 calls:<br/>1. USDC.approve(neverlandPool, 50 USDC)<br/>2. NeverlandPool.supply(usdc, 50 USDC, kernelWallet, 0)
+  API->>TK: signEvmPayload({ subOrgId, walletId, userOpDigest })
+  TK-->>API: firma (Turnkey verifica policies de session key)
+  API->>PIM: eth_sendUserOperation (UserOp firmado)
+  PIM->>NV: ejecuta approve + supply en Kernel del usuario
+  NV-->>PIM: nUSDC emitido al Kernel wallet del usuario
+  PIM-->>API: { userOpHash, txHash }
+  API->>DB: UPSERT savings_positions { provider: neverland, deposited_micro_usdc += 50_000_000 }
+  API-->>A: { status: confirmed, txHash, depositedMicroUsdc: 50_000_000 }
+  A->>K: chat.completions.create con tool result
+  K-->>A: "Listo mija, guardé 50 USDC en tu chanchito. Están trabajando para vos al ~13% anual."
+  A->>R: saveHistory
+  A-->>W: { reply }
+  W->>TW: send
+  TW-->>U: "Listo mija, guardé 50 USDC..."
+```
+
+### Errores comunes
+
+| Error | Causa | Cómo se manifiesta |
+|---|---|---|
+| `503` en deposit | `NEVERLAND_POOL_ADDRESS` no seteado | Agent informa error de configuración |
+| `Policy denied` en Turnkey | Session key pre-Phase 2 sin políticas Neverland | "Necesitás actualizar tu billetera segura" |
+| `UserOp revertido` | USDC insuficiente en Kernel wallet | "No tenés suficiente USDC para guardar ese monto" |
+
+---
+
+## 7. Guardadito — retirar con fee collection (Neverland)
+
+### Pre-condiciones
+
+- Usuario tiene posición activa en Neverland (nUSDC > 0).
+- `COMADRE_FEE_WALLET` configurado en el backend.
+
+### Sequence
+
+```mermaid
+sequenceDiagram
+  participant U as Usuario WhatsApp
+  participant TW as Twilio
+  participant W as apps/whatsapp :3002
+  participant A as apps/agent :3003
+  participant K as Moonshot/Kimi K2
+  participant API as apps/api :3001
+  participant DB as Postgres
+  participant NV as Neverland Pool (Monad)
+  participant TK as Turnkey HSM
+  participant PIM as Pimlico bundler
+  participant FW as COMADRE_FEE_WALLET
+
+  U->>TW: "retirá todo mi chanchito"
+  TW->>W: POST /webhook
+  W->>A: POST /process
+  A->>API: tool preparar_retiro_guardadito — GET /api/v1/savings/position
+  API->>NV: UiPoolDataProviderV3.getUserReservesData(wallet) → underlyingBalance
+  NV-->>API: { nUsdcBalance, underlyingUsdc: 53_000_000 } (ej: 53 USDC)
+  API->>DB: SELECT savings_positions WHERE wallet → deposited=50_000_000, principal_withdrawn=0
+  API->>API: yieldEarned = 53_000_000 − (50_000_000 − 0) = 3_000_000
+  API->>API: fee = 3_000_000 × 20% = 600_000 (0.60 USDC)
+  API->>API: userReceives = 53_000_000 − 600_000 = 52_400_000
+  API-->>A: { underlyingUsdc: 53, fee: 0.60, userReceives: 52.40 }
+  A->>K: chat.completions.create con preview
+  K-->>A: "Tenés 53 USDC (ganaste 3 USDC). El fee es $0.60 (20% de lo ganado). ¿Confirmás retirar $52.40?"
+  A-->>W: { reply: "Tenés 53 USDC..." }
+  W->>TW: send
+  TW-->>U: "Tenés 53 USDC..."
+
+  U->>TW: "sí"
+  TW->>W: POST /webhook
+  W->>A: POST /process
+  A->>API: tool confirmar_retiro_guardadito — POST /api/v1/savings/withdraw { amountMicroUsdc: 53_000_000 }
+  API->>API: Construye UserOp con 2 calls:<br/>1. NeverlandPool.withdraw(usdc, 53 USDC, kernelWallet)<br/>2. USDC.transfer(feeWallet, 600_000)
+  API->>TK: signEvmPayload({ subOrgId, walletId, userOpDigest })
+  TK-->>API: firma
+  API->>PIM: eth_sendUserOperation
+  PIM->>NV: withdraw — burn nUSDC → 53 USDC al Kernel wallet
+  PIM->>FW: USDC.transfer(feeWallet, 0.60 USDC)
+  PIM-->>API: { txHash }
+  API->>DB: UPDATE savings_positions SET principal_withdrawn_micro_usdc += 50_000_000, status=closed
+  API-->>A: { status: confirmed, userReceived: 52_400_000, feePaid: 600_000, txHash }
+  A->>K: chat.completions.create con tool result
+  K-->>A: "Listo! Retiraste $52.40 USDC a tu billetera. Se cobró $0.60 de fee (20% de lo que ganaste)."
+  A-->>W: { reply }
+  W->>TW: send
+  TW-->>U: "Listo! Retiraste $52.40..."
+```
+
+### Notas importantes
+
+- El fee es **solo sobre el yield** — en el ejemplo, el usuario depositó $50 y ganó $3, el fee es el 20% de $3 = $0.60. El principal ($50) vuelve íntegro.
+- Si no hay yield (underlyingUsdc ≤ deposited), el fee es $0.
+- El UserOp es atómico: withdraw + fee transfer se ejecutan en el mismo bloque. No hay estado intermedio.
+
+---
+
+## 8. Guardadito — consultar balance
+
+### Sequence
+
+```mermaid
+sequenceDiagram
+  participant U as Usuario WhatsApp
+  participant TW as Twilio
+  participant W as apps/whatsapp :3002
+  participant A as apps/agent :3003
+  participant K as Moonshot/Kimi K2
+  participant API as apps/api :3001
+  participant DB as Postgres
+  participant NV as Neverland (UiPoolDataProviderV3)
+
+  U->>TW: "¿cuánto tengo en mi chanchito?"
+  TW->>W: POST /webhook
+  W->>A: POST /process
+  A->>K: chat.completions.create
+  K-->>A: tool_calls=[{ name: "consultar_guardadito", args: {} }]
+  A->>API: GET /api/v1/savings/position
+  API->>NV: getUserReservesData(wallet) → underlyingUsdc, apy
+  NV-->>API: { underlyingUsdc: 53_000_000, apy: 0.1298 }
+  API->>DB: SELECT savings_positions WHERE wallet → deposited=50_000_000, principal_withdrawn=0
+  API->>API: yieldEarned = 53_000_000 − 50_000_000 = 3_000_000
+  API-->>A: { deposited: 50, currentValue: 53, yieldEarned: 3, apy: 12.98 }
+  A->>K: chat.completions.create con tool result
+  K-->>A: "Tu chanchito tiene $53 USDC ahora mismo. Empezaste con $50, ya ganaste $3. La tasa de hoy es 12.98% anual."
+  A-->>W: { reply }
+  W->>TW: send
+  TW-->>U: "Tu chanchito tiene $53..."
+```
+
 ### Guardadito — APR + nudge gate
 
 **APR injection** (`apps/agent/src/lib/savingsContext.ts`): en cada turno del agent donde existe wallet, se inyecta al system prompt:
@@ -532,7 +698,7 @@ LLM relayea confirmación + explorer_url
 Tasa anual actual del chanchito: X.XX% (variable, no garantizado)
 ```
 
-`X.XX` viene de `GET /api/v1/savings/summary` → `mockAdapter.ts`, que devuelve un APY mock determinístico que varía día a día entre 4.5% y 6.5%. La regla del system prompt "PORCENTAJE / GANANCIA — REGLA FUNDAMENTAL" obliga al LLM a usar este número exacto cuando el user pregunta cuánto rinde.
+`X.XX` viene de `GET /api/v1/savings/summary` → en producción (`YIELD_STRATEGY_PROVIDER=neverland`) es el APY real leído de Neverland via `UiPoolDataProviderV3`. La tasa actual es ~13% (variable, depende del mercado). La regla del system prompt "PORCENTAJE / GANANCIA — REGLA FUNDAMENTAL" obliga al LLM a usar este número exacto cuando el user pregunta cuánto rinde.
 
 **Nudge gate** (`apps/agent/src/lib/nudgeGate.ts`): sugerencias proactivas de Guardadito disparan solo cuando:
 
