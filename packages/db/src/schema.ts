@@ -95,7 +95,7 @@ export const badgeTypeEnum = pgEnum("badge_type", [
 export const channelEnum = pgEnum("channel", ["whatsapp", "web"]);
 
 /** Guardadito strategy provider */
-export const savingsProviderEnum = pgEnum("savings_provider", ["mock", "kamino"]);
+export const savingsProviderEnum = pgEnum("savings_provider", ["mock", "kamino", "neverland"]);
 
 /** Guardadito position lifecycle */
 export const savingsPositionStatusEnum = pgEnum("savings_position_status", [
@@ -637,6 +637,8 @@ export const savingsPositions = pgTable(
     provider: savingsProviderEnum("provider").notNull().default("mock"),
     strategyId: text("strategy_id").notNull(),
     depositedMicroUsdc: bigint("deposited_micro_usdc", { mode: "bigint" }).notNull().$default(() => BigInt(0)),
+    /** Running total of principal (not yield) that has been withdrawn. Updated on each confirmed withdrawal. */
+    principalWithdrawnMicroUsdc: bigint("principal_withdrawn_micro_usdc", { mode: "bigint" }).notNull().$default(() => BigInt(0)),
     shareAmount: text("share_amount").notNull().default("0"),
     lastKnownUnderlyingMicroUsdc: bigint("last_known_underlying_micro_usdc", {
       mode: "bigint",

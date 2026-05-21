@@ -6,7 +6,7 @@ import { serializePermissionAccount, toPermissionValidator } from "@zerodev/perm
 import { toECDSASigner } from "@zerodev/permissions/signers";
 
 import { monadTestnet } from "../chains.js";
-import { buildDailyPolicies, buildElevatedPolicies } from "./policies.js";
+import { buildDailyPolicies, buildElevatedPolicies, type NeverlandParams } from "./policies.js";
 
 /**
  * Client-side approval flow — runs in the user's browser during onboarding.
@@ -37,6 +37,12 @@ export interface ApproveSessionKeyInput {
   kind: "daily" | "elevated";
   /** RPC URL — defaults to monadTestnet default if omitted. */
   rpcUrl?: string;
+  /**
+   * Neverland yield integration — when provided the session key gains policies
+   * for USDC.approve(pool), Pool.supply, Pool.withdraw, and fee transfer.
+   * Omit when Neverland env vars are not configured (dev / non-yield flows).
+   */
+  neverlandParams?: NeverlandParams;
 }
 
 export interface ApproveSessionKeyResult {
@@ -72,8 +78,8 @@ export async function approveSessionKey(
 
   const policies =
     input.kind === "daily"
-      ? buildDailyPolicies(input.comadreAddress, input.usdcAddress)
-      : buildElevatedPolicies(input.comadreAddress, input.usdcAddress);
+      ? buildDailyPolicies(input.comadreAddress, input.usdcAddress, input.neverlandParams)
+      : buildElevatedPolicies(input.comadreAddress, input.usdcAddress, input.neverlandParams);
 
   const permissionPlugin = await toPermissionValidator(publicClient, {
     entryPoint,

@@ -7,7 +7,7 @@ import { toECDSASigner } from "@zerodev/permissions/signers";
 
 import { monadTestnet } from "../chains.js";
 import { loadWalletInfraEnv, pimlicoBundlerUrl } from "../config.js";
-import { buildDailyPolicies, buildElevatedPolicies } from "./policies.js";
+import { buildDailyPolicies, buildElevatedPolicies, type NeverlandParams } from "./policies.js";
 
 /**
  * On-chain revocation of a session key. Requires the OWNER's signature
@@ -25,6 +25,12 @@ export interface RevokeOnChainInput {
   comadreAddress: Address;
   usdcAddress: Address;
   kind: "daily" | "elevated";
+  /**
+   * Must match the params used at install time — the permissionId fingerprint
+   * is derived from (signer + policies), so if Neverland was included at
+   * install, it must also be included at revoke.
+   */
+  neverlandParams?: NeverlandParams;
 }
 
 export async function revokeSessionKeyOnChain(input: RevokeOnChainInput): Promise<{ userOpHash: `0x${string}` }> {
@@ -48,8 +54,8 @@ export async function revokeSessionKeyOnChain(input: RevokeOnChainInput): Promis
 
   const policies =
     input.kind === "daily"
-      ? buildDailyPolicies(input.comadreAddress, input.usdcAddress)
-      : buildElevatedPolicies(input.comadreAddress, input.usdcAddress);
+      ? buildDailyPolicies(input.comadreAddress, input.usdcAddress, input.neverlandParams)
+      : buildElevatedPolicies(input.comadreAddress, input.usdcAddress, input.neverlandParams);
 
   const permissionPlugin = await toPermissionValidator(publicClient, {
     entryPoint,

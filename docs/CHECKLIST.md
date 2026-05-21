@@ -68,7 +68,7 @@ Las secciones Solana abajo se mantienen como **historia del proyecto** (Phase 0)
 - Payout order MVP: `CreatorSet`
 - Backend paga rents (descuenta del fee 0.5%)
 - Crank híbrido (cron interno + callable por anyone)
-- Yield mockeado en MVP (Kamino post-hackathon)
+- Yield on-chain vía Neverland (Aave V3 fork en Monad) — integrado en `YIELD_STRATEGY_PROVIDER=neverland`
 - Tandas autónomas (1 persona crea), grupo WhatsApp solo si hay tiempo
 
 ---

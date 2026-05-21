@@ -158,10 +158,50 @@ const internalAuthSchema = z.object({
 });
 
 // -----------------------------------------------------------------------
+// Monad chain — EVM network vars
+// -----------------------------------------------------------------------
+const monadSchema = z.object({
+  MONAD_RPC_URL: z.string().url().optional(),
+  MONAD_CHAIN_ID: z.coerce.number().int().positive().optional(),
+  /** Verified Neverland USDC on Monad mainnet. Required in production. */
+  USDC_CONTRACT_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/, "must be 0x-prefixed EVM address").optional(),
+});
+
+// -----------------------------------------------------------------------
+// Neverland — Aave V3 fork, USDC yield on Monad
+// -----------------------------------------------------------------------
+// Required for the yield (Guardadito) path on Monad/EVM. Optional in local
+// dev so the WhatsApp bot MVP can start without Neverland addresses configured.
+// Production MUST set all five; the Neverland client enforces this at call-time.
+const neverlandSchema = z.object({
+  /** Neverland Pool (main entry point for supply/withdraw). */
+  NEVERLAND_POOL_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/, "must be 0x-prefixed EVM address").optional(),
+  /** Neverland PoolAddressesProvider (used to resolve other contracts). */
+  NEVERLAND_POOL_ADDRESSES_PROVIDER: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  /** Neverland UiPoolDataProvider (off-chain APY/reserve reads). */
+  NEVERLAND_UI_POOL_DATA_PROVIDER: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  /** nUSDC token address (receipt token for supplied USDC). */
+  NEVERLAND_N_USDC_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  /** Dust/rewards controller (harvest pending incentives). */
+  NEVERLAND_DUST_REWARDS_CONTROLLER: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+});
+
+// -----------------------------------------------------------------------
+// Comadre yield model — performance fee
+// -----------------------------------------------------------------------
+const comadreYieldSchema = z.object({
+  /** Comadre's fee on user yield only (not principal). Basis points: 2000 = 20.00%. */
+  COMADRE_YIELD_FEE_BPS: z.coerce.number().int().min(0).max(5000).default(2000),
+  /** Wallet that receives the performance fee. Must be a Turnkey-managed wallet.
+   *  Required in production when yield feature is active; optional in dev. */
+  COMADRE_FEE_WALLET: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+});
+
+// -----------------------------------------------------------------------
 // Guardadito — USDC savings strategy
 // -----------------------------------------------------------------------
 const guardaditoSchema = z.object({
-  YIELD_STRATEGY_PROVIDER: z.enum(["mock", "kamino"]).default("mock"),
+  YIELD_STRATEGY_PROVIDER: z.enum(["mock", "kamino", "neverland"]).default("mock"),
   GUARDADITO_MIN_LIQUID_USDC: z.coerce.number().min(0).default(20),
   GUARDADITO_MIN_SUGGEST_USDC: z.coerce.number().min(0).default(25),
   KAMINO_MARKET: optionalNonEmpty,
@@ -223,6 +263,9 @@ const baseSchema = solanaSchema
   .merge(postgresSchema)
   .merge(upstashSchema)
   .merge(internalAuthSchema)
+  .merge(monadSchema)
+  .merge(neverlandSchema)
+  .merge(comadreYieldSchema)
   .merge(guardaditoSchema)
   .merge(serviceUrlsSchema)
   .merge(observabilitySchema)

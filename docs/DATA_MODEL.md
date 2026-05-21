@@ -59,7 +59,9 @@ Loans y badges no están implementados en Solidity (eran Solana-legacy).
 | `kyc_sessions` | off-chain only | user_wallet, applicant_id (Sumsub), level_name, status, review_answer |
 | **`transfers`** | **off-chain ledger** | id, sender_wallet, sender_phone_hash, recipient_phone_hash, recipient_wallet, amount_micro_usdc, note, status, tx_hash (Monad UserOp), failure_reason, expires_at |
 | `contact_routes` | off-chain only | Ruta WhatsApp cifrada con `phone_ciphertext` (AES-256-GCM, `CONTACT_ENCRYPTION_KEY`) |
-| `savings_positions/actions/nudges` | off-chain | Guardadito (Phase 2 — pendiente de wireado contra contratos Monad) |
+| `savings_positions` | off-chain | user_wallet, provider (`mock`\|`kamino`\|`neverland`), strategy_id, deposited_micro_usdc, **principal_withdrawn_micro_usdc** (nuevo), share_amount, last_known_underlying_micro_usdc, status |
+| `savings_actions` | off-chain | user_wallet, provider, strategy_id, type, amount_micro_usdc, status, tx_signature, expires_at |
+| `savings_nudges` | off-chain | Guardadito nudge cooldown (24h gate) |
 
 **On-chain (Solidity Comadre.sol) es la verdad para tandas/disputes.** Estado autoritative reconstructible vía events en Monadscan.
 

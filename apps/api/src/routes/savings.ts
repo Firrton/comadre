@@ -9,12 +9,20 @@
  */
 import { Hono } from "hono";
 import type { Context } from "hono";
+import type { Address } from "viem";
 import { zValidator } from "@hono/zod-validator";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, savingsActions, savingsPositions, users } from "@comadre/db";
 import { getRedis } from "@comadre/cache";
 import { GuardaditoActionAmountInput } from "@comadre/types";
 import { getSavingsAdapter } from "../lib/savings/index.js";
+import {
+  depositToNeverland,
+  withdrawFromNeverland,
+  getPrincipalsFromDb,
+  resolveNeverlandConfig,
+  NEVERLAND_STRATEGY_ID,
+} from "../lib/savings/neverlandSavingsAdapter.js";
 import {
   calculateGuardaditoSuggestion,
   formatMicroUsdc,
@@ -240,12 +248,178 @@ savingsRouter.post("/actions/:id/confirm", async (c) => {
     return c.json({ actionId: action.id, status: "confirmed" as const });
   }
 
-  // Non-mock providers that required Solana signing are not yet implemented on Monad.
-  // TODO(monad-savings): implement on-chain Guardadito confirm via Monad session key.
+  if (action.provider === "neverland") {
+    let cfg: ReturnType<typeof resolveNeverlandConfig>;
+    try {
+      cfg = resolveNeverlandConfig();
+    } catch (err) {
+      return c.json(
+        {
+          error: "CONFIG_MISSING",
+          message: err instanceof Error ? err.message : "Neverland configuration is incomplete.",
+        },
+        503,
+      );
+    }
+
+    const walletAddress = user.walletAddress as Address;
+
+    if (action.type === "deposit") {
+      let result: Awaited<ReturnType<typeof depositToNeverland>>;
+      try {
+        result = await depositToNeverland({
+          smartWalletAddress: walletAddress,
+          amountMicroUsdc: action.amountMicroUsdc,
+        });
+      } catch (err) {
+        await db
+          .update(savingsActions)
+          .set({
+            status: "failed",
+            failureReason: err instanceof Error ? err.message : String(err),
+          })
+          .where(eq(savingsActions.id, action.id));
+        return c.json(
+          {
+            error: "TX_FAILED",
+            message: "On-chain deposit failed. Tu dinero no fue movido.",
+          },
+          502,
+        );
+      }
+
+      // Atomically update position and mark action confirmed.
+      // Read existing position to compute cumulative totals.
+      const existingRows = await db
+        .select({
+          deposited: savingsPositions.depositedMicroUsdc,
+          withdrawn: savingsPositions.principalWithdrawnMicroUsdc,
+          shareAmount: savingsPositions.shareAmount,
+        })
+        .from(savingsPositions)
+        .where(
+          and(
+            eq(savingsPositions.userWallet, user.walletAddress),
+            eq(savingsPositions.provider, "neverland"),
+            eq(savingsPositions.strategyId, NEVERLAND_STRATEGY_ID),
+          ),
+        )
+        .limit(1);
+      const existing = existingRows[0];
+      const newDeposited = (existing?.deposited ?? 0n) + action.amountMicroUsdc;
+      const existingShares = BigInt(existing?.shareAmount ?? "0");
+      const newShares = existingShares + result.nUsdcReceived;
+
+      await db
+        .insert(savingsPositions)
+        .values({
+          userWallet: user.walletAddress,
+          provider: "neverland",
+          strategyId: NEVERLAND_STRATEGY_ID,
+          depositedMicroUsdc: newDeposited,
+          principalWithdrawnMicroUsdc: existing?.withdrawn ?? 0n,
+          shareAmount: newShares.toString(),
+          lastKnownUnderlyingMicroUsdc: newDeposited - (existing?.withdrawn ?? 0n),
+          status: "active",
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [savingsPositions.userWallet, savingsPositions.provider, savingsPositions.strategyId],
+          set: {
+            depositedMicroUsdc: newDeposited,
+            shareAmount: newShares.toString(),
+            lastKnownUnderlyingMicroUsdc: newDeposited - (existing?.withdrawn ?? 0n),
+            updatedAt: new Date(),
+          },
+        });
+
+      await db
+        .update(savingsActions)
+        .set({ status: "confirmed", confirmedAt: new Date(), txSignature: result.txHash })
+        .where(eq(savingsActions.id, action.id));
+
+      return c.json({
+        actionId: action.id,
+        status: "confirmed" as const,
+        txHash: result.txHash,
+        nUsdcReceived: result.nUsdcReceived.toString(),
+      });
+    }
+
+    // Withdrawal path
+    const { deposited: preWithdrawDeposited, withdrawn: preWithdrawWithdrawn } =
+      await getPrincipalsFromDb(user.walletAddress);
+    let result: Awaited<ReturnType<typeof withdrawFromNeverland>>;
+    try {
+      result = await withdrawFromNeverland({
+        smartWalletAddress: walletAddress,
+        amountRequestedMicroUsdc: action.amountMicroUsdc,
+        netPrincipalRemaining: preWithdrawDeposited - preWithdrawWithdrawn,
+        feeBps: cfg.feeBps,
+        comadreFeeWallet: cfg.comadreFeeWallet,
+      });
+    } catch (err) {
+      await db
+        .update(savingsActions)
+        .set({
+          status: "failed",
+          failureReason: err instanceof Error ? err.message : String(err),
+        })
+        .where(eq(savingsActions.id, action.id));
+      return c.json(
+        {
+          error: "TX_FAILED",
+          message: "On-chain withdrawal failed. Tu dinero no fue movido.",
+        },
+        502,
+      );
+    }
+
+    // Update position: derive the new principalWithdrawn total from deposited - newPositionPrincipal.
+    const newPrincipalWithdrawn = preWithdrawDeposited - result.newPositionPrincipalMicroUsdc;
+
+    await db
+      .insert(savingsPositions)
+      .values({
+        userWallet: user.walletAddress,
+        provider: "neverland",
+        strategyId: NEVERLAND_STRATEGY_ID,
+        depositedMicroUsdc: preWithdrawDeposited,
+        principalWithdrawnMicroUsdc: newPrincipalWithdrawn,
+        shareAmount: "0",
+        lastKnownUnderlyingMicroUsdc: result.newPositionPrincipalMicroUsdc,
+        status: newPrincipalWithdrawn >= preWithdrawDeposited ? "closed" : "active",
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [savingsPositions.userWallet, savingsPositions.provider, savingsPositions.strategyId],
+        set: {
+          principalWithdrawnMicroUsdc: newPrincipalWithdrawn,
+          lastKnownUnderlyingMicroUsdc: result.newPositionPrincipalMicroUsdc,
+          status: newPrincipalWithdrawn >= preWithdrawDeposited ? "closed" : "active",
+          updatedAt: new Date(),
+        },
+      });
+
+    await db
+      .update(savingsActions)
+      .set({ status: "confirmed", confirmedAt: new Date(), txSignature: result.txHash })
+      .where(eq(savingsActions.id, action.id));
+
+    return c.json({
+      actionId: action.id,
+      status: "confirmed" as const,
+      txHash: result.txHash,
+      userReceivedMicroUsdc: result.userReceivedMicroUsdc.toString(),
+      comadreFeeMicroUsdc: result.comadreFeeCollectedMicroUsdc.toString(),
+    });
+  }
+
+  // Providers that required Solana signing are not implemented on Monad.
   return c.json(
     {
       error: "not_implemented",
-      message: "On-chain savings confirmation via Monad is pending migration. Coming soon.",
+      message: "On-chain savings confirmation for this provider is not yet available.",
     },
     501,
   );

@@ -1,13 +1,15 @@
 /**
  * Savings strategy adapter contract.
  *
- * NOTE: The `instructions` field previously typed as Solana `TransactionInstruction[]`
- * has been replaced with a generic array in the Monad migration. On-chain Monad savings
- * integration is pending — for now only the `mock` provider is functional.
+ * Providers:
+ *   - `mock`      — in-memory demo, no on-chain calls. Default in dev.
+ *   - `kamino`    — Kamino Lend on Solana (legacy; returns 501 post Monad migration).
+ *   - `neverland` — Neverland (Aave V3 fork) on Monad mainnet. Active when
+ *                   YIELD_STRATEGY_PROVIDER=neverland and NEVERLAND_POOL_ADDRESS is set.
  */
 
 export interface BuiltStrategyTx {
-  provider: "mock" | "kamino";
+  provider: "mock" | "kamino" | "neverland";
   strategyId: string;
   /** Chain-specific instructions (currently unused; reserved for Monad integration). */
   instructions: unknown[];
@@ -16,7 +18,7 @@ export interface BuiltStrategyTx {
 }
 
 export interface SavingsSummary {
-  provider: "mock" | "kamino";
+  provider: "mock" | "kamino" | "neverland";
   strategyId: string;
   savedMicroUsdc: bigint;
   shareAmount: string;

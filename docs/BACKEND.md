@@ -179,6 +179,7 @@ Para más detalle de cada servicio (puerto, middlewares, routers, env vars consu
 - ✅ `apps/agent`: tool-use loop (max 5 iters) con onboarding via Privy y contexto Guardadito. HMAC-SHA256 inbound verificado con ventana anti-replay de 5 min. Rate limiting (30 tool calls/hora por conversación).
 - ✅ Sentry inicializado en los 3 servicios principales (`apps/api`, `apps/agent`, `apps/whatsapp`) con trace sampling 10% prod / 100% dev.
 - ✅ Guardadito v1: savings API, mock adapter, Kamino boundary, nudges por Twilio y detección Helius de ingresos USDC.
+- ✅ Guardadito Neverland: adaptador Neverland (Aave V3 en Monad) conectado. `YIELD_STRATEGY_PROVIDER=neverland` activa el path on-chain: `depositToNeverland`, `withdrawFromNeverland` con fee en yield, `readNeverlandPosition`. Schema DB extendido con `principal_withdrawn_micro_usdc` y enum `neverland`. Session keys ahora incluyen políticas de Neverland cuando `NEVERLAND_POOL_ADDRESS` y `COMADRE_FEE_WALLET` están configurados.
 - ✅ `apps/cron`: 4 jobs scheduled.
 - ✅ Repo tidy completo (PR #21): apps con `lib/` + `__tests__/`, docs consolidados.
 

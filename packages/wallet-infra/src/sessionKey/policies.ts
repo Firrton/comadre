@@ -21,6 +21,12 @@ const usdcAbi = parseAbi([
   "function approve(address spender, uint256 value) returns (bool)",
 ]);
 
+// Aave V3 / Neverland Pool ABI — only the selectors the agent is allowed to call.
+const neverlandPoolAbi = parseAbi([
+  "function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external",
+  "function withdraw(address asset, uint256 amount, address to) external returns (uint256)",
+]);
+
 /**
  * Comadre's full Solidity ABI for the functions the agent may call on the
  * user's behalf. Keep this list narrow — every selector here widens what an
@@ -43,6 +49,16 @@ export interface BuildPoliciesInput {
   validitySeconds: number;
   /** Optional: pin USDC transfer recipient (e.g. Comadre vault). Omit to allow any. */
   transferTargetPinTo?: Address;
+  /**
+   * Neverland (Aave V3) yield integration — both addresses must be provided
+   * together to activate yield policies. When set, the session key gains:
+   *   - USDC.approve(neverlandPoolAddress, *) — approval locked to pool only
+   *   - Pool.supply(USDC, *, *, 0)
+   *   - Pool.withdraw(USDC, *, *)
+   *   - USDC.transfer(comadreFeeWallet, *) — fee collection, recipient locked
+   */
+  neverlandPoolAddress?: Address;
+  comadreFeeWallet?: Address;
 }
 
 /**
@@ -56,73 +72,144 @@ export interface BuildPoliciesInput {
 export function buildPolicies(input: BuildPoliciesInput) {
   const cap = parseUnits(input.perCallCapUsdc, 6);
 
+  // Base permissions shared by all session keys.
+  // Typed as any[] so that ZeroDev's deeply-discriminated union on `toCallPolicy`
+  // does not reject entries when they are assembled dynamically from multiple ABIs.
+  // Each individual entry is still structurally correct — only the array-level
+  // union inference is bypassed here.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const permissions: any[] = [
+    // Comadre — no value transfer, args unconstrained (the contract enforces business rules).
+    {
+      target: input.comadreAddress,
+      valueLimit: 0n,
+      abi: comadreAbi,
+      functionName: "contribute",
+      args: [null],
+    },
+    {
+      target: input.comadreAddress,
+      valueLimit: 0n,
+      abi: comadreAbi,
+      functionName: "joinTanda",
+      args: [null, null],
+    },
+    {
+      target: input.comadreAddress,
+      valueLimit: 0n,
+      abi: comadreAbi,
+      functionName: "openDispute",
+      args: [null, null],
+    },
+    {
+      target: input.comadreAddress,
+      valueLimit: 0n,
+      abi: comadreAbi,
+      functionName: "voteDispute",
+      args: [null, null, null],
+    },
+    {
+      target: input.comadreAddress,
+      valueLimit: 0n,
+      abi: comadreAbi,
+      functionName: "claimStake",
+      args: [null],
+    },
+
+    // USDC.approve — pin the spender to Comadre, cap the amount.
+    {
+      target: input.usdcAddress,
+      valueLimit: 0n,
+      abi: usdcAbi,
+      functionName: "approve",
+      args: [
+        { condition: ParamCondition.EQUAL, value: input.comadreAddress },
+        { condition: ParamCondition.LESS_THAN_OR_EQUAL, value: cap },
+      ],
+    },
+
+    // USDC.transfer — cap the amount. Recipient is enforced by the backend
+    // before signing (not pinned on-chain to allow new contacts via OOB flow).
+    {
+      target: input.usdcAddress,
+      valueLimit: 0n,
+      abi: usdcAbi,
+      functionName: "transfer",
+      args: [
+        input.transferTargetPinTo
+          ? { condition: ParamCondition.EQUAL, value: input.transferTargetPinTo }
+          : null,
+        { condition: ParamCondition.LESS_THAN_OR_EQUAL, value: cap },
+      ],
+    },
+  ];
+
+  // ── Neverland / Aave V3 yield policies (optional) ─────────────────────────
+  // Only appended when neverlandPoolAddress AND comadreFeeWallet are both
+  // provided. Omitting them preserves the exact same on-chain policy
+  // fingerprint for non-yield session keys.
+  if (input.neverlandPoolAddress && input.comadreFeeWallet) {
+    const pool = input.neverlandPoolAddress;
+    const feeWallet = input.comadreFeeWallet;
+
+    // USDC.approve — spender locked to Neverland pool; amount unconstrained
+    // so the agent can set the exact deposit amount without a separate cap tx.
+    permissions.push({
+      target: input.usdcAddress,
+      valueLimit: 0n,
+      abi: usdcAbi,
+      functionName: "approve",
+      args: [
+        { condition: ParamCondition.EQUAL, value: pool },
+        null, // amount unconstrained — pool pulls exactly what supply() needs
+      ],
+    });
+
+    // Pool.supply — asset locked to USDC; amount and onBehalfOf unconstrained
+    // (agent always passes the user's own kernel wallet as onBehalfOf).
+    permissions.push({
+      target: pool,
+      valueLimit: 0n,
+      abi: neverlandPoolAbi,
+      functionName: "supply",
+      args: [
+        { condition: ParamCondition.EQUAL, value: input.usdcAddress },
+        null, // amount
+        null, // onBehalfOf — scoped to the user; agent enforces this off-chain
+        null, // referralCode
+      ],
+    });
+
+    // Pool.withdraw — asset locked to USDC; amount and recipient unconstrained.
+    permissions.push({
+      target: pool,
+      valueLimit: 0n,
+      abi: neverlandPoolAbi,
+      functionName: "withdraw",
+      args: [
+        { condition: ParamCondition.EQUAL, value: input.usdcAddress },
+        null, // amount (uint256.max = full withdrawal)
+        null, // to — recipient enforced by agent (user's EOA or kernel wallet)
+      ],
+    });
+
+    // USDC.transfer — fee collection; recipient locked to Comadre fee wallet.
+    // Amount unconstrained; the backend calculates fee = withdrawal * bps.
+    permissions.push({
+      target: input.usdcAddress,
+      valueLimit: 0n,
+      abi: usdcAbi,
+      functionName: "transfer",
+      args: [
+        { condition: ParamCondition.EQUAL, value: feeWallet },
+        null,
+      ],
+    });
+  }
+
   const callPolicy = toCallPolicy({
     policyVersion: CallPolicyVersion.V0_0_5,
-    permissions: [
-      // Comadre — no value transfer, args unconstrained (the contract enforces business rules).
-      {
-        target: input.comadreAddress,
-        valueLimit: 0n,
-        abi: comadreAbi,
-        functionName: "contribute",
-        args: [null],
-      },
-      {
-        target: input.comadreAddress,
-        valueLimit: 0n,
-        abi: comadreAbi,
-        functionName: "joinTanda",
-        args: [null, null],
-      },
-      {
-        target: input.comadreAddress,
-        valueLimit: 0n,
-        abi: comadreAbi,
-        functionName: "openDispute",
-        args: [null, null],
-      },
-      {
-        target: input.comadreAddress,
-        valueLimit: 0n,
-        abi: comadreAbi,
-        functionName: "voteDispute",
-        args: [null, null, null],
-      },
-      {
-        target: input.comadreAddress,
-        valueLimit: 0n,
-        abi: comadreAbi,
-        functionName: "claimStake",
-        args: [null],
-      },
-
-      // USDC.approve — pin the spender to Comadre, cap the amount.
-      {
-        target: input.usdcAddress,
-        valueLimit: 0n,
-        abi: usdcAbi,
-        functionName: "approve",
-        args: [
-          { condition: ParamCondition.EQUAL, value: input.comadreAddress },
-          { condition: ParamCondition.LESS_THAN_OR_EQUAL, value: cap },
-        ],
-      },
-
-      // USDC.transfer — cap the amount. Recipient is enforced by the backend
-      // before signing (not pinned on-chain to allow new contacts via OOB flow).
-      {
-        target: input.usdcAddress,
-        valueLimit: 0n,
-        abi: usdcAbi,
-        functionName: "transfer",
-        args: [
-          input.transferTargetPinTo
-            ? { condition: ParamCondition.EQUAL, value: input.transferTargetPinTo }
-            : null,
-          { condition: ParamCondition.LESS_THAN_OR_EQUAL, value: cap },
-        ],
-      },
-    ],
+    permissions,
   });
 
   const rateLimit = toRateLimitPolicy({
@@ -138,7 +225,16 @@ export function buildPolicies(input: BuildPoliciesInput) {
   return [callPolicy, rateLimit, expiry];
 }
 
-export function buildDailyPolicies(comadre: Address, usdc: Address) {
+export interface NeverlandParams {
+  neverlandPoolAddress: Address;
+  comadreFeeWallet: Address;
+}
+
+export function buildDailyPolicies(
+  comadre: Address,
+  usdc: Address,
+  neverland?: NeverlandParams,
+) {
   return buildPolicies({
     comadreAddress: comadre,
     usdcAddress: usdc,
@@ -146,10 +242,16 @@ export function buildDailyPolicies(comadre: Address, usdc: Address) {
     rateLimitCount: DAILY_RATE_OPS,
     rateLimitInterval: DAILY_RATE_INTERVAL_SECONDS,
     validitySeconds: DAILY_VALIDITY_SECONDS,
+    neverlandPoolAddress: neverland?.neverlandPoolAddress,
+    comadreFeeWallet: neverland?.comadreFeeWallet,
   });
 }
 
-export function buildElevatedPolicies(comadre: Address, usdc: Address) {
+export function buildElevatedPolicies(
+  comadre: Address,
+  usdc: Address,
+  neverland?: NeverlandParams,
+) {
   return buildPolicies({
     comadreAddress: comadre,
     usdcAddress: usdc,
@@ -157,5 +259,7 @@ export function buildElevatedPolicies(comadre: Address, usdc: Address) {
     rateLimitCount: ELEVATED_RATE_OPS,
     rateLimitInterval: ELEVATED_RATE_INTERVAL_SECONDS,
     validitySeconds: ELEVATED_VALIDITY_SECONDS,
+    neverlandPoolAddress: neverland?.neverlandPoolAddress,
+    comadreFeeWallet: neverland?.comadreFeeWallet,
   });
 }
