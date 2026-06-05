@@ -5,6 +5,8 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { otp } from "@comadre/wallet-infra";
 import { getLogger } from "../middlewares/logger.js";
+import type { AuthUser } from "../middlewares/auth.js";
+import { isSameAddress } from "../lib/ownership.js";
 
 export const elevatedIntentsRouter = new Hono();
 
@@ -21,6 +23,7 @@ elevatedIntentsRouter.post(
     const intentId = c.req.param("id");
     const { code } = c.req.valid("json");
     const log = getLogger(c);
+    const user = (c.get as (k: string) => unknown)("user") as AuthUser;
 
     // Look up intent + linked smart wallet to get phone for OTP verify
     const rows = await db
@@ -34,7 +37,12 @@ elevatedIntentsRouter.post(
       .limit(1);
 
     const row = rows[0];
-    if (!row) return c.json({ error: "not_found" }, 404);
+    // F-2: 404 if the intent doesn't exist OR isn't owned by the authenticated
+    // caller. Return 404 (not 403) so we never leak that another user's intent
+    // exists. Ownership = caller's wallet matches the intent's smart-wallet owner.
+    if (!row || !isSameAddress(row.wallet.userWallet, user.walletAddress)) {
+      return c.json({ error: "not_found" }, 404);
+    }
 
     if (row.intent.status !== "pending") {
       return c.json({ error: "invalid_state", status: row.intent.status }, 409);
