@@ -1,6 +1,6 @@
 # Comadre — End-to-end flows
 
-> Diagramas de secuencia (Mermaid) de los flujos críticos. Para la topología completa de servicios ver `ARCHITECTURE.md`; para el modelo de datos ver `DATA_MODEL.md`; para endpoints y middlewares ver `APPS.md`.
+> Diagramas de secuencia (Mermaid) de los flujos críticos. Para la visión, el alcance del MVP y la topología/arquitectura ver `COMADRE.md` (documento canónico).
 >
 > **Actualizado: 2026-05-28 — arquitectura Monad.** Stack real: **WhatsApp (Twilio) → agente LLM (Kimi K2) → API (Hono/Bun) → wallet-infra → Turnkey (firma HSM) → Pimlico (bundler ERC-4337) → Monad**. Las wallets de usuario son **smart accounts ZeroDev Kernel v3.1**; el _owner_ se crea con **Privy**; el agente opera con una **session key** acotada.
 >
