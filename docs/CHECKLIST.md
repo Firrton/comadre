@@ -6,6 +6,22 @@
 
 ---
 
+## 🧭 Estado de revisión — sesión Monad (2026-06-05, branch `claude/laughing-ishizaka-263771`)
+
+> ⚠️ Gran parte de este CHECKLIST es **legacy Phase 0 (Solana / Anchor / Twilio / Helius)** y NO refleja la stack actual. Realidad vigente: **Monad / EVM / ZeroDev (AA) / Turnkey / Pimlico**; WhatsApp migrando a **open-wa** (Twilio aún presente en el código). Tomar lo de abajo con pinzas.
+
+**Revisión de arquitectura por área (heatmap de madurez):**
+
+- **API (`apps/api`) — ✅ revisada y estable a nivel estructura.** Framework (Hono/Bun), routing, cadena de middlewares y superficie de endpoints están sólidos. **NO reestructurar** (no reescribir router/middlewares ni mover endpoints). La sección detallada `### apps/api ✅` más abajo es legacy — esta nota es la verdad vigente.
+- **AUTH — 🟡 hardening EN CURSO en esta branch.** Edita archivos DENTRO de `apps/api`; **no revertir**:
+  - ✅ **F-2** IDOR en `routes/elevatedIntents.ts` — fixeado + testeado (helper nuevo `lib/ownership.ts`).
+  - ⏳ Pendientes: **F-5** `middlewares/auth.ts` (extracción de wallet EVM), **F-3** `middlewares/auth.ts` (dev-bypass fail-closed), **F-4** `routes/webhooks.ts` (replay protection Sumsub), **F-1** `routes/ramps.ts` (`user_wallet` del body), **F-7** `routes/wallet.ts` (header `X-Mock-USDC-Balance`), **F-6** `routes/onboarding.ts` (nonce dedup → Redis).
+- Resto de áreas (Database, Security on-chain, Hosting, CI/CD, DR, RLS, Load Balancing, Scaling, Logs) — ver heatmap; aún sin revisión profunda.
+
+**Para el próximo agente:** la API es estable a nivel estructura — **no la reescribas**. Los únicos cambios activos en `apps/api` son las correcciones de AUTH listadas arriba (en esta branch). Coordiná, no pises.
+
+---
+
 ## 🌱 Phase 2 — Yield (Neverland) (2026-05-20)
 
 Estado: ✅ implementado. Pendiente: activación en producción (env vars) + upgrade de session keys para usuarios pre-Phase 2.

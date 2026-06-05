@@ -1,707 +1,441 @@
 # Comadre — End-to-end flows
 
-> Sequence diagrams Mermaid de los flujos críticos. Para detalles de cada servicio ver `APPS.md`. Para detalles del modelo de datos ver `DATA_MODEL.md`.
+> Diagramas de secuencia (Mermaid) de los flujos críticos. Para la topología completa de servicios ver `ARCHITECTURE.md`; para el modelo de datos ver `DATA_MODEL.md`; para endpoints y middlewares ver `APPS.md`.
+>
+> **Actualizado: 2026-05-28 — arquitectura Monad.** Stack real: **WhatsApp (Twilio) → agente LLM (Kimi K2) → API (Hono/Bun) → wallet-infra → Turnkey (firma HSM) → Pimlico (bundler ERC-4337) → Monad**. Las wallets de usuario son **smart accounts ZeroDev Kernel v3.1**; el _owner_ se crea con **Privy**; el agente opera con una **session key** acotada.
+>
+> Reescrito desde cero: los diagramas previos describían el stack legacy **Solana / SPL / Privy-sign / Anchor**, ya retirado. Si encontrás `VersionedTransaction`, `signWithUserKeypair`, `airdrop SOL` o `init_user_profile` en algún diagrama, es legacy — reportalo.
 
-> **Phase 1 — Monad migration (2026-05-20)**: los diagramas abajo todavía describen el flujo Solana legacy. La arquitectura actual usa **Monad + Privy + Turnkey + Kernel v3.1 + Pimlico bundler**. Los flujos canónicos se documentan en `ARCHITECTURE.md` → "Tx signing flow (Monad + Turnkey)" hasta que estos diagramas se reescriban en Phase 2.
+## Leyenda de estado
+
+| Símbolo | Significado |
+|---|---|
+| 🟢 | **LIVE** — cableado punta a punta hoy |
+| 🟡 | **Parcial** — funciona con salvedades (stub/mock, o no verificado end-to-end) |
+| 🔴 | **FASE 2** — diseñado pero NO cableado (contrato/cranks son stubs) |
+
+## Modelo de dos wallets (la clave para entender todo)
+
+Cada usuario tiene DOS llaves sobre una misma cuenta. Esto es el corazón del modelo de seguridad:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Smart Account del usuario  (ZeroDev Kernel v3.1, en Monad)    │
+│                                                                │
+│   OWNER  ──────  Privy embedded wallet (la persona)            │
+│                  control total: retira, cambia límites, revoca │
+│                                                                │
+│   SESSION KEY ─  el AGENTE (firmada por Turnkey HSM)           │
+│                  acotada: cap $50/tx · selectores USDC+Comadre │
+│                  · rate-limit 10/60s · expira a 30 días        │
+└──────────────────────────────────────────────────────────────┘
+```
+
+El agente **nunca** tiene control total: solo una session key con permisos limitados que el _owner_ instaló durante el onboarding. (Detalle de límites y hallazgos de seguridad sobre esos permisos: ver `SECURITY.md` / auditoría.)
+
+## Frontera off-chain / on-chain
+
+```
+OFF-CHAIN  (orquestación — confiás en tu backend)   │  ON-CHAIN  (Monad — trustless)
+ WhatsApp · agente · apps/api · Postgres · Redis     │  Kernel account · USDC · Neverland · Comadre.sol
+ decide, arma calldata, cachea estado                │  Turnkey firma → Pimlico bundlea → EntryPoint 0.7 ejecuta
+```
+
+Las tablas `users / tandas / members / disputes` son **espejos** de estado on-chain (la cadena manda; la DB es lectura rápida). El resto (`transfers`, `savings_*`, `conversations`, `auth_sessions`…) es estado puramente off-chain.
 
 ## TOC
 
-1. [Phone-to-phone USDC transfer (immediate)](#1-p2p-usdc-immediate)
-2. [Phone-to-phone USDC transfer (deferred — recipient sin registrar)](#2-p2p-usdc-deferred)
-3. [Onboarding (primer mensaje WA → wallet creada)](#3-onboarding)
-4. [Tanda lifecycle (create → join → start → contribute → payout × N → complete)](#4-tanda-lifecycle)
-5. [Dispute resolution](#5-dispute-resolution)
-6. [Guardadito — depositar (Neverland)](#6-guardadito-depositar)
-7. [Guardadito — retirar con fee collection (Neverland)](#7-guardadito-retirar)
-8. [Guardadito — consultar balance](#8-guardadito-consultar)
+1. [Onboarding (magic-link → owner Privy + agente Turnkey + Kernel)](#1-onboarding) — 🟢
+2. [Transferencia P2P de USDC — inmediata](#2-p2p-inmediata) — 🟢
+3. [Transferencia P2P — diferida (destinatario sin wallet)](#3-p2p-diferida) — 🟡
+4. [KYC (Sumsub)](#4-kyc) — 🟢 / 🟡
+5. [Guardadito — depositar (Neverland)](#5-guardadito-depositar) — 🟢
+6. [Guardadito — retirar con fee sobre el yield](#6-guardadito-retirar) — 🟢
+7. [Guardadito — consultar + nudge proactivo](#7-guardadito-consultar) — 🟢
+8. [Tanda lifecycle](#8-tanda-lifecycle) — 🔴 FASE 2
+9. [Resolución de disputas](#9-disputas) — 🔴 FASE 2
 
 ---
 
-## 1. P2P USDC immediate
+## 1. Onboarding 🟢 {#1-onboarding}
+
+> El flujo arranca por WhatsApp pero **se completa en el browser**: el agente solo dispara un magic-link por SMS. Privy crea el _owner_ del usuario; la API provisiona el _agente_ en Turnkey; el browser instala la session key sobre el Kernel.
 
 ### Pre-condiciones
 
-- Sender **y** recipient ambos registrados (`users.phone_hash → wallet`).
-- Sender tiene ≥ `amountUsdc` USDC en su ATA devnet.
-- Sender tiene Privy embedded Solana wallet activa (credencial en Privy).
+- El teléfono no existe en `users` (`resolveUserFromTwilio` → `null`).
+- Único tool permitido sin wallet: `iniciar_cuenta_segura` (el teléfono se inyecta server-side, no lo controla el LLM).
 
-### Sequence
+### Secuencia
 
 ```mermaid
 sequenceDiagram
-  participant U as User (sender) WhatsApp
-  participant TW as Twilio
+  participant U as Usuario WhatsApp
   participant W as apps/whatsapp :3002
   participant A as apps/agent :3003
-  participant K as Moonshot/Kimi K2
-  participant R as Redis (Upstash)
   participant API as apps/api :3001
-  participant DB as Postgres
+  participant TW as Twilio (SMS)
+  participant B as Browser (magic-link)
   participant P as Privy
-  participant SOL as Solana devnet
+  participant TK as Turnkey HSM
+  participant DB as Postgres
 
-  U->>TW: "mandá 10 USDC al +52..."
-  TW->>W: POST /webhook (form-urlencoded, X-Twilio-Signature)
-  W->>W: verifyTwilioSignature (HMAC-SHA1 sobre TWILIO_AUTH_TOKEN)
-  W->>A: POST /process { from, body, conversationKey }
-  A->>DB: resolveUserFromTwilio(from) → SELECT users WHERE phone_hash
-  DB-->>A: { wallet: "sender-wallet" }
-  A->>R: loadHistory(conversationKey) → ChatMessage[]
-  A->>K: chat.completions.create(system+history+userMsg, tools=ALL_TOOLS)
-  K-->>A: tool_calls=[{ name: "iniciar_transfer", args: { toPhone, amountUsdc } }]
-  A->>API: POST /api/v1/transfers (body, X-Idempotency-Key)
-  API->>DB: SELECT users WHERE wallet = sender
-  API->>API: lookupByPhone(toPhone) → SELECT users WHERE phone_hash
-  API->>API: enforceKycLimit(tier, microUsdc)
-  API->>API: buildUsdcTransferIxs(from, to, amount, mint, payer)
-  API->>API: buildUnsignedTx({ instructions, payer: fee_payer })
-  API->>DB: INSERT transfers { status: pending, expiresAt: now+5min }
-  API->>R: SET transfer:tx:{id} = unsignedTxBase64 TTL 300s
-  API-->>A: { transferId, recipient: { wallet }, unsignedTxBase64 }
-  A->>R: saveHistory(conversationKey, newMessages)
-  A->>K: chat.completions.create con tool result
-  K-->>A: "Confirmás 10 USDC a wallet ...J4yX? (sí / no)"
-  A-->>W: { reply: "Confirmás...?" }
-  W->>TW: REST API send WhatsApp message
-  TW-->>U: "Confirmás 10 USDC a ...J4yX?"
+  U->>W: "hola, quiero usar Comadre"
+  W->>A: POST /process (HMAC interno + anti-replay)
+  A->>DB: resolveUserFromTwilio(phone_hash) → null
+  A->>API: POST /api/v1/onboarding/monad/start (HMAC interno)
+  Note over API,DB: COM-034 cancela tokens previos pendientes
+  API->>DB: INSERT auth_sessions { magic_token, status:pending, TTL 15min }
+  API->>TW: SMS con link {ONBOARDING_BASE_URL}/o/{token}
+  API-->>A: { ok }
+  A-->>U: "Te mandé un link por SMS para crear tu cuenta segura."
 
-  U->>TW: "sí"
-  TW->>W: POST /webhook
-  W->>A: POST /process
-  A->>R: loadHistory
-  A->>K: chat.completions.create
-  K-->>A: tool_calls=[{ name: "confirmar_transfer", args: { transferId } }]
-  A->>API: POST /api/v1/transfers/:id/confirm
-  API->>DB: SELECT transfers WHERE id (validar owner, status=pending, expiresAt)
-  API->>R: GET transfer:tx:{id} → unsignedTxBase64
-  API->>API: VersionedTransaction.deserialize(base64)
-  API->>P: walletApi.solana.signTransaction({ walletId, transaction })
-  P-->>API: { signedTransaction }
-  API->>SOL: submitWithRetry(signedTx)
-  SOL-->>API: { signature }
-  API->>DB: UPDATE transfers SET status=confirmed, tx_signature, confirmed_at
-  API->>R: DEL transfer:tx:{id}
-  API-->>A: { signature, explorerUrl }
-  A->>K: chat.completions.create con tool result
-  K-->>A: "Listo, 10 USDC enviados. Tx: ..."
-  A->>R: saveHistory
-  A-->>W: { reply }
-  W->>TW: send
-  TW-->>U: "Listo, 10 USDC enviados."
+  U->>B: abre el magic-link
+  B->>API: GET /monad/session/:token
+  API-->>B: { privyAppId, chainId, comadreAddress, usdcAddress }
+  B->>P: login por teléfono → crea OWNER embedded wallet
+  P-->>B: { privyUserId, ownerAddress, phoneJwt }
+  B->>API: POST /monad/finalize { token, privyUserId, ownerAddress, phoneJwt }
+  Note over API,P: COM-026 verifica el Privy JWT (userId + owner + phone)
+  API->>TK: provisionSessionKeyAgent() → sub-org + wallet del agente
+  TK-->>API: { subOrgId, walletId, agentAddress }
+  API-->>B: { sessionAddress: agentAddress }
+  Note over B: Browser arma con ZeroDev el blob de permisos<br/>(session key = agentAddress, políticas, firmado por el owner)
+  B->>API: POST /monad/install-session-key { token, serializedBlob, smartWalletAddress, phoneJwt }
+  Note over API,P: COM-027 re-verifica el JWT contra el user fijado en finalize
+  API->>DB: TX atómica (COM-009): INSERT users + smart_wallets + session_keys<br/>+ auth_sessions=completed
+  API-->>B: { ok, smartWalletAddress }
+  Note over U,DB: Listo. El agente ya tiene una session key acotada sobre el Kernel del usuario.
 ```
 
-### Latencia esperada
+### Notas
 
-| Paso | Tiempo típico |
-|---|---|
-| Webhook → agent → Kimi (primera llamada) | 2-4 s |
-| API buildUnsignedTx | 300-600 ms |
-| Kimi segunda llamada (respuesta confirmación) | 1-2 s |
-| Privy server-sign | 500-800 ms |
-| Solana submitWithRetry | 1-3 s |
-| **Total flow completo (2 mensajes)** | **5-12 s** |
+- **Dos wallets quedan registradas**: `smart_wallets.owner_address` (Privy) y `smart_wallets.agent_wallet_address` (Turnkey). La session key (`session_keys`) referencia `turnkey_sub_org_id` + `turnkey_wallet_id` + `serialized_permission`.
+- El blob de permisos se construye **en el browser** con el SDK de ZeroDev y lo firma el owner — el backend nunca tiene la llave del owner.
+- ⚠️ `sessionAgentMemory` guarda el agente provisionado en un `Map` en memoria (TTL 5min) entre `finalize` e `install`. Esto **rompe en multi-réplica** (bloqueante de escalado conocido — mover a Redis está diferido).
+- `permissionId` se persiste vacío (`TODO COM-033`) → la revocación on-chain (`uninstallValidator`) no está disponible; solo revocación soft (borrar la fila).
 
 ### Errores comunes
 
-| Error | Causa | Cómo se manifiesta |
-|---|---|---|
-| `SELF_TRANSFER` | `recipient.wallet === sender.walletAddress` | "no te podés mandar plata a vos misma, mija" |
-| `KYC_LIMIT_EXCEEDED` | `amount > kyc_limits[tier]` | "tu nivel KYC permite hasta $X USDC por tx" |
-| `EXPIRED` (409) | Redis TTL expiró (>5 min entre init y confirm) | "Tx blockhash expired; please retry" |
-| `PRIVY_SIGN_FAILED` (502) | `walletId` incorrecto o Privy 5xx | status=failed persistido en DB |
-| `BROADCAST_FAILED` (502) | RPC caído o SOL insuficiente en fee_payer | status=failed persistido en DB |
-| `USER_NOT_FOUND` (404) | Sender no registrado en DB | "Hacé KYC primero" |
+| Error (HTTP) | Causa |
+|---|---|
+| `validation` (400) | phone no E.164 / payload inválido |
+| `unauthorized` (401) | Privy JWT inválido o `userId`/`owner`/`phone` no coinciden (COM-026/027) |
+| `expired` (410) | magic-token vencido (>15min) |
+| `finalize_required` (409) | se llamó `install` sin `finalize` previo |
+| `session_expired` (410) | el agente en memoria expiró (>5min entre finalize e install) |
+| `install_failed` (500) | la transacción de DB falló (rollback completo) |
 
 ---
 
-## 2. P2P USDC deferred
+## 2. Transferencia P2P de USDC — inmediata 🟢 {#2-p2p-inmediata}
 
-### Pre-condiciones
+> Ambos registrados. El monto se topea **on-chain** (CallPolicy de ZeroDev ≤ $50/tx); el allowlist de destinatario se chequea en el backend (ver salvedad de seguridad).
 
-- Sender **registrado** en Comadre.
-- Recipient **NO registrado** (phone_hash no existe en `users`).
-- Sender tiene Privy embedded wallet activa.
-
-### Sequence
+### Secuencia
 
 ```mermaid
 sequenceDiagram
-  participant U as User (sender) WhatsApp
-  participant TW as Twilio
+  participant U as Usuario WhatsApp
   participant W as apps/whatsapp :3002
   participant A as apps/agent :3003
-  participant K as Moonshot/Kimi K2
+  participant K as Kimi K2 (Moonshot/Groq)
   participant API as apps/api :3001
-  participant R as Redis (Upstash)
   participant DB as Postgres
-  participant REC as Recipient WhatsApp
+  participant TK as Turnkey HSM
+  participant PIM as Pimlico (bundler)
+  participant MON as Monad (USDC)
 
-  U->>TW: "mandá 20 USDC al +52-nuevo..."
-  TW->>W: POST /webhook
-  W->>A: POST /process { from, body }
+  U->>W: "mandá 10 USDC al +52..."
+  W->>A: POST /process (HMAC + anti-replay)
   A->>DB: resolveUserFromTwilio → { wallet: sender }
-  A->>R: loadHistory
-  A->>K: chat.completions.create(tools=ALL_TOOLS)
-  K-->>A: tool_calls=[{ name: "iniciar_transfer", args }]
-  A->>API: POST /api/v1/transfers
-  API->>API: lookupByPhone(toPhone) → { registered: false, phoneHash }
-  API->>DB: INSERT transfers { status: awaiting_recipient, expiresAt: now+7d }
-  API->>W: POST /reply { to: "whatsapp:+52nuevo", body: "Alguien te quiere mandar..." } (HMAC)
-  W->>TW: REST API send to recipient
-  TW-->>REC: "Alguien te quiere mandar 20 USDC. Escribime 'aceptar'"
-  API-->>A: { mode: "deferred", transferId, expiresAt }
-  A->>K: chat.completions con tool result
-  K-->>A: "Le mandé un mensaje al destinatario. Tiene 7 días para aceptar."
-  A-->>W: { reply }
-  W->>TW: send
-  TW-->>U: "Le avisé al destinatario..."
-
-  Note over REC,DB: Recipient onboards (ver flow 3)
-
-  REC->>TW: "aceptar"
-  TW->>W: POST /webhook (from: recipient)
-  W->>A: POST /process
-  A->>DB: resolveUserFromTwilio → null (aún no registrado)
-  A->>R: loadHistory(recipient conversation)
-  A->>K: chat.completions.create
-  K-->>A: tool_calls=[{ name: "iniciar_onboarding", args: { phone } }]
-  Note over A,DB: Onboarding completo (ver flow 3)...
-  Note over U,DB: Una vez registrado, agent re-prompts sender para confirmar la transferencia deferred pendiente
+  A->>K: completions (tools=ALL_TOOLS)
+  K-->>A: tool_call: enviar_plata { toPhone, amountUsdc }
+  A->>API: POST /api/v1/transfers-monad (HMAC interno)
+  API->>DB: lookup teléfono→wallet del destinatario (phone_hash)
+  API->>API: buildUsdcTransferCalldata(to, amount)  [viem]
+  API->>DB: signMonadTransfer → SELECT session_keys (daily, active)
+  Note over API,DB: chequeo cap (amount ≤ perCallCap) + allowlist (si no vacía) ⚠️ blando
+  API->>TK: createAccount + toECDSASigner → firma el UserOp
+  Note over TK: la firma respeta las políticas on-chain de la session key
+  API->>PIM: deserializePermissionAccount → sendUserOperation
+  PIM->>MON: EntryPoint 0.7 → USDC.transfer(to, amount)
+  MON-->>PIM: receipt
+  PIM-->>API: { userOpHash, txHash }
+  API->>DB: UPDATE transfers { status: confirmed, tx_hash }
+  API-->>A: { txHash }
+  A->>K: completions (con resultado)
+  K-->>A: "Listo, mandé 10 USDC ✅"
+  A-->>U: "Listo, mandé 10 USDC ✅"
 ```
 
-### Latencia esperada
+### Notas de seguridad (importante)
 
-- Creación deferred: 1-3 s (sin tx on-chain)
-- WA best-effort a recipient: 1-2 s adicionales
-- Expiración: 7 días
+- **Monto**: topeado on-chain por la `CallPolicy` (≤ `perCallCapMicroUsdc`, hoy $50). Un agente comprometido NO puede exceder esto.
+- **Destinatario**: el allowlist se valida **solo en el backend** (`monadSessionSigner.ts`) y **solo si la lista no está vacía** — y arranca vacía en el onboarding (`TODO COM-004`). On-chain el `to` del `transfer` NO está restringido. Un path que firme directo (`signAndSendUserOp`) saltea el chequeo. → ver `SECURITY.md`.
+- **No hay tope diario acumulado**: solo cap por-tx + rate-limit 10/60s + expiración 30d.
 
 ### Errores comunes
 
-| Error | Causa | Cómo se manifiesta |
-|---|---|---|
-| WA send a recipient falla | `/reply` 5xx (best-effort) | Transfer row igualmente creada; sender puede reintentarlo |
-| `EXPIRED` al confirmar posterior | Han pasado >7 días sin onboarding del recipient | status=expired; sender debe reiniciar |
-| Recipient onboards pero tx ya expiró | Race condition | El agente informa que hay una tx pendiente expirada; sender retransfer |
+| Error | Causa |
+|---|---|
+| `USER_NOT_FOUND` (404) | sender no registrado |
+| `wallet_not_found` / `no_session` | sin smart wallet o sin session key activa |
+| `cap_exceeded` | monto > cap por-tx |
+| `recipient_not_allowed` | destinatario fuera del allowlist (cuando la lista existe) |
+| `KYC_LIMIT_EXCEEDED` | monto > límite del tier KYC |
 
 ---
 
-## 3. Onboarding
+## 3. Transferencia P2P — diferida (destinatario sin wallet) 🟡 {#3-p2p-diferida}
 
-### Pre-condiciones
+> Estado 🟡: el modelo de datos lo soporta (`transfers.status = awaiting_recipient`, expiración ~7d) pero conviene verificar el path completo en `transfersMonad.ts` antes de tratarlo como LIVE.
 
-- Phone manda su primer mensaje a Comadre.
-- `resolveUserFromTwilio` retorna `null` (no existe en `users`).
-- El modelo Kimi decide llamar `iniciar_onboarding` (único tool permitido sin wallet).
-
-### Sequence
+### Flujo (nivel producto)
 
 ```mermaid
 sequenceDiagram
-  participant U as New User WhatsApp
-  participant TW as Twilio
-  participant W as apps/whatsapp :3002
+  participant U as Sender WhatsApp
   participant A as apps/agent :3003
-  participant K as Moonshot/Kimi K2
-  participant R as Redis (Upstash)
   participant API as apps/api :3001
-  participant P as Privy
-  participant DB as Postgres
-  participant SOL as Solana devnet
+  participant W as apps/whatsapp :3002
+  participant REC as Destinatario WhatsApp
 
-  U->>TW: "hola, quiero unirme a una tanda"
-  TW->>W: POST /webhook (X-Twilio-Signature)
-  W->>A: POST /process { from: "whatsapp:+52...", body, conversationKey }
-  A->>DB: resolveUserFromTwilio(from) → null
-  A->>R: loadHistory(conversationKey) → []
-  A->>K: chat.completions.create(system, userMsg, tools=ALL_TOOLS, userWallet=null)
-  K-->>A: content: "Hola! Para empezar necesito registrarte. ¿Puedo crear tu cuenta?"
-  A->>R: saveHistory
-  A-->>W: { reply: "Hola! Para empezar..." }
-  W->>TW: send
-  TW-->>U: "Hola! Para empezar..."
-
-  U->>TW: "sí, registrame"
-  TW->>W: POST /webhook
-  W->>A: POST /process
-  A->>DB: resolveUserFromTwilio → null (still)
-  A->>R: loadHistory
-  A->>K: chat.completions.create
-  K-->>A: tool_calls=[{ name: "iniciar_onboarding", args: { phone: "+52..." } }]
-  A->>API: POST /api/v1/users/onboard { phone }
-  API->>P: privy.importUser({ linkedAccounts: [{ type: "phone", number: phone }] })
-  P-->>API: { privyUserId, embeddedWallet: { address, id } }
-  API->>API: build init_user_profile instruction (phone_hash, country_code)
-  API->>API: buildUnsignedTx + signWithPrivy (fee_payer partial-sign)
-  API->>SOL: submitWithRetry(signedTx init_user_profile)
-  SOL-->>API: { signature }
-  API->>DB: INSERT users { wallet, phone_hash, kyc_tier: T0Demo, privy_user_id }
-  API-->>A: { wallet, privyUserId, txSignature }
-  A->>K: chat.completions con tool result
-  K-->>A: "Tu cuenta fue creada. Tu wallet: ...J4yX. Ya podés usar Comadre."
-  A->>R: saveHistory
-  A-->>W: { reply }
-  W->>TW: send
-  TW-->>U: "Tu cuenta fue creada..."
+  U->>A: "mandá 20 USDC al +52-nuevo"
+  A->>API: POST /api/v1/transfers-monad
+  API->>API: lookup teléfono → { registered:false }
+  API-->>A: { mode: deferred, expiresAt: +7d }
+  A->>W: avisar al destinatario (best-effort)
+  W-->>REC: "Alguien te quiere mandar 20 USDC. Escribí para reclamarlo."
+  Note over REC,API: El destinatario hace onboarding (ver Flujo 1)
+  Note over U,API: Ya registrado → se completa como Flujo 2 (transferencia inmediata)
 ```
 
-### Latencia esperada
+### Decisión de diseño pendiente
 
-| Paso | Tiempo típico |
-|---|---|
-| Privy importUser | 500-1000 ms |
-| init_user_profile on-chain | 1-3 s |
-| Total (turno de confirmación) | 3-6 s |
-
-### Errores comunes
-
-| Error | Causa | Cómo se manifiesta |
-|---|---|---|
-| `UNREGISTERED` tool blocked | Kimi intentó llamar otro tool antes de onboarding | Kimi recibe error interno y re-solicita consentimiento |
-| Privy importUser falla | Phone inválido o Privy 5xx | 502; agente responde "no pude crear tu cuenta, intentá de nuevo" |
-| `init_user_profile` falla | `phone_hash` vacío o `country_code` inválido | 500; log detallado; onboarding no persistido |
-| DB INSERT duplicado | Race condition (dos mensajes casi simultáneos) | `ON CONFLICT DO NOTHING` o unique index en `phone_hash` |
+Hay dos formas de resolver "mandar a alguien sin wallet", y la elección define si hace falta un contrato:
+- **Wallet just-in-time** (Privy/Turnkey genera la wallet del destinatario) → cero Solidity. Recomendado para MVP.
+- **Escrow on-chain por `phoneHash`** → requiere un `.sol` nuevo. Solo si se quiere que el reclamo sea trustless.
 
 ---
 
-## 4. Tanda lifecycle
+## 4. KYC (Sumsub) 🟢 / 🟡 {#4-kyc}
 
-### Pre-condiciones
-
-- Creator y todos los members ya onboarded (KYC tier ≥ T1Lite para creator).
-- Todos tienen USDC devnet suficiente para `stake_amount`.
-- Programa Anchor desplegado, `init_config` ejecutado.
-
-### Sequence
+### Secuencia
 
 ```mermaid
 sequenceDiagram
-  participant CR as Creator (wallet)
-  participant M1 as Member 1
-  participant M2 as Member 2
-  participant Mn as Member N
+  participant U as Usuario WhatsApp
+  participant A as apps/agent :3003
   participant API as apps/api :3001
-  participant SOL as Solana devnet
-  participant CRN as apps/cron (payoutCrank)
+  participant SUM as Sumsub
   participant DB as Postgres
 
-  CR->>API: POST /api/v1/tandas { name, memberTarget:5, contributionAmount, stakeAmount, frequencySeconds }
-  API->>SOL: create_tanda ix (Tanda PDA + Vault PDA init)
-  SOL-->>API: { signature, tandaPda, vaultPda }
-  API->>DB: INSERT tandas { tanda_pda, state: forming }
-  API-->>CR: { tandaId, tandaPda, inviteCode }
-
-  M1->>API: POST /api/v1/tandas/:id/join { turnNumber? }
-  API->>SOL: join_tanda ix (Member PDA init, stake USDC → vault)
-  SOL-->>API: { signature }
-  API->>DB: INSERT members { tanda_id, wallet, turn_number, stake_locked }
-  API-->>M1: { memberId, assignedTurn }
-
-  M2->>API: POST /api/v1/tandas/:id/join
-  API->>SOL: join_tanda ix
-  SOL-->>API: { signature }
-
-  Mn->>API: POST /api/v1/tandas/:id/join
-  API->>SOL: join_tanda ix (5th member — tanda full)
-  SOL-->>API: { signature }
-
-  CR->>API: POST /api/v1/tandas/:id/start
-  API->>SOL: start_tanda ix (validates member_current == member_target)
-  SOL-->>API: { signature } Note: state → Active, current_turn=1, next_payout_ts=now+freq
-  API->>DB: UPDATE tandas SET state=active, started_at
-
-  Note over M1,SOL: Turn 1 — todos contribuyen
-
-  M1->>API: POST /api/v1/tandas/:id/contribute
-  API->>SOL: contribute ix (USDC user_ata → vault, contributions_this_turn++)
-  SOL-->>API: { signature }
-
-  M2->>API: POST /api/v1/tandas/:id/contribute
-  API->>SOL: contribute ix
-
-  Mn->>API: POST /api/v1/tandas/:id/contribute
-  API->>SOL: contribute ix (5th contribution, contributions_this_turn == member_target)
-
-  Note over CRN,SOL: Cron job payoutCrank — cada 5 min
-
-  CRN->>SOL: payout ix (crank_authority signer, beneficiary_member = turn 1 member)
-  Note over SOL: vault → beneficiary_ata (N × contribution_amount), advance current_turn, reset contributions_this_turn
-  SOL-->>CRN: { signature }
-  CRN->>DB: UPDATE tandas SET current_turn=2, members SET has_received_payout=true for turn 1
-
-  Note over M1,CRN: Turns 2..N — mismo ciclo contribute × N → payoutCrank
-
-  Note over CRN,SOL: After last payout (turn N), payout ix sets state=Completed internally
-
-  CRN->>SOL: complete_tanda ix (safety-confirm, crank_authority)
-  SOL-->>CRN: { signature } Note: state idempotently Completed
-  CRN->>DB: UPDATE tandas SET state=completed, completed_at
+  U->>A: "quiero subir mi nivel / verificar identidad"
+  A->>API: POST /api/v1/kyc/session (Privy JWT)
+  alt SUMSUB_APP_TOKEN configurado (🟢)
+    API->>SUM: createApplicant / reusa applicant activo
+    SUM-->>API: { applicantId }
+    API->>SUM: generateAccessToken (level: id-and-liveness)
+    SUM-->>API: { url, token }
+    API->>DB: UPSERT kyc_sessions { applicant_id, status: pending }
+    API-->>A: { url, session_id }
+    A-->>U: "Verificá tu identidad acá: {url}"
+    Note over U,SUM: El usuario completa la verificación en la página hosted de Sumsub
+    SUM->>API: POST /webhooks/sumsub (HMAC-SHA256)
+    API->>DB: UPDATE kyc_sessions.status + users.kyc_tier
+  else SUMSUB_APP_TOKEN ausente (🟡 stub)
+    API->>DB: INSERT kyc_sessions { status: init }
+    API-->>A: { token: "stub-pending-sumsub", stub: true }
+  end
 ```
 
-### Latencia esperada
+### Notas
 
-| Operación | Tiempo típico |
-|---|---|
-| create_tanda (2 PDAs init) | 2-4 s |
-| join_tanda (stake SPL transfer) | 1-3 s por member |
-| start_tanda | 1-2 s |
-| contribute (SPL transfer) | 1-2 s |
-| payout (crank → SPL transfer N×) | 2-4 s |
-| complete_tanda | 1-2 s |
-
-### Errores comunes
-
-| Error | Causa | Cómo se manifiesta |
-|---|---|---|
-| `InsufficientKyc` en create | Creator tier < T1Lite | 400 del API, Kimi informa al user |
-| `TandaFull` en join | `member_current == member_target` | 400; ya no hay cupo |
-| `InvalidMemberCount` en start | Falta algún member | 400; "esperá que se unan todos" |
-| `NotImplemented` en start | `payout_order_mode != JoinOrder` | MVP solo soporta JoinOrder |
-| `AlreadyContributed` en contribute | Member llamó contribute dos veces en el mismo turn | 400 on-chain |
-| `MissingContributions` en payout | No todos contribuyeron antes del crank | Cron reintenta hasta cumplido |
-| `PayoutNotReady` en payout | `now < next_payout_ts` | Cron respeta la ventana temporal |
+- El tier KYC gobierna límites de monto (`enforceKycLimit`) y la capacidad de crear tandas (≥ T1Lite) en FASE 2.
+- En on-chain, el tier se refleja vía `Comadre.updateKycTier` (oráculo) — hoy ese write depende del contrato (FASE 2); el espejo en DB (`users.kyc_tier`) es la fuente operativa.
 
 ---
 
-## 5. Dispute resolution
+## 5. Guardadito — depositar (Neverland) 🟢 {#5-guardadito-depositar}
 
-### Pre-condiciones
+> "Guardadito" es el nombre de cara al usuario; internamente es un _strategy adapter_: `mock` (default, solo DB) o `neverland` (real, on-chain). Flujo de dos pasos: **preparar → confirmar**.
 
-- Tanda en estado `Active`.
-- Opener es un member activo de la tanda.
-- `disputes_opened < MAX_DISPUTES_PER_TANDA`.
+### Secuencia
 
-### Sequence
+```mermaid
+sequenceDiagram
+  participant U as Usuario WhatsApp
+  participant A as apps/agent :3003
+  participant API as apps/api :3001
+  participant DB as Postgres
+  participant TK as Turnkey HSM
+  participant PIM as Pimlico
+  participant NV as Neverland Pool (Monad)
+
+  U->>A: "guardá 50 USDC en mi chanchito"
+  A->>API: tool preparar_guardadito → POST /api/v1/savings/deposits { amountUsdc }
+  API->>API: chequea balance USDC + enforceKycLimit
+  API->>DB: INSERT savings_actions { type: deposit, status: pending, TTL 5min }
+  API-->>A: { actionId }
+  A-->>U: "Preparé guardar 50 USDC. ¿Confirmás?"
+
+  U->>A: "sí"
+  A->>API: tool confirmar_guardadito → POST /api/v1/savings/actions/:id/confirm
+  alt provider = neverland (🟢)
+    API->>API: depositToNeverland → UserOp [ USDC.approve(pool, 50) + Pool.supply(USDC, 50, kernel, 0) ]
+    API->>TK: firma el UserOp
+    API->>PIM: sendUserOperation
+    PIM->>NV: approve + supply → emite nUSDC al Kernel del usuario
+    NV-->>PIM: receipt
+    PIM-->>API: { txHash, nUsdcReceived }
+    API->>DB: UPSERT savings_positions (deposited += 50, shares += nUSDC)
+  else provider = mock (🟡 dev)
+    API->>DB: UPSERT savings_positions (solo contable, sin cadena)
+  end
+  API-->>A: { status: confirmed, txHash }
+  A-->>U: "Listo, guardé 50 USDC. Está rindiendo ~13% anual (variable)."
+```
+
+### Errores comunes
+
+| Error | Causa |
+|---|---|
+| `INSUFFICIENT_BALANCE` (400) | USDC disponible < monto |
+| `KYC_LIMIT_EXCEEDED` (400) | supera el límite del tier |
+| `CONFIG_MISSING` (503) | config de Neverland incompleta |
+| `TX_FAILED` (502) | el UserOp revirtió — "tu dinero no fue movido" |
+| `EXPIRED` (409) | la acción venció (>5min entre preparar y confirmar) |
+
+---
+
+## 6. Guardadito — retirar con fee sobre el yield 🟢 {#6-guardadito-retirar}
+
+> El fee (20%) se cobra **solo sobre la ganancia**, nunca sobre el principal. `withdraw` + `transfer(fee)` van en **un UserOp atómico**.
+
+### Secuencia
+
+```mermaid
+sequenceDiagram
+  participant U as Usuario WhatsApp
+  participant A as apps/agent :3003
+  participant API as apps/api :3001
+  participant DB as Postgres
+  participant TK as Turnkey HSM
+  participant PIM as Pimlico
+  participant NV as Neverland Pool (Monad)
+  participant FW as Comadre fee wallet
+
+  U->>A: "retirá todo mi chanchito"
+  A->>API: tool consultar_guardadito → GET /api/v1/savings/summary
+  API->>NV: getUserReservesData → underlying actual
+  API->>DB: getPrincipalsFromDb → { deposited, principalWithdrawn }
+  API->>API: yield = underlying − (deposited − withdrawn); fee = yield × 20%
+  API-->>A: { underlying, fee, userReceives }
+  A-->>U: "Tenés $53 (ganaste $3). Fee $0.60. ¿Retirás $52.40?"
+
+  U->>A: "sí"
+  A->>API: tool confirmar_guardadito (retiro) → POST /savings/actions/:id/confirm
+  API->>API: withdrawFromNeverland → UserOp [ Pool.withdraw(USDC, 53, kernel) + USDC.transfer(feeWallet, 0.60) ]
+  API->>TK: firma
+  API->>PIM: sendUserOperation
+  PIM->>NV: withdraw (quema nUSDC → USDC al Kernel)
+  PIM->>FW: USDC.transfer del fee
+  PIM-->>API: { txHash, userReceived, comadreFee }
+  API->>DB: UPDATE savings_positions (principal_withdrawn, status)
+  API-->>A: { status: confirmed, txHash }
+  A-->>U: "Retiré $52.40 a tu billetera. Fee $0.60 (20% de lo ganado)."
+```
+
+> ⚠️ **Seguridad (ver `SECURITY.md`)**: en las políticas de la session key, `Pool.withdraw` tiene monto **y** destinatario sin restringir on-chain. Si el yield está activo, un agente comprometido puede retirar toda la posición a una dirección arbitraria, salteando el cap de $50. Pendiente de constrain.
+
+---
+
+## 7. Guardadito — consultar + nudge proactivo 🟢 {#7-guardadito-consultar}
+
+```mermaid
+sequenceDiagram
+  participant U as Usuario WhatsApp
+  participant A as apps/agent :3003
+  participant API as apps/api :3001
+  participant NV as Neverland (UiPoolDataProviderV3)
+  participant DB as Postgres
+
+  U->>A: "¿cuánto tengo en mi chanchito?"
+  A->>API: GET /api/v1/savings/summary (Privy JWT)
+  API->>NV: getUserReservesData → underlying + APY
+  API->>DB: SELECT savings_positions → deposited, withdrawn
+  API-->>A: { saved, apy_percent, suggested, copy }
+  A-->>U: "Tenés $53 (empezaste con $50, ganaste $3). Tasa hoy ~12.98% anual."
+```
+
+- **APR injection** (`apps/agent/.../savingsContext.ts`): en cada turno con wallet se inyecta el APY real de `GET /savings/summary` al system prompt. El LLM debe usar ese número exacto.
+- **Nudge gate** (`nudgeGate.ts`): sugerencias proactivas solo si el user saluda **o** acaba de cerrar una tanda, y no hubo nudge en las últimas 24h (`savings_nudges`).
+
+---
+
+## 8. Tanda lifecycle 🔴 FASE 2 {#8-tanda-lifecycle}
+
+> **NO cableado hoy.** Las rutas de tanda devuelven calldata stub (`lib/stubs.ts → makeTxStub`), `apps/cron` corre los cranks como stubs, y `Comadre.sol` (Foundry) todavía no está deployado ni integrado. La session key **ya** whitelistea los selectores `contribute / joinTanda / openDispute / voteDispute / claimStake` (ver `wallet-infra/.../policies.ts`), así que el día que el contrato esté en Monad, el agente podrá invocarlos dentro de sus límites.
+
+### Flujo previsto (cuando esté deployado)
+
+```mermaid
+sequenceDiagram
+  participant CR as Creator / Members
+  participant API as apps/api :3001
+  participant TK as Turnkey + Pimlico
+  participant CO as Comadre.sol (Monad)
+  participant CRN as apps/cron (crank)
+  participant DB as Postgres
+
+  CR->>API: crear_tanda / unirse_tanda / aportar_turno
+  API->>TK: UserOp (session key) → Comadre.createTanda / joinTanda / contribute
+  TK->>CO: ejecuta (stake/contribución → vault del contrato)
+  CO-->>TK: receipt
+  API->>DB: actualiza espejos (tandas, members)
+  Note over CRN,CO: payout y slash los llama crank_authority (NO la session key)
+  CRN->>CO: payout(turno) cuando se cumplió la ventana + todos aportaron
+  CO-->>CRN: transferencia al beneficiario; avanza turno o Completed
+```
+
+> ⚠️ **Bloqueante conocido antes de plata real (CRIT-01)**: en `Comadre.sol`, `payout` exige `contributionsThisTurn == memberTarget`, pero al slashear a un moroso se baja `memberCurrent` y **no** `memberTarget`. Tras el primer slash, `payout` revierte para siempre → la tanda queda trabada y los fondos encerrados. Hay que arreglarlo antes de deployar. Ver auditoría de `Comadre.sol`.
+
+---
+
+## 9. Resolución de disputas 🔴 FASE 2 {#9-disputas}
+
+> **NO cableado hoy** (mismo estado que las tandas: rutas y `disputeResolveCrank` son stubs; contrato sin deployar).
+
+### Flujo previsto
 
 ```mermaid
 sequenceDiagram
   participant OP as Opener (member)
-  participant M1 as Member 1
-  participant M2 as Member 2
+  participant MEM as Members
   participant API as apps/api :3001
-  participant SOL as Solana devnet
+  participant CO as Comadre.sol (Monad)
   participant CRN as apps/cron (disputeResolveCrank)
-  participant DB as Postgres
 
-  OP->>API: POST /api/v1/tandas/:id/disputes { reason }
-  API->>API: hash(reason) → reason_hash [u8;32]
-  API->>SOL: open_dispute ix (Dispute PDA init, tanda.state → Paused)
-  SOL-->>API: { signature, disputePda }
-  API->>DB: INSERT disputes { tanda_id, dispute_pda, state: open, deadline_ts: now+7d }
-  API-->>OP: { disputeId, disputePda, deadlineTs }
-
-  Note over OP,SOL: Tanda queda en Paused — contribute y payout rechazados
-
-  M1->>API: POST /api/v1/disputes/:id/vote { continueTanda: true }
-  API->>SOL: vote_dispute ix (DisputeVote PDA init — PDA enforces 1 vote/voter)
-  SOL-->>API: { signature }
-
-  M2->>API: POST /api/v1/disputes/:id/vote { continueTanda: false }
-  API->>SOL: vote_dispute ix
-
-  Note over CRN,SOL: After deadline_ts (7 days) — cron disputeResolveCrank
-
-  CRN->>SOL: resolve_dispute ix (anyone puede llamarlo post-deadline)
-  Note over SOL: votes_continue > votes_cancel → tanda.state = Active
-  Note over SOL: empate o votes_cancel >= votes_continue → tanda.state = Cancelled
-  SOL-->>CRN: { signature }
-  CRN->>DB: UPDATE disputes SET state=resolved, UPDATE tandas SET state=active|cancelled
-  CRN->>DB: Notify members via scheduled WA reminder job
+  OP->>API: abrir_disputa → openDispute(tanda, reasonHash)
+  API->>CO: UserOp (session key) → tanda pasa a Paused
+  MEM->>API: votar_disputa → voteDispute(continue|cancel)
+  API->>CO: UserOp por voto (1 voto por member; opener no vota)
+  Note over CRN,CO: tras la ventana de 7 días (DISPUTE_VOTING_WINDOW)
+  CRN->>CO: resolveDispute (cualquiera post-deadline)
+  CO-->>CRN: quórum = ceil(memberTarget/2); gana mayoría; empate → Cancelled
+  Note over CO: Active (continúa) · Cancelled (members reclaman stake con claimStake)
 ```
 
-### Latencia esperada
+---
 
-| Paso | Tiempo típico |
+## Referencias de código
+
+| Flujo | Archivos clave |
 |---|---|
-| open_dispute (PDA init) | 1-3 s |
-| vote_dispute (PDA init) | 1-2 s por voto |
-| resolve_dispute (post-deadline) | 1-2 s |
-| Ventana de votación | 7 días (DISPUTE_VOTING_WINDOW_SECONDS) |
-
-### Errores comunes
-
-| Error | Causa | Cómo se manifiesta |
-|---|---|---|
-| `TandaNotActive` al abrir dispute | Tanda ya Paused o Completed | 400; no se pueden abrir disputes en ese estado |
-| `MaxDisputesReached` | `disputes_opened >= MAX_DISPUTES_PER_TANDA` | 400 |
-| `AccountAlreadyInitialized` en vote | Member intenta votar dos veces | Anchor rechaza — DisputeVote PDA ya existe |
-| `DisputeExpired` en vote | `now > deadline_ts` | 400; ventana de votación cerrada |
-| `DisputeNotExpired` en resolve | Cron corrió antes del deadline | Instrucción rechazada; cron reintenta |
-| Tanda → Cancelled por empate | `votes_cancel >= votes_continue` | Members deben reclamar stakes via `claim_stake` (pendiente de implementar) |
-
----
-
-## Flujos custodial (post-pivot)
-
-### Onboarding (primer consentimiento)
-
-Disparado cuando un user sin fila en DB manda su primer "sí".
-
-```
-WhatsApp "sí"
-     │
-     ▼
-comadre-whatsapp
-  valida firma Twilio
-     │
-     ▼
-comadre-agent
-  toolsForWalletState(null)  ← wallet no en DB
-  → iniciar_onboarding en toolset
-  LLM llama tool: iniciar_onboarding
-     │
-     ▼
-comadre-api  POST /api/v1/onboarding/init
-  1. Keypair.generate()
-  2. INSERT user_keypairs (wallet, secret_key_b58)
-  3. INSERT users (wallet, phone_hash, kyc_tier=t0_demo)
-  4. airdrop 0.05 SOL  fee_payer → user wallet
-  5. Anchor: init_user_profile  payer=fee_payer
-  6. Anchor: update_kyc_tier(t1Lite)  signer=kyc_oracle
-  7. UPDATE users SET kyc_tier='t1_lite'
-     │
-     ▼
-  return { walletAddress, kyc_tier: 't1_lite' }
-     │
-     ▼
-LLM responde con bienvenida al user
-```
-
-Después del onboarding, `toolsForWalletState(wallet)` excluye `iniciar_onboarding` en todos los turnos siguientes.
-
-### Crear tanda
-
-```
-WhatsApp "creá una tanda Demo de 3 personas, 10 USDC por semana"
-     │
-     ▼
-comadre-agent  LLM llama tool: crear_tanda({ name, member_target, contribution_amount_cents, frequency_days, payout_order_mode })
-     │
-     ▼
-comadre-api  POST /api/v1/tandas
-  1. buildCreateTandaIx
-       creator   = user.wallet (PubKey)
-       name_hash = SHA-256(name)
-       amount    = new BN(amount_atomic_usdc)
-  2. construye Anchor create_tanda ix
-  3. fee_payer pre-firma (paga rent + fees)
-  4. signWithUserKeypair(creator) ← backend firma como user
-  5. submitWithRetry(tx)
-  6. INSERT tandas (id=tanda_pda, creator_wallet, ...)
-     │
-     ▼
-  return { tanda_id, signature, explorer_url }
-     │
-     ▼
-crearTandaExecute → { type: "data", data: { ... } }
-     │
-     ▼
-LLM (regla "REGLAS CUANDO UNA TOOL DEVUELVE DATOS REALES"):
-  - relayea explorer_url al user
-  - presenta tanda_id[0..7] como código corto de invitación
-```
-
-### Unirse a tanda
-
-```
-WhatsApp "quiero unirme a la tanda 8jK8UsMv..."
-     │
-     ▼
-comadre-agent  LLM llama tool: unirse_tanda({ tanda_id })
-     │
-     ▼
-comadre-api  POST /api/v1/tandas/:id/join
-  1. buildJoinTandaIx
-     a. createAssociatedTokenAccountInstruction
-          para el ATA USDC del user (si no existe)
-     b. Anchor join_tanda ix
-          signer = user.wallet
-  2. fee_payer pre-firma
-  3. signWithUserKeypair(user.wallet)
-  4. submitWithRetry(tx)
-  5. INSERT members + UPDATE tandas.member_current
-     │
-     ▼
-  return { tanda_id, member, signature, explorer_url }
-     │
-     ▼
-LLM relayea confirmación + explorer_url
-```
-
----
-
-## 6. Guardadito — depositar (Neverland)
-
-### Pre-condiciones
-
-- Usuario registrado y con session key que incluye políticas Neverland.
-- Tiene USDC en su Kernel wallet (mínimo 1 USDC).
-
-### Sequence
-
-```mermaid
-sequenceDiagram
-  participant U as Usuario WhatsApp
-  participant TW as Twilio
-  participant W as apps/whatsapp :3002
-  participant A as apps/agent :3003
-  participant K as Moonshot/Kimi K2
-  participant R as Redis (Upstash)
-  participant API as apps/api :3001
-  participant DB as Postgres
-  participant TK as Turnkey HSM
-  participant PIM as Pimlico bundler
-  participant NV as Neverland Pool (Monad)
-
-  U->>TW: "guardá 50 USDC en mi chanchito"
-  TW->>W: POST /webhook (X-Twilio-Signature)
-  W->>A: POST /process { from, body, conversationKey }
-  A->>DB: resolveUserFromTwilio(from) → { wallet }
-  A->>R: loadHistory(conversationKey)
-  A->>K: chat.completions.create(system+history+userMsg, tools)
-  K-->>A: tool_calls=[{ name: "preparar_guardadito", args: { amountUsdc: 50 } }]
-  A->>API: POST /api/v1/savings/deposit { amountMicroUsdc: 50_000_000 }
-  API->>DB: SELECT session_keys WHERE wallet (recupera subOrgId + walletId + permission)
-  API->>API: Verifica amount >= 1_000_000 (mínimo 1 USDC)
-  API->>API: Construye UserOp con 2 calls:<br/>1. USDC.approve(neverlandPool, 50 USDC)<br/>2. NeverlandPool.supply(usdc, 50 USDC, kernelWallet, 0)
-  API->>TK: signEvmPayload({ subOrgId, walletId, userOpDigest })
-  TK-->>API: firma (Turnkey verifica policies de session key)
-  API->>PIM: eth_sendUserOperation (UserOp firmado)
-  PIM->>NV: ejecuta approve + supply en Kernel del usuario
-  NV-->>PIM: nUSDC emitido al Kernel wallet del usuario
-  PIM-->>API: { userOpHash, txHash }
-  API->>DB: UPSERT savings_positions { provider: neverland, deposited_micro_usdc += 50_000_000 }
-  API-->>A: { status: confirmed, txHash, depositedMicroUsdc: 50_000_000 }
-  A->>K: chat.completions.create con tool result
-  K-->>A: "Listo mija, guardé 50 USDC en tu chanchito. Están trabajando para vos al ~13% anual."
-  A->>R: saveHistory
-  A-->>W: { reply }
-  W->>TW: send
-  TW-->>U: "Listo mija, guardé 50 USDC..."
-```
-
-### Errores comunes
-
-| Error | Causa | Cómo se manifiesta |
-|---|---|---|
-| `503` en deposit | `NEVERLAND_POOL_ADDRESS` no seteado | Agent informa error de configuración |
-| `Policy denied` en Turnkey | Session key pre-Phase 2 sin políticas Neverland | "Necesitás actualizar tu billetera segura" |
-| `UserOp revertido` | USDC insuficiente en Kernel wallet | "No tenés suficiente USDC para guardar ese monto" |
-
----
-
-## 7. Guardadito — retirar con fee collection (Neverland)
-
-### Pre-condiciones
-
-- Usuario tiene posición activa en Neverland (nUSDC > 0).
-- `COMADRE_FEE_WALLET` configurado en el backend.
-
-### Sequence
-
-```mermaid
-sequenceDiagram
-  participant U as Usuario WhatsApp
-  participant TW as Twilio
-  participant W as apps/whatsapp :3002
-  participant A as apps/agent :3003
-  participant K as Moonshot/Kimi K2
-  participant API as apps/api :3001
-  participant DB as Postgres
-  participant NV as Neverland Pool (Monad)
-  participant TK as Turnkey HSM
-  participant PIM as Pimlico bundler
-  participant FW as COMADRE_FEE_WALLET
-
-  U->>TW: "retirá todo mi chanchito"
-  TW->>W: POST /webhook
-  W->>A: POST /process
-  A->>API: tool preparar_retiro_guardadito — GET /api/v1/savings/position
-  API->>NV: UiPoolDataProviderV3.getUserReservesData(wallet) → underlyingBalance
-  NV-->>API: { nUsdcBalance, underlyingUsdc: 53_000_000 } (ej: 53 USDC)
-  API->>DB: SELECT savings_positions WHERE wallet → deposited=50_000_000, principal_withdrawn=0
-  API->>API: yieldEarned = 53_000_000 − (50_000_000 − 0) = 3_000_000
-  API->>API: fee = 3_000_000 × 20% = 600_000 (0.60 USDC)
-  API->>API: userReceives = 53_000_000 − 600_000 = 52_400_000
-  API-->>A: { underlyingUsdc: 53, fee: 0.60, userReceives: 52.40 }
-  A->>K: chat.completions.create con preview
-  K-->>A: "Tenés 53 USDC (ganaste 3 USDC). El fee es $0.60 (20% de lo ganado). ¿Confirmás retirar $52.40?"
-  A-->>W: { reply: "Tenés 53 USDC..." }
-  W->>TW: send
-  TW-->>U: "Tenés 53 USDC..."
-
-  U->>TW: "sí"
-  TW->>W: POST /webhook
-  W->>A: POST /process
-  A->>API: tool confirmar_retiro_guardadito — POST /api/v1/savings/withdraw { amountMicroUsdc: 53_000_000 }
-  API->>API: Construye UserOp con 2 calls:<br/>1. NeverlandPool.withdraw(usdc, 53 USDC, kernelWallet)<br/>2. USDC.transfer(feeWallet, 600_000)
-  API->>TK: signEvmPayload({ subOrgId, walletId, userOpDigest })
-  TK-->>API: firma
-  API->>PIM: eth_sendUserOperation
-  PIM->>NV: withdraw — burn nUSDC → 53 USDC al Kernel wallet
-  PIM->>FW: USDC.transfer(feeWallet, 0.60 USDC)
-  PIM-->>API: { txHash }
-  API->>DB: UPDATE savings_positions SET principal_withdrawn_micro_usdc += 50_000_000, status=closed
-  API-->>A: { status: confirmed, userReceived: 52_400_000, feePaid: 600_000, txHash }
-  A->>K: chat.completions.create con tool result
-  K-->>A: "Listo! Retiraste $52.40 USDC a tu billetera. Se cobró $0.60 de fee (20% de lo que ganaste)."
-  A-->>W: { reply }
-  W->>TW: send
-  TW-->>U: "Listo! Retiraste $52.40..."
-```
-
-### Notas importantes
-
-- El fee es **solo sobre el yield** — en el ejemplo, el usuario depositó $50 y ganó $3, el fee es el 20% de $3 = $0.60. El principal ($50) vuelve íntegro.
-- Si no hay yield (underlyingUsdc ≤ deposited), el fee es $0.
-- El UserOp es atómico: withdraw + fee transfer se ejecutan en el mismo bloque. No hay estado intermedio.
-
----
-
-## 8. Guardadito — consultar balance
-
-### Sequence
-
-```mermaid
-sequenceDiagram
-  participant U as Usuario WhatsApp
-  participant TW as Twilio
-  participant W as apps/whatsapp :3002
-  participant A as apps/agent :3003
-  participant K as Moonshot/Kimi K2
-  participant API as apps/api :3001
-  participant DB as Postgres
-  participant NV as Neverland (UiPoolDataProviderV3)
-
-  U->>TW: "¿cuánto tengo en mi chanchito?"
-  TW->>W: POST /webhook
-  W->>A: POST /process
-  A->>K: chat.completions.create
-  K-->>A: tool_calls=[{ name: "consultar_guardadito", args: {} }]
-  A->>API: GET /api/v1/savings/position
-  API->>NV: getUserReservesData(wallet) → underlyingUsdc, apy
-  NV-->>API: { underlyingUsdc: 53_000_000, apy: 0.1298 }
-  API->>DB: SELECT savings_positions WHERE wallet → deposited=50_000_000, principal_withdrawn=0
-  API->>API: yieldEarned = 53_000_000 − 50_000_000 = 3_000_000
-  API-->>A: { deposited: 50, currentValue: 53, yieldEarned: 3, apy: 12.98 }
-  A->>K: chat.completions.create con tool result
-  K-->>A: "Tu chanchito tiene $53 USDC ahora mismo. Empezaste con $50, ya ganaste $3. La tasa de hoy es 12.98% anual."
-  A-->>W: { reply }
-  W->>TW: send
-  TW-->>U: "Tu chanchito tiene $53..."
-```
-
-### Guardadito — APR + nudge gate
-
-**APR injection** (`apps/agent/src/lib/savingsContext.ts`): en cada turno del agent donde existe wallet, se inyecta al system prompt:
-
-```
-Tasa anual actual del chanchito: X.XX% (variable, no garantizado)
-```
-
-`X.XX` viene de `GET /api/v1/savings/summary` → en producción (`YIELD_STRATEGY_PROVIDER=neverland`) es el APY real leído de Neverland via `UiPoolDataProviderV3`. La tasa actual es ~13% (variable, depende del mercado). La regla del system prompt "PORCENTAJE / GANANCIA — REGLA FUNDAMENTAL" obliga al LLM a usar este número exacto cuando el user pregunta cuánto rinde.
-
-**Nudge gate** (`apps/agent/src/lib/nudgeGate.ts`): sugerencias proactivas de Guardadito disparan solo cuando:
-
-- **Trigger**: el user manda un saludo (`hola`, `buenas`) **O** los últimos 6 mensajes contienen un tool result con `tanda_id` + `signature` (post-tanda).
-- **Guard**: no hay fila en `savings_nudges` para este user en las últimas 24h.
-- Después de entregar la sugerencia, se inserta una fila en `savings_nudges` para arrancar el cooldown de 24h.
+| Onboarding | `apps/api/src/routes/onboarding.ts`, `packages/wallet-infra/src/sessionKey/` |
+| Transferencia | `apps/api/src/routes/transfersMonad.ts`, `apps/api/src/lib/monadSessionSigner.ts`, `monadUsdcTransfer.ts`, `wallet-infra/.../sign.ts` |
+| Políticas session key | `packages/wallet-infra/src/sessionKey/policies.ts` |
+| KYC | `apps/api/src/routes/kyc.ts`, `lib/sumsubClient.ts`, webhook `routes/webhooks.ts` |
+| Guardadito | `apps/api/src/routes/savings.ts`, `lib/savings/neverlandSavingsAdapter.ts` |
+| Tandas / disputas (FASE 2) | `packages/monad-contracts/src/Comadre.sol`, `apps/cron/`, `apps/api/src/lib/stubs.ts` |
