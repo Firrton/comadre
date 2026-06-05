@@ -26,6 +26,8 @@ keypairs/
 .env
 .env.local
 .env.*.local
+.env.test
+*.env.test
 !.env.example
 
 # Logs
@@ -74,3 +76,8 @@ temp/
 
 # Claude Code agent worktrees (created on the fly by Agent tool)
 .claude/worktrees/
+
+# Agent tooling (local session artifacts, not versioned)
+.agents/
+.atl/
+skills-lock.json
