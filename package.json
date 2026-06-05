@@ -2,14 +2,7 @@
   "name": "comadre",
   "version": "0.0.1",
   "private": true,
-  "description": "AI Agent Tía de LATAM — tandas, crédito social y ahorro en USDC",
-  "workspaces": [
-    "apps/api",
-    "apps/agent",
-    "apps/cron",
-    "apps/whatsapp",
-    "packages/*"
-  ],
+  "description": "Comadre — agente de IA en WhatsApp: wallet custodial en Monad para gente no-cripto (enviar, recibir, ahorrar)",
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
@@ -19,9 +12,9 @@
     "clean": "turbo run clean && rm -rf node_modules",
     "forge:build": "cd packages/monad-contracts && forge build",
     "forge:test": "cd packages/monad-contracts && forge test",
-    "db:generate": "cd packages/db && bunx drizzle-kit generate",
+    "db:generate": "cd packages/db && pnpm exec drizzle-kit generate",
     "db:migrate": "cd packages/db && bun --env-file=../../.env --env-file=../../.env.local run scripts/migrate.ts",
-    "db:studio": "cd packages/db && bunx drizzle-kit studio"
+    "db:studio": "cd packages/db && pnpm exec drizzle-kit studio"
   },
   "devDependencies": {
     "turbo": "^2.3.0",
@@ -30,7 +23,9 @@
     "prettier": "^3.4.0"
   },
   "engines": {
-    "bun": ">=1.2.0"
+    "node": ">=20",
+    "bun": ">=1.2.0",
+    "pnpm": ">=10"
   },
-  "packageManager": "bun@1.2.0"
+  "packageManager": "pnpm@10.29.3"
 }

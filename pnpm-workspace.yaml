@@ -1,0 +1,6 @@
+packages:
+  - "apps/api"
+  - "apps/agent"
+  - "apps/cron"
+  - "apps/whatsapp"
+  - "packages/*"

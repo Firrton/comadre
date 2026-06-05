@@ -74,8 +74,8 @@ android/app/build/
 tmp/
 temp/
 
-# Claude Code agent worktrees (created on the fly by Agent tool)
-.claude/worktrees/
+# Claude Code local state (worktrees, project memory, local skills) — not versioned
+.claude/
 
 # Agent tooling (local session artifacts, not versioned)
 .agents/
