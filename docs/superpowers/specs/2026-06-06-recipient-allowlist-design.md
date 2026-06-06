@@ -2,34 +2,44 @@
 
 - **Fecha:** 2026-06-06
 - **Rama:** `feat/recipient-allowlist` (stacked sobre `chore/green-test-suite` → `feat/db-uuid-identity` / PR #26)
-- **Hallazgo de auditoría:** COM-004 (CRITICAL) — OWASP LLM01
-- **Estado:** propuesta de diseño, pendiente de aprobación del owner
+- **Hallazgo de auditoría:** COM-004 (CRITICAL) — OWASP LLM01. (Parte 3 = COM-033.)
+- **Estado:** diseño revisado y aprobado sección por sección con el owner.
 
 ---
 
 ## 1. Contexto y problema
 
-El LLM mueve dinero vía el tool `enviar_plata` → `POST /api/v1/transfers-monad` → `signMonadTransfer` (firma con session key Turnkey). Un prompt injection en contenido que el LLM ingiere puede disparar un envío al destinatario del atacante. El cap por transacción (`perCallCapMicroUsdc`) limita el **monto**, no el **a-quién** — la cuenta se puede drenar en múltiples envíos.
+El LLM mueve dinero vía el tool `enviar_plata` → `POST /api/v1/transfers-monad` → `signMonadTransfer` (firma con session key Turnkey). Un prompt injection en contenido que el LLM ingiere puede disparar un envío al destinatario del atacante.
 
-### Estado actual verificado (NO el de la auditoría, que quedó viejo)
+### Estado actual verificado (no el de la auditoría, que quedó viejo)
 
-El doc `docs/audits/03-security.md` describe el estado pre-fix. El código actual ya tiene un fix parcial ("Phase 1B"), pero **falla abierto**:
+El fix "Phase 1B" existe pero **falla abierto**:
+- `monadSessionSigner.ts:70-83`: el chequeo existe pero (L76) con allowlist vacía no valida, y (L74) con calldata indecodificable firma igual.
+- `onboarding.ts:416`: instala con `allowedRecipients: []` → en la práctica **hoy nadie tiene enforcement de destinatario**.
+- `onboarding.ts:407`: `permissionId: ""` (COM-033) → sin revocación on-chain.
+- `systemPrompt.ts:89`: la "confirmación" actual es que el LLM pregunte → falsificable por la misma inyección.
 
-- **`apps/api/src/lib/monadSessionSigner.ts:70-83`** — el enforcement de destinatario EXISTE pero:
-  - **Línea 76:** `if (allowedRecipients.length > 0)` → con allowlist vacía no valida nada.
-  - **Línea 74:** `if (decoded)` → si el calldata no decodifica como `transfer(to,amount)`, firma sin chequear.
-- **`apps/api/src/routes/onboarding.ts:416`** instala con `allowedRecipients: []` → en la práctica, **hoy nadie tiene enforcement de destinatario**.
-- **`onboarding.ts:407`** instala con `permissionId: ""` (COM-033) → sin revocación on-chain (`uninstallValidator`).
-- **La "confirmación" actual** es que `systemPrompt.ts:89` le pide al LLM que pregunte antes de enviar. **Eso es lo que LLM01 rompe**: una confirmación interpretada por el LLM es falsificable por la misma inyección.
+### El punto de fondo: dos ejes de control, uno roto
+
+| Eje | Control on-chain | Control backend | Estado |
+|-----|------------------|-----------------|--------|
+| **Monto** | `transfer` capeado `≤ cap` (`policies.ts:142`) | `perCallCapMicroUsdc` (`signer:66`) | ✓ Dos capas |
+| **Destinatario** | abierto a propósito — `transferTargetPinTo` queda `null` (`policies.ts:138-141`) | el signer es el control designado… **pero falla abierto** (L74/L76) | ✗ Roto |
+
+El comentario en `policies.ts:131-132` lo dice explícito: la arquitectura **delega** el enforcement del destinatario al backend. El problema no es el on-chain — es que el control que debía compensar no funciona, y la "confirmación" del LLM no es vinculante.
+
+**Por qué el cap no alcanza:** acota el daño POR transacción, no el acumulado. El rate-limit on-chain es por **operaciones** (10 ops / 60s — `DAILY_RATE_OPS`), no por monto: hasta ~$500/min. Es un lomo de burro, no un muro.
+
+**Consecuencia:** todo el cambio es sobre el eje "a-quién" — endurecer el único control designado (el signer) y agregar el camino legítimo de "contacto nuevo" (la confirmación), que el propio comentario on-chain ya anticipaba ("OOB flow"). El eje "monto" no se toca.
 
 ---
 
-## 2. Decisiones tomadas (por el owner)
+## 2. Decisiones tomadas
 
-1. **Allowlist incremental + confirmación.** Un destinatario nuevo exige confirmación explícita; al confirmar, se agrega a `allowedRecipients` y los próximos envíos a ese destinatario NO piden confirmación. Cierra el vector sin depender de una agenda de contactos.
-2. **Confirmación validada por el backend, sin OTP.** El signer pasa a fail-closed. Agregar a la allowlist ocurre SOLO cuando el backend valida una respuesta afirmativa genuina del usuario contra un intent pendiente. El LLM nunca decide "confirmado".
-3. **Estado pendiente en `transfers`** con un nuevo status `awaiting_confirmation`. La fila misma carga los datos para reanudar.
-4. **Enforcement off-chain en el signer** (no on-chain). Ver §10.
+1. **Allowlist incremental + confirmación.** Destinatario nuevo → confirmación explícita; al confirmar se agrega a `allowedRecipients` y los próximos envíos a ese destinatario no preguntan.
+2. **Confirmación validada por el backend, sin OTP.** Signer fail-closed. Agregar a la allowlist ocurre SOLO cuando el backend valida una respuesta afirmativa genuina contra un intent pendiente. El LLM nunca decide "confirmado".
+3. **Estado pendiente en `transfers`** con nuevo status `awaiting_confirmation`.
+4. **Enforcement off-chain en el signer** (no on-chain) — la arquitectura ya delega a propósito al backend.
 
 ---
 
@@ -37,48 +47,49 @@ El doc `docs/audits/03-security.md` describe el estado pre-fix. El código actua
 
 | Capa | Archivo | Cambio |
 |------|---------|--------|
-| Signer | `apps/api/src/lib/monadSessionSigner.ts` | **Fail-closed**: quitar el fail-open de allowlist vacía (L76) y el de calldata indecodificable (L74). Sin destinatario probadamente permitido → no firma. |
-| Schema | `packages/db/src/schema.ts` + migración | Nuevo valor `awaiting_confirmation` en `transferStatusEnum`. |
-| Ruta transfer | `apps/api/src/routes/transfersMonad.ts` | Path inmediato: si el destinatario NO está en allowlist → crear `awaiting_confirmation` (sin firmar) y devolver `needsConfirmation`. Nuevo endpoint interno `POST /resolve-confirmation`. |
-| Agente | `apps/agent/src/index.ts` | En cada inbound, ANTES del loop del LLM, llamar a `/resolve-confirmation`. Si el backend lo resuelve, relevar el resultado y NO invocar al LLM. |
-| Tool | `packages/agent-tools/src/tools.ts` | `enviar_plata` maneja `needsConfirmation` y devuelve al LLM el prompt canónico para relevar. |
-| System prompt | `apps/agent/src/lib/systemPrompt.ts` | Aclarar que la confirmación de destinatario nuevo la maneja el sistema (no inventar confirmaciones). |
-| Onboarding | `apps/api/src/routes/onboarding.ts` | Poblar `permissionId` + `policiesJson` al instalar (parte 3). |
+| Signer | `monadSessionSigner.ts` | Fail-closed: quitar fail-open de allowlist vacía (L76) y de calldata indecodificable (L74); reason nuevo `undecodable_calldata`. |
+| Schema | `schema.ts` + migración | Nuevo valor `awaiting_confirmation` en `transferStatusEnum` (`ALTER TYPE ADD VALUE`). |
+| Ruta transfer | `transfersMonad.ts` | Pre-check de allowlist en path inmediato; fuera de lista → `awaiting_confirmation` + `needsConfirmation`. Nuevo `POST /resolve-confirmation`. |
+| Agente | `apps/agent/src/index.ts` | Helper `resolveTransferConfirmation()` (en `agent-tools/apiClient`, reusa HMAC); llamarlo antes del loop del LLM; `handled:true` → relevar y saltear LLM; **fail-open** ante error. |
+| Tool | `agent-tools/src/tools.ts` + `types.ts` | **B2:** nuevo discriminante `confirmation` en `ToolResult`; el agente releva el `confirmationPrompt` **verbatim** y corta el turno. |
+| System prompt | `systemPrompt.ts` | Apuntar a `enviar_plata` (NO a los tools legacy `confirmar_transfer`/`iniciar_transfer`). El LLM releva prompts del backend; no inventa confirmaciones. |
+| Onboarding | `onboarding.ts` | Poblar `permissionId` + `policiesJson` al instalar (parte 3 / COM-033). |
+
+**Decisiones de §3:** TTL = **15 min**. Vocabulario de contrato estandarizado (ver §4).
 
 ---
 
-## 4. Flujo de datos
+## 4. Flujos de datos
 
-### 4.1 Envío a destinatario NUEVO (registrado, path inmediato)
-
+### 4.1 — Envío a destinatario NUEVO (registrado)
 ```
-LLM → enviar_plata(to_phone, amount) → POST /api/v1/transfers-monad
-  backend: recipient registrado; recipientWallet NO está en allowedRecipients
-  → INSERT transfers (status=awaiting_confirmation, TTL 5 min, datos completos)
-  → 200 { ok:true, needsConfirmation:true, confirmationPrompt }
-  tool → devuelve al LLM el confirmationPrompt
-  agente → relata: "Es la primera vez que enviás a +52XXX. ¿Confirmás 50 USDC? Respondé SÍ."
+LLM → enviar_plata(to_phone, amount) → POST /transfers-monad
+  backend: recipientWallet NO está en allowedRecipients
+  → INSERT transfers (status=awaiting_confirmation, expiresAt=now+15min, datos completos)
+  → 200 { ok:true, needsConfirmation:true, transferId, amountUsdc, confirmationPrompt, expiresAt }
+  tool → ToolResult tipo `confirmation` (lleva confirmationPrompt)
+  agente → releva confirmationPrompt VERBATIM y corta el turno (el LLM no lo toca)
 ```
 
-### 4.2 Resolución de la confirmación (segundo inbound)
-
+### 4.2 — Resolución (segundo inbound)
 ```
-[USER responde "SÍ" — inbound real desde SU número]
+[USER responde — inbound real desde SU número]
   whatsapp → agente /process
-  → ANTES del loop del LLM: POST /api/v1/transfers-monad/resolve-confirmation { senderPhone, message }
-     backend:
-       - busca awaiting_confirmation abierto del sender (no expirado)
-       - parsea el mensaje (set explícito de afirmativos/negativos — backend, no LLM)
-       - AFIRMATIVO → add recipientWallet a allowedRecipients → signMonadTransfer
-                      → update transfer confirmed/failed → { handled:true, outcome }
-       - NEGATIVO   → update transfer cancelled → { handled:true, outcome:"cancelled" }
-       - NINGUNO/AMBIGUO → { handled:false }
-  → handled:true  → el agente relata el outcome y NO llama al LLM
-  → handled:false → el agente sigue al loop del LLM como hoy
+  → ANTES del loop del LLM: resolveTransferConfirmation(senderPhone, message)
+       → POST /resolve-confirmation { senderPhone, message }
+     backend (busca awaiting_confirmation abierto del sender, no expirado):
+       - sin pendiente            → { handled:false }
+       - afirmativo               → append recipientWallet a allowedRecipients (atómico, lowercase)
+                                     → signMonadTransfer → update confirmed/failed
+                                     → { handled:true, outcome:'confirmed', reply, txHash }
+       - negativo                 → update cancelled → { handled:true, outcome:'cancelled', reply }
+       - ambiguo (con pendiente)  → { handled:true, outcome:'reprompted', reply }   ← §8.a
+  → handled:true  → el agente releva `reply` y NO llama al LLM
+  → handled:false → sigue al loop del LLM como hoy
+  (si /resolve-confirmation falla/timeout → fail-open: log y sigue al LLM; no se confirma nada, la fila expira)
 ```
 
-### 4.3 Envío repetido al MISMO destinatario
-
+### 4.3 — Envío repetido al MISMO destinatario
 ```
 recipientWallet YA está en allowedRecipients → path inmediato firma directo, sin preguntar.
 ```
@@ -87,85 +98,114 @@ recipientWallet YA está en allowedRecipients → path inmediato firma directo, 
 
 ## 5. Modelo de datos
 
-- `transferStatusEnum`: agregar `'awaiting_confirmation'` (junto a `pending | awaiting_recipient | confirmed | expired | cancelled | failed`).
-- Reusar la fila `transfers` existente como estado pendiente: ya tiene `senderId`, `recipientId`, `recipientWallet`, `recipientPhoneHash`, `amountMicroUsdc`, `note`, `expiresAt`.
-- `expiresAt` para `awaiting_confirmation`: **5 minutos**. Expiración lazy (se chequea al leer; los cron jobs se sacaron en el refactor UUID).
-- Regla: **una sola confirmación abierta por sender**. Un nuevo `enviar_plata` a otro destinatario nuevo cancela (supersede) la anterior.
+- `transferStatusEnum`: agregar `'awaiting_confirmation'` (después de `'awaiting_recipient'`).
+- **Sin columnas nuevas.** La fila `transfers` ya tiene `senderId`, `recipientId`, `recipientWallet` (el address que se agrega a la allowlist), `recipientPhoneHash`, `amountMicroUsdc`, `note`, `expiresAt`, `confirmedAt`, `txSignature`, `failureReason`.
+- **`expiresAt = now + 15 min` es una ventana de SEGURIDAD**, no de limpieza: evita que un "sí" descolgado mucho después confirme un pendiente plantado por inyección.
+- **Invariante "uno abierto por sender":** al crear un `awaiting_confirmation`, cancelar cualquier otro abierto del mismo sender (supersede) → el "sí" queda inequívoco.
+- **Expiración lazy (sin cron):** la lookup filtra `expiresAt > now`; opcionalmente marca `expired` de paso.
+- **Query de resolución:** `transfers` WHERE `senderId = <sender>` AND `status = 'awaiting_confirmation'` AND `expiresAt > now()` ORDER BY `createdAt DESC` LIMIT 1. Conviene índice `(senderId, status)`.
 
 ---
 
-## 6. Enforcement del signer (parte 1, fail-closed)
+## 6. Enforcement del signer (fail-closed)
 
-`monadSessionSigner.ts` — nueva semántica:
+`monadSessionSigner.ts`, nueva semántica:
+1. Decodificar calldata. Si NO decodifica como `transfer(to, amount)` → rechazar `undecodable_calldata`.
+2. Si decodifica → el destinatario DEBE estar en `allowedRecipients` (lowercase). Vacío o ausente → `recipient_not_allowed`.
 
-1. Decodificar el calldata. Si NO decodifica como `transfer(to, amount)` → **rechazar** (`recipient_not_allowed` o nuevo reason `undecodable_calldata`). No se puede probar el destinatario → no se firma.
-2. Si decodifica: el destinatario DEBE estar en `allowedRecipients` (comparación lowercase). Vacío o no-presente → **rechazar** (`recipient_not_allowed`).
+Se quitan los dos fail-open (L74, L76).
 
-> Esto invierte el fail-open actual. Con allowlist incremental, el primer envío a cualquiera siempre cae en "no permitido" → dispara confirmación. Es el comportamiento esperado.
+**Defensa en profundidad:** en los caminos felices el signer siempre recibe un destinatario ya permitido (la ruta deriva los no-permitidos a confirmación; `/resolve-confirmation` agrega antes de firmar). El signer fail-closed es el **backstop** para cualquier otro path.
 
-`transfersMonad.ts` — el reason `recipient_not_allowed` en el path inmediato ya no es un 403 duro: se traduce en crear `awaiting_confirmation` + `needsConfirmation` (el endpoint decide esto ANTES de llamar al signer chequeando membership; el signer queda como defensa en profundidad).
+**Gotcha de orden:** en `/resolve-confirmation`, el append a `allowedRecipients` debe estar **commiteado antes** de llamar al signer (que re-lee la session key desde la DB).
 
 ---
 
-## 7. permissionId al instalar (parte 3)
+## 7. `permissionId` + `policiesJson` al instalar (parte 3 / COM-033)
 
-- Poblar `session_keys.permissionId` y `session_keys.policiesJson` en `onboarding.ts` al crear la session key.
-- `revoke.ts` hoy reconstruye el plugin desde las policies (no usa un `permissionId` guardado), así que la revocación blanda funciona; poblar `permissionId` habilita el path directo `uninstallValidator(permissionId)` y deja trazabilidad.
-- **A confirmar en implementación:** la API exacta del SDK ZeroDev para obtener el `permissionId` determinístico desde `toPermissionValidator` (extender `ApproveSessionKeyResult` vs computarlo server-side desde `buildPolicies()`). No bloquea el diseño.
+Independiente del fix de allowlist; habilita el kill-switch on-chain. **Option B (rebuild server-side):**
+1. Al instalar (`onboarding.ts`), reconstruir el validator con el **address de la session key** (signer vacío vía `addressToEmptyAccount`) + los mismos inputs de `buildPolicies()`.
+2. `toPermissionValidator(...).getIdentifier()` → `permissionId`.
+3. `policiesJson` guarda los **inputs** de las policies (`kind`, addresses, caps, flag Neverland) — NO los objetos `Policy` (callbacks no serializables).
+
+**DRY:** extraer un helper compartido en `wallet-infra` (`computePermissionId(input)`) usado por install y `revoke.ts`. Rebuild server-side evita mismatches por diferencia de versión cliente/server.
 
 ---
 
 ## 8. Casos borde
 
-- **Calldata indecodificable** → fail-closed (rechaza).
-- **Confirmación ambigua** (ni sí ni no claro) → `{ handled:false }`; el intent queda abierto hasta el TTL; el mensaje pasa al LLM como normal.
-- **Múltiples pendientes** → uno por sender; el nuevo supersede al anterior (cancela).
-- **TTL vencido** → al leer, si expiró se marca `expired` y se trata como inexistente.
-- **Path deferred** (destinatario no registrado) → no firma, no aplica el gate todavía. El release (cuando el destinatario se registra) pasa por el mismo signer fail-closed; el manejo de allowlist en el release queda documentado como sub-caso aparte (no es el vector de drenaje; el path de release automático puede no existir aún).
+- **Calldata indecodificable** → fail-closed (§6).
+- **Múltiples pendientes** → uno por sender, supersede (§5).
+- **TTL vencido** → lazy filter (§5).
 - **Self-transfer** → ya bloqueado en `transfersMonad.ts`.
+- **8.a — Confirmación ambigua con pendiente** → el backend devuelve un **re-prompt** (`outcome:'reprompted'`, `handled:true`), salteando el LLM; el escape es "NO"; el TTL de 15 min lo libera. (No infinito: tras el TTL, se libera solo.)
+- **8.b — Path deferred** (destinatario no registrado) → **fuera de alcance, documentado**: no firma, no aplica el gate todavía; el release futuro pasará por el mismo signer fail-closed y, si no está en allowlist, caerá en `awaiting_confirmation`. No es el vector de drenaje.
 
 ---
 
-## 9. Seguridad — por qué es injection-proof
+## 9. Por qué es injection-proof
 
-- El "agregar a allowedRecipients" vive SOLO dentro de `/resolve-confirmation`, disparado SOLO por una respuesta afirmativa genuina, desde el número del usuario, contra un intent abierto.
-- **No existe ningún tool** que el LLM pueda llamar para agregar a la allowlist.
-- El **parseo del afirmativo** lo hace el backend, no el LLM → la inyección no puede fabricar el "el usuario ya dijo que sí".
-- La inyección no puede **enviar mensajes como el usuario** (el inbound viene del número real del usuario, verificado por el webhook de Twilio).
-- El signer es fail-closed → aunque algo falle arriba, sin destinatario en la allowlist no se firma.
+- "Agregar a allowlist" vive SOLO en `/resolve-confirmation`.
+- **No existe tool** para agregar a la allowlist.
+- El **parseo del afirmativo lo hace el backend**, no el LLM.
+- La inyección **no puede mandar mensajes como el usuario** (inbound desde su número real, verificado por Twilio).
+- Signer **fail-closed** = backstop.
+- `confirmationPrompt` **verbatim** (WYSIWYG) + ventana de **15 min**.
+
+### 9.x — Riesgos residuales (honestos)
+
+1. **Signer/blob comprometido (el grande).** El enforcement es off-chain, en nuestro código. Si se compromete la clave Turnkey del agente o el blob serializado, un atacante podría firmar **directo, sin pasar por nuestro path** → la allowlist no lo frena (on-chain no pinea el destinatario). Esto es lo que cerraría el **pinning on-chain (diferido, §10)**.
+2. **Ingeniería social del usuario.** La inyección puede *disparar* un envío (se crea el pendiente y el usuario ve el `confirmationPrompt` verbatim con el número/monto reales del atacante). Para completar, el usuario tendría que decir "sí" a un número desconocido. Mitiga el verbatim; el resto es educación, no código.
+3. **Ruido de pendientes.** La inyección puede generar prompts molestos; mitigado por "uno por sender + supersede".
 
 ---
 
-## 10. Fuera de alcance (decisión explícita)
+## 10. Fuera de alcance (unidades diferidas, documentadas)
 
-- **Pinning on-chain del destinatario** (`ParamCondition.EQUAL` en `USDC.transfer`). La allowlist es incremental → pinnearla on-chain obligaría a re-instalar la session key (cambia el `permissionId`) en cada contacto nuevo: impráctico. Para el vector real (inyección por el agente, que SIEMPRE pasa por `signMonadTransfer`), el enforcement off-chain es la capa correcta. Se documenta como decisión, no como omisión.
-- Unidades separadas, después: phone hashing → HMAC+pepper; rate-limit + idempotencia adicional en `/transfers-monad`; mover `sessionPkMemory`/`seenSignatures` a Redis.
+- **Cap de monto acumulado diario con reseteo** (eje monto, defensa en profundidad).
+- **Pinning on-chain del destinatario** (`ParamCondition.EQUAL`) — cerraría el residual #1; impráctico con allowlist incremental (re-install por contacto). Documentado como decisión.
+- **Harness de test DB** (Postgres local / testcontainers) para los tests de orquestación end-to-end (§11).
+- Phone hashing → HMAC + pepper; rate-limit + idempotencia adicional en `/transfers-monad`; mover `sessionPkMemory`/`seenSignatures` a Redis.
 
 ---
 
 ## 11. Testing
 
-Tests nuevos (en `apps/api`, que corre sin infra viva con `DEV_AUTH_BYPASS`):
+**Restricción real:** los tests de `apps/api` corren **sin infra viva** (no hay test DB).
 
-- `monadSessionSigner`: rechaza destinatario fuera de allowlist (incluida lista **vacía**) ANTES de firmar.
-- `monadSessionSigner`: firma destinatario presente en allowlist.
-- `monadSessionSigner`: rechaza calldata indecodificable.
-- Flujo `transfersMonad`: destinatario nuevo → `awaiting_confirmation` + `needsConfirmation`, sin firmar.
-- `resolve-confirmation`: afirmativo → agrega a allowlist + firma; negativo → cancela; ninguno → `handled:false`.
-- Regresión: segundo envío al mismo destinatario → firma directo.
+**Funciones puras (lo crítico, infra-free) — no negociable:**
+- `evaluateRecipient(allowedRecipients, calldata)` → `{ok}` | `{ok:false, reason}`. Tests: lista vacía → rechaza; presente → ok; ausente → rechaza; `undecodable_calldata`; case-insensitivity.
+- `parseConfirmation(message)` → `affirmative | negative | ambiguous`. Tests: set conservador, trim/lowercase, falsos positivos (`sígueme` ≠ `sí`), emojis.
+- `buildConfirmationPrompt(recipient, amount)` → texto verbatim que nombra destinatario + monto.
 
----
+Encaja con el codebase (ya hay tests de funciones puras en `apps/api/src/lib/__tests__`).
 
-## 12. Unidades de entrega (PRs encadenados)
-
-1. **Signer fail-closed + tests** (chico, parte 1). Alto valor, autocontenido.
-2. **Flujo de confirmación** (mediano, parte 2): status `awaiting_confirmation` + migración, cambios en `transfersMonad`, endpoint `/resolve-confirmation`, intercepción en el agente, manejo en `enviar_plata`, system prompt. Puede acercarse al presupuesto de 400 líneas → posible PR encadenado.
-3. **`permissionId` + `policiesJson` al instalar** (chico, parte 3). Independiente.
+**Orquestación con DB → Opción A:** cobertura de funciones puras ahora + verificación manual/integración; el **harness de test DB queda como unidad aparte (§10)**.
 
 ---
 
-## 13. A confirmar en implementación
+## 12. Unidades de entrega — cadena de PRs
 
-- API exacta de ZeroDev para `permissionId` (§7).
-- Set exacto de afirmativos/negativos para `/resolve-confirmation` (§4.2) — set explícito y conservador.
-- Texto canónico del `confirmationPrompt` (debe nombrar destinatario + monto).
+**Orden por dependencia (NO por número de "parte").** Shipear el signer fail-closed antes del flujo de confirmación rompería TODOS los envíos (allowlists vacías + sin forma de poblarlas).
+
+- **PR A — Fundación (inerte):** enum + migración + funciones puras + tests. Seguro de mergear solo.
+- **PR B — Flujo de confirmación (backend + agente JUNTOS):** pre-check en `transfersMonad` + `/resolve-confirmation` + intercepción en el agente (`resolveTransferConfirmation`, fail-open) + tool B2 + system prompt. **Cierra el vector** a nivel ruta. Backend y agente van juntos por el acople. El más grande → puede pedir `size:exception`.
+- **PR C — Signer fail-closed (backstop):** cablear `evaluateRecipient` en `signMonadTransfer`. **Mergea DESPUÉS de B.** Chico.
+- **PR D — `permissionId` + `policiesJson` (COM-033):** independiente, cualquier momento.
+
+**Orden de merge seguro:** A → B → C. D suelto. (C nunca antes de B; B+agente juntos.)
+
+---
+
+## 13. Detalles finos
+
+**`parseConfirmation` — principio:** conservador, sesgado al **falso negativo** (un falso positivo confirma plata; un falso negativo solo re-pregunta). **Match de palabra entera, NUNCA substring**; normaliza trim+lowercase+sin puntuación/emoji.
+- Afirmativo: `sí`, `si`, `dale`, `ok`, `confirmo`, `yes`, `✅`
+- Negativo: `no`, `cancelar`, `cancela`, `cancelá`, `❌`
+- Resto → ambiguo. (El set se amplía iterativamente más adelante.)
+
+**Textos canónicos (backend, verbatim). `{recipientPhone}` se muestra COMPLETO** (destinatario nuevo: el usuario debe verificar a quién manda; en logs sigue redactado):
+- Inicial: *"Es la primera vez que enviás a {recipientPhone}. ¿Confirmás enviar {amount} USDC? Respondé SÍ para confirmar o NO para cancelar."*
+- Re-prompt (8.a): *"Tenés un envío pendiente de {amount} USDC a {recipientPhone}. Respondé SÍ o NO."*
+- Confirmado: *"Listo, envié {amount} USDC a {recipientPhone}."*
+- Cancelado: *"Cancelado, no envié nada."*
