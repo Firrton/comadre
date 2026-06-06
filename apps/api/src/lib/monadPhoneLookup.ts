@@ -13,6 +13,8 @@ export interface MonadPhoneLookupResult {
   phone: string;
   phoneHash: string;
   registered: boolean;
+  /** Canonical users.id (UUID). Present when registered. */
+  userId?: string;
   /** Smart wallet (Kernel) address on Monad — lowercase 0x... */
   smartWalletAddress?: string;
   /** Privy embedded EOA address (owner) — lowercase 0x... */
@@ -24,11 +26,12 @@ export async function lookupMonadByPhone(e164: string): Promise<MonadPhoneLookup
 
   const rows = await db
     .select({
+      userId: users.id,
       smartWalletAddress: smartWallets.smartWalletAddress,
       ownerAddress: smartWallets.ownerAddress,
     })
     .from(users)
-    .innerJoin(smartWallets, eq(smartWallets.userWallet, users.wallet))
+    .innerJoin(smartWallets, eq(smartWallets.userId, users.id))
     .where(eq(users.phoneHash, phoneHash))
     .limit(1);
 
@@ -39,6 +42,7 @@ export async function lookupMonadByPhone(e164: string): Promise<MonadPhoneLookup
     phone: e164,
     phoneHash,
     registered: true,
+    userId: row.userId,
     smartWalletAddress: row.smartWalletAddress,
     ownerAddress: row.ownerAddress,
   };

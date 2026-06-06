@@ -360,32 +360,35 @@ onboardingRouter.post(
     try {
       await db.transaction(async (tx) => {
         const existingByPhone = await tx
-          .select({ wallet: users.wallet })
+          .select({ id: users.id })
           .from(users)
           .where(eq(users.phoneHash, row.phoneHash))
           .limit(1);
 
-        const userWallet = existingByPhone[0]?.wallet ?? normalizedOwner;
-        if (!existingByPhone[0]) {
-          await tx.insert(users).values({
-            wallet: normalizedOwner,
-            phoneHash: row.phoneHash,
-            kycTier: "t0_demo",
-            reputationScore: 0,
-            tandasCompleted: 0,
-            tandasDefaulted: 0,
-            tandasCreated: 0n,
-            loansRepaid: 0,
-            loansDefaulted: 0,
-            createdAt: now,
-            updatedAt: now,
-          });
+        let userId = existingByPhone[0]?.id;
+        if (!userId) {
+          const inserted = await tx
+            .insert(users)
+            .values({
+              phoneHash: row.phoneHash,
+              ownerAddress: normalizedOwner,
+              kycTier: "t0_demo",
+              createdAt: now,
+              updatedAt: now,
+            })
+            .returning({ id: users.id });
+          userId = inserted[0]!.id;
+        } else {
+          await tx
+            .update(users)
+            .set({ ownerAddress: normalizedOwner, updatedAt: now })
+            .where(eq(users.id, userId));
         }
 
         const insertedSmartWallet = await tx
           .insert(smartWallets)
           .values({
-            userWallet,
+            userId,
             privyUserId: row.privyUserId!,
             ownerAddress: normalizedOwner,
             smartWalletAddress: normalizedSmart,

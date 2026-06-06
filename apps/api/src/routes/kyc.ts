@@ -23,12 +23,12 @@ kycRouter.post("/session", async (c) => {
 
   // Stub path — Sumsub not configured (dev mode)
   if (!env.SUMSUB_APP_TOKEN) {
-    logger.warn({ wallet: user.walletAddress }, "[kyc] SUMSUB_APP_TOKEN not set, returning stub");
+    logger.warn({ user_id: user.id }, "[kyc] SUMSUB_APP_TOKEN not set, returning stub");
 
     const sessionRows = await db
       .insert(kycSessions)
       .values({
-        userWallet: user.walletAddress,
+        userId: user.id,
         levelName: LEVEL_NAME,
         status: "init",
       })
@@ -55,7 +55,7 @@ kycRouter.post("/session", async (c) => {
   const existingRows = await db
     .select({ id: kycSessions.id, applicantId: kycSessions.applicantId, status: kycSessions.status })
     .from(kycSessions)
-    .where(eq(kycSessions.userWallet, user.walletAddress))
+    .where(eq(kycSessions.userId, user.id))
     .limit(10);
 
   // Only reuse sessions that are still progressing — skip rejected/failed ones
@@ -70,11 +70,11 @@ kycRouter.post("/session", async (c) => {
     // Reuse existing applicant — just generate a fresh access token
     sessionId = activeSession.id;
     applicantId = activeSession.applicantId;
-    logger.info({ wallet: user.walletAddress, applicantId }, "[kyc] reusing existing applicant");
+    logger.info({ user_id: user.id, applicantId }, "[kyc] reusing existing applicant");
   } else {
     // Create a new applicant + session row
     const created = await createApplicant({
-      externalUserId: user.walletAddress,
+      externalUserId: user.id,
       levelName: LEVEL_NAME,
     });
     applicantId = created.applicantId;
@@ -82,7 +82,7 @@ kycRouter.post("/session", async (c) => {
     const inserted = await db
       .insert(kycSessions)
       .values({
-        userWallet: user.walletAddress,
+        userId: user.id,
         applicantId,
         levelName: LEVEL_NAME,
         status: "pending",
@@ -90,15 +90,15 @@ kycRouter.post("/session", async (c) => {
       .returning({ id: kycSessions.id });
 
     sessionId = inserted[0]?.id ?? "unknown";
-    logger.info({ wallet: user.walletAddress, applicantId, sessionId }, "[kyc] applicant created");
+    logger.info({ user_id: user.id, applicantId, sessionId }, "[kyc] applicant created");
   }
 
   const { token, url } = await generateAccessToken({
-    externalUserId: user.walletAddress,
+    externalUserId: user.id,
     levelName: LEVEL_NAME,
   });
 
-  logger.info({ wallet: user.walletAddress, sessionId }, "[kyc] access token generated");
+  logger.info({ user_id: user.id, sessionId }, "[kyc] access token generated");
 
   return c.json({ url, session_id: sessionId, expires_at: expiresAt.toISOString() }, 200);
 });

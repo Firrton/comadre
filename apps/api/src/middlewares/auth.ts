@@ -18,11 +18,14 @@
 
 import type { MiddlewareHandler } from "hono";
 import { PrivyClient } from "@privy-io/server-auth";
+import { db, users } from "@comadre/db";
+import { eq } from "drizzle-orm";
 import { getLogger } from "./logger.js";
 
 export type AuthUser = {
-  userId: string;
-  walletAddress: string;
+  id: string; // users.id (UUID) — canonical identity
+  ownerAddress: string; // Privy owner address (lowercase 0x)
+  privyUserId: string;
   linkedAccounts: unknown[];
 };
 
@@ -65,8 +68,9 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
       );
 
       c.set("user" as never, {
-        userId: devUserId,
-        walletAddress: devWallet,
+        id: devUserId,
+        ownerAddress: (devWallet ?? "").toLowerCase(),
+        privyUserId: devUserId,
         linkedAccounts: [],
       } satisfies AuthUser);
 
@@ -98,11 +102,26 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
     const solanaAccount = allAccounts.find(
       (a) => a.type === "wallet" && typeof a.address === "string"
     );
-    const walletAddress = solanaAccount?.address ?? claims.userId;
+    const ownerAddress = (solanaAccount?.address ?? claims.userId).toLowerCase();
+
+    // Resolve the Privy owner address → canonical users.id (UUID identity).
+    const rows = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.ownerAddress, ownerAddress))
+      .limit(1);
+
+    if (!rows[0]) {
+      return c.json(
+        { error: "unauthorized", message: "user not provisioned" },
+        401
+      );
+    }
 
     c.set("user" as never, {
-      userId: claims.userId,
-      walletAddress,
+      id: rows[0].id,
+      ownerAddress,
+      privyUserId: claims.userId,
       linkedAccounts: allAccounts,
     } satisfies AuthUser);
 

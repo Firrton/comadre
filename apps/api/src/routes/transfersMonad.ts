@@ -53,7 +53,7 @@ transfersMonadRouter.post(
     const log = getLogger(c);
 
     const sender = await lookupMonadByPhone(input.senderPhone);
-    if (!sender.registered || !sender.smartWalletAddress) {
+    if (!sender.registered || !sender.smartWalletAddress || !sender.userId) {
       return c.json(
         { error: "SENDER_NOT_ONBOARDED", message: "Aún no tenés cuenta. Decime que querés crearla." },
         404,
@@ -81,9 +81,10 @@ transfersMonadRouter.post(
       const inserted = await db
         .insert(transfers)
         .values({
-          senderWallet: sender.smartWalletAddress,
+          senderId: sender.userId,
           senderPhoneHash: sender.phoneHash,
           recipientPhoneHash: recipient.phoneHash,
+          recipientId: null,
           recipientWallet: null,
           amountMicroUsdc: microUsdc,
           note: input.note ?? null,
@@ -107,9 +108,10 @@ transfersMonadRouter.post(
     const inserted = await db
       .insert(transfers)
       .values({
-        senderWallet: sender.smartWalletAddress,
+        senderId: sender.userId,
         senderPhoneHash: sender.phoneHash,
         recipientPhoneHash: recipient.phoneHash,
+        recipientId: recipient.userId!,
         recipientWallet: recipient.smartWalletAddress!,
         amountMicroUsdc: microUsdc,
         note: input.note ?? null,

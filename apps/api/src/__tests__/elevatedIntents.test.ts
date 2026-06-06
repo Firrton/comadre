@@ -27,17 +27,17 @@ import { otp } from "@comadre/wallet-infra";
 // Gate: this file does real DB I/O. Opt in with RUN_DB_TESTS=1 (see header).
 const runDbTests = process.env["RUN_DB_TESTS"] === "1";
 
-const OWNER = "0x" + "a1".repeat(20); // seeded owner (lowercase)
-const OWNER_MIXED_CASE = "0x" + "A1".repeat(20); // same address, different case
-const ATTACKER = "0x" + "b2".repeat(20); // a different authenticated user
+const OWNER = "0x" + "a1".repeat(20); // owner address (lowercase) — stored as users.ownerAddress
+const OWNER_ID = "11111111-1111-4111-8111-111111111111"; // seeded owner users.id (UUID)
+const ATTACKER_ID = "22222222-2222-4222-8222-222222222222"; // a different authenticated user (UUID)
 const OWNER_PHONE = "+5215555550123";
 
 let intentId: string;
 
-function devHeaders(wallet: string): Record<string, string> {
+function devHeaders(userId: string): Record<string, string> {
   return {
-    "X-Dev-Wallet": wallet,
-    "X-Dev-User-Id": `test-${wallet.slice(2, 8)}`,
+    "X-Dev-Wallet": OWNER,
+    "X-Dev-User-Id": userId,
     "Content-Type": "application/json",
     // Unique per request so the idempotency middleware never returns a cached body.
     "X-Idempotency-Key": crypto.randomUUID(),
@@ -61,18 +61,19 @@ if (runDbTests)
       }
 
       // Clean leftovers from a prior failed run (cascades to smart_wallets + intents).
-      await db.delete(users).where(eq(users.wallet, OWNER));
+      await db.delete(users).where(eq(users.id, OWNER_ID));
 
       await db.insert(users).values({
-        wallet: OWNER,
+        id: OWNER_ID,
         phoneHash: "f2-test-phone-hash",
+        ownerAddress: OWNER,
         createdAt: new Date(),
       });
 
       const sw = await db
         .insert(smartWallets)
         .values({
-          userWallet: OWNER,
+          userId: OWNER_ID,
           privyUserId: "f2-test-privy",
           ownerAddress: OWNER,
           smartWalletAddress: "0x" + "c3".repeat(20),
@@ -95,13 +96,13 @@ if (runDbTests)
 
     afterAll(async () => {
       // Deleting the user cascades to smart_wallets → elevated_intents.
-      await db.delete(users).where(eq(users.wallet, OWNER));
+      await db.delete(users).where(eq(users.id, OWNER_ID));
     });
 
     it("returns 404 when a different user confirms someone else's intent", async () => {
       const res = await app.request(`/api/v1/elevated-intents/${intentId}/confirm`, {
         method: "POST",
-        headers: devHeaders(ATTACKER),
+        headers: devHeaders(ATTACKER_ID),
         body: JSON.stringify({ code: "123456" }),
       });
 
@@ -109,15 +110,15 @@ if (runDbTests)
       expect(res.status).toBe(404);
     });
 
-    it("does not 404 the legitimate owner (case-insensitive match)", async () => {
+    it("does not 404 the legitimate owner", async () => {
       const res = await app.request(`/api/v1/elevated-intents/${intentId}/confirm`, {
         method: "POST",
-        headers: devHeaders(OWNER_MIXED_CASE),
+        headers: devHeaders(OWNER_ID),
         body: JSON.stringify({ code: "000000" }),
       });
 
-      // Owner passes the ownership gate and reaches OTP verification (mocked → 401).
-      // Guards against an over-aggressive fix and proves case-insensitive matching.
+      // Owner (matching users.id) passes the ownership gate and reaches OTP
+      // verification (mocked → non-404). Guards against an over-aggressive fix.
       expect(res.status).not.toBe(404);
     });
   });

@@ -111,22 +111,22 @@ webhooksRouter.post("/sumsub", async (c) => {
 
     if (approved) {
       const sessionRows = await db
-        .select({ userWallet: kycSessions.userWallet })
+        .select({ userId: kycSessions.userId })
         .from(kycSessions)
         .where(eq(kycSessions.applicantId, event.applicantId))
         .limit(1);
 
-      const userWallet = sessionRows[0]?.userWallet;
+      const userId = sessionRows[0]?.userId;
 
-      if (userWallet) {
+      if (userId) {
         // Update users.kycTier in the DB
         await db
           .update(users)
           .set({ kycTier: "t2_standard", updatedAt: new Date() })
-          .where(eq(users.wallet, userWallet));
+          .where(eq(users.id, userId));
 
         logger.info(
-          { applicant_id: event.applicantId, userWallet, newTier: "t2_standard" },
+          { applicant_id: event.applicantId, userId, newTier: "t2_standard" },
           "[sumsub] user tier upgraded (DB only — TODO(monad-kyc): on-chain tier update pending)",
         );
         // TODO(monad-kyc): call Monad smart contract to update KYC tier on-chain

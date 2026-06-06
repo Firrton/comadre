@@ -2,7 +2,7 @@
  * /api/v1/savings — Guardadito.
  *
  * User-facing product language is "Guardadito"; technical providers remain
- * internal strategy adapters (`mock` by default, `kamino` behind env).
+ * internal strategy adapters (`mock` by default, `neverland` behind env).
  *
  * NOTE: non-mock providers that required Solana SPL signing (Privy + submitWithRetry)
  * now return 501 pending Monad migration.
@@ -37,16 +37,16 @@ export const savingsRouter = new Hono();
 const SAVINGS_ACTION_TTL_SECONDS = 5 * 60;
 const SAVINGS_TX_KEY_PREFIX = "savings:tx:";
 
-async function getAuthedUserRow(walletAddress: string) {
-  const rows = await db.select().from(users).where(eq(users.wallet, walletAddress)).limit(1);
+async function getAuthedUserRow(userId: string) {
+  const rows = await db.select().from(users).where(eq(users.id, userId)).limit(1);
   return rows[0] ?? null;
 }
 
 async function buildSummary(c: Context, user: AuthUser) {
   const adapter = getSavingsAdapter();
   const [availableMicroUsdc, strategySummary] = await Promise.all([
-    readUserUsdcBalanceMicro(c, user.walletAddress),
-    adapter.getSummary(user.walletAddress),
+    readUserUsdcBalanceMicro(c, user.ownerAddress),
+    adapter.getSummary(user.id),
   ]);
   const suggestion = calculateGuardaditoSuggestion({
     availableMicroUsdc,
@@ -88,13 +88,13 @@ async function prepareAction(
   const user = (c.get as (k: string) => unknown)("user") as AuthUser;
   const amountMicroUsdc = usdcToMicro(input.amountUsdc);
   const adapter = getSavingsAdapter();
-  const userRow = await getAuthedUserRow(user.walletAddress);
+  const userRow = await getAuthedUserRow(user.id);
   if (!userRow) {
     return c.json({ error: "USER_NOT_FOUND", message: "Tu cuenta no está registrada todavía." }, 404);
   }
 
   if (type === "deposit") {
-    const available = await readUserUsdcBalanceMicro(c, user.walletAddress);
+    const available = await readUserUsdcBalanceMicro(c, user.ownerAddress);
     if (amountMicroUsdc > available) {
       return c.json(
         {
@@ -123,7 +123,7 @@ async function prepareAction(
       throw err;
     }
   } else {
-    const summary = await adapter.getSummary(user.walletAddress);
+    const summary = await adapter.getSummary(user.id);
     if (amountMicroUsdc > summary.savedMicroUsdc) {
       return c.json(
         {
@@ -137,8 +137,8 @@ async function prepareAction(
   }
 
   const built = type === "deposit"
-    ? await adapter.buildDeposit({ wallet: user.walletAddress, amountMicroUsdc })
-    : await adapter.buildWithdraw({ wallet: user.walletAddress, amountMicroUsdc });
+    ? await adapter.buildDeposit({ wallet: user.id, amountMicroUsdc })
+    : await adapter.buildWithdraw({ wallet: user.id, amountMicroUsdc });
 
   // Non-mock providers that built Solana transactions are not supported post-migration.
   // Only the mock provider (unsignedTxBase64 absent) is functional; on-chain Monad
@@ -149,7 +149,7 @@ async function prepareAction(
   const inserted = await db
     .insert(savingsActions)
     .values({
-      userWallet: user.walletAddress,
+      userId: user.id,
       provider: built.provider,
       strategyId: built.strategyId,
       type,
@@ -205,7 +205,7 @@ savingsRouter.post("/actions/:id/confirm", async (c) => {
   const rows = await db.select().from(savingsActions).where(eq(savingsActions.id, actionId)).limit(1);
   const action = rows[0];
   if (!action) return c.json({ error: "NOT_FOUND" }, 404);
-  if (action.userWallet !== user.walletAddress) return c.json({ error: "FORBIDDEN" }, 403);
+  if (action.userId !== user.id) return c.json({ error: "FORBIDDEN" }, 403);
   if (action.status !== "pending") return c.json({ error: "INVALID_STATUS", status: action.status }, 409);
   if (action.expiresAt.getTime() < Date.now()) {
     await db.update(savingsActions).set({ status: "expired" }).where(eq(savingsActions.id, action.id));
@@ -213,7 +213,7 @@ savingsRouter.post("/actions/:id/confirm", async (c) => {
   }
 
   if (action.provider === "mock") {
-    const current = await getSavingsAdapter().getSummary(user.walletAddress);
+    const current = await getSavingsAdapter().getSummary(user.id);
     const nextSaved = action.type === "deposit"
       ? current.savedMicroUsdc + action.amountMicroUsdc
       : current.savedMicroUsdc - action.amountMicroUsdc;
@@ -221,7 +221,7 @@ savingsRouter.post("/actions/:id/confirm", async (c) => {
     await db
       .insert(savingsPositions)
       .values({
-        userWallet: user.walletAddress,
+        userId: user.id,
         provider: "mock",
         strategyId: action.strategyId,
         depositedMicroUsdc: nextSaved,
@@ -231,7 +231,7 @@ savingsRouter.post("/actions/:id/confirm", async (c) => {
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
-        target: [savingsPositions.userWallet, savingsPositions.provider, savingsPositions.strategyId],
+        target: [savingsPositions.userId, savingsPositions.provider, savingsPositions.strategyId],
         set: {
           depositedMicroUsdc: nextSaved,
           shareAmount: nextSaved.toString(),
@@ -262,7 +262,7 @@ savingsRouter.post("/actions/:id/confirm", async (c) => {
       );
     }
 
-    const walletAddress = user.walletAddress as Address;
+    const walletAddress = user.id as Address;
 
     if (action.type === "deposit") {
       let result: Awaited<ReturnType<typeof depositToNeverland>>;
@@ -299,7 +299,7 @@ savingsRouter.post("/actions/:id/confirm", async (c) => {
         .from(savingsPositions)
         .where(
           and(
-            eq(savingsPositions.userWallet, user.walletAddress),
+            eq(savingsPositions.userId, user.id),
             eq(savingsPositions.provider, "neverland"),
             eq(savingsPositions.strategyId, NEVERLAND_STRATEGY_ID),
           ),
@@ -313,7 +313,7 @@ savingsRouter.post("/actions/:id/confirm", async (c) => {
       await db
         .insert(savingsPositions)
         .values({
-          userWallet: user.walletAddress,
+          userId: user.id,
           provider: "neverland",
           strategyId: NEVERLAND_STRATEGY_ID,
           depositedMicroUsdc: newDeposited,
@@ -324,7 +324,7 @@ savingsRouter.post("/actions/:id/confirm", async (c) => {
           updatedAt: new Date(),
         })
         .onConflictDoUpdate({
-          target: [savingsPositions.userWallet, savingsPositions.provider, savingsPositions.strategyId],
+          target: [savingsPositions.userId, savingsPositions.provider, savingsPositions.strategyId],
           set: {
             depositedMicroUsdc: newDeposited,
             shareAmount: newShares.toString(),
@@ -348,7 +348,7 @@ savingsRouter.post("/actions/:id/confirm", async (c) => {
 
     // Withdrawal path
     const { deposited: preWithdrawDeposited, withdrawn: preWithdrawWithdrawn } =
-      await getPrincipalsFromDb(user.walletAddress);
+      await getPrincipalsFromDb(user.id);
     let result: Awaited<ReturnType<typeof withdrawFromNeverland>>;
     try {
       result = await withdrawFromNeverland({
@@ -381,7 +381,7 @@ savingsRouter.post("/actions/:id/confirm", async (c) => {
     await db
       .insert(savingsPositions)
       .values({
-        userWallet: user.walletAddress,
+        userId: user.id,
         provider: "neverland",
         strategyId: NEVERLAND_STRATEGY_ID,
         depositedMicroUsdc: preWithdrawDeposited,
@@ -392,7 +392,7 @@ savingsRouter.post("/actions/:id/confirm", async (c) => {
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
-        target: [savingsPositions.userWallet, savingsPositions.provider, savingsPositions.strategyId],
+        target: [savingsPositions.userId, savingsPositions.provider, savingsPositions.strategyId],
         set: {
           principalWithdrawnMicroUsdc: newPrincipalWithdrawn,
           lastKnownUnderlyingMicroUsdc: result.newPositionPrincipalMicroUsdc,
@@ -431,7 +431,7 @@ savingsRouter.post("/actions/:id/cancel", async (c) => {
   const rows = await db.select().from(savingsActions).where(eq(savingsActions.id, actionId)).limit(1);
   const action = rows[0];
   if (!action) return c.json({ error: "NOT_FOUND" }, 404);
-  if (action.userWallet !== user.walletAddress) return c.json({ error: "FORBIDDEN" }, 403);
+  if (action.userId !== user.id) return c.json({ error: "FORBIDDEN" }, 403);
   if (action.status !== "pending") return c.json({ error: "INVALID_STATUS", status: action.status }, 409);
 
   await db.update(savingsActions).set({ status: "cancelled" }).where(eq(savingsActions.id, action.id));

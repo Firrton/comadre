@@ -39,7 +39,7 @@ export const rateLimitMiddleware: MiddlewareHandler = async (c, next) => {
 
   const user = (c.get as (k: string) => unknown)("user") as AuthUser | undefined;
   const identifier =
-    user?.userId ??
+    user?.id ??
     c.req.header("X-Forwarded-For")?.split(",")[0]?.trim() ??
     "anonymous";
 
