@@ -78,16 +78,31 @@ El destinatario puede no ser usuario todavía. Modelo:
 4. Recrear la DB de cero (drop schema / fresh DB) y aplicar (`pnpm run db:migrate` o `drizzle-kit push`).
 5. `drizzle-kit generate` de nuevo debe dar **0 diffs** (schema ≡ migración).
 
-## 5. Alcance del refactor de código
+## 5. Alcance del refactor de código — **A1 (UUID de punta a punta)**
 
-~22 referencias a `users.wallet` + usos de columnas FK. Archivos clave:
-- `apps/api/src/routes/onboarding.ts` — insert `users` por `phone_hash` (obtener `id`); insert `smart_wallets` por `user_id`.
-- `apps/api/src/lib/auth.ts` / resolución de wallet — resolver `user_id` por `phone_hash` o por `smart_wallets.smart_wallet_address`.
-- `apps/api/src/routes/users.ts` — upsert por `phone_hash`/`id`.
-- Toda query que use `users.wallet` / `userWallet` / `senderWallet` / `recipientWallet`.
-- `packages/agent-tools` — cualquier tool que resuelva o use `wallet` del usuario.
+Decisión del owner: la identidad pasa a ser `user_id` (UUID) en TODO el stack, no solo en la DB. La dirección deja de viajar como token de identidad. Son **~80 sitios en 5 paquetes**. Mapa del flujo de identidad nuevo:
 
-**Red de seguridad:** el typecheck (`tsc --noEmit`) falla en rojo ante cualquier referencia no migrada. Es el verificador del refactor.
+```
+agent: resuelve phone → users.id    (userResolver devuelve userId)
+  → agent-tools: ToolContext.userId, apiClient envía X-Dev-User-Id = userId
+  → API auth middleware: PROD resuelve owner_address(Privy) → users.id por DB;
+                         DEV toma X-Dev-User-Id (= users.id) directo
+  → AuthUser = { id, ownerAddress, privyUserId, linkedAccounts }
+  → rutas: user.walletAddress → user.id ; columnas userWallet → userId
+```
+
+Piezas clave (código concreto en el plan):
+- `apps/api/src/middlewares/auth.ts` — `AuthUser` gana `id`; el middleware resuelve `owner_address → users.id` (prod) o toma `X-Dev-User-Id` (dev). Nuevo lookup a DB en prod.
+- `apps/api/src/routes/onboarding.ts` — crea `users` por `phone_hash`, guarda `owner_address`, obtiene `id`; `smart_wallets.user_id = id`.
+- `apps/api/src/routes/users.ts` — `/confirm` y `/me` por `id`.
+- `apps/agent/src/lib/userResolver.ts` — resuelve `phone → users.id` (devuelve `userId`).
+- `packages/agent-tools/src/{types,apiClient,tools,index}.ts` — `userWallet → userId`, header `X-Dev-User-Id`.
+- Renames mecánicos de queries en savings/kyc/webhooks/transfersMonad/cron + `wallet-infra/types.ts`.
+- **Se borran** (rutas tanda): `disputes.ts`, `tandas.ts` (desregistrar de `server.ts`) y la parte tanda de `reminderJob.ts`.
+
+**users gana `owner_address` TEXT UNIQUE** (nullable hasta completar onboarding) — es la llave de lookup del auth (Privy owner address, lowercase). PK = `id`; identidad humana = `phone_hash`.
+
+**Red de seguridad:** el typecheck (`tsc --noEmit`) falla en rojo ante cualquier referencia no migrada. Más TDD en la nueva resolución de identidad del auth.
 
 ## 6. Plan de verificación
 - `pnpm run typecheck` → 10/10.
