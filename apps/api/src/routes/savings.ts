@@ -12,7 +12,7 @@ import type { Context } from "hono";
 import type { Address } from "viem";
 import { zValidator } from "@hono/zod-validator";
 import { and, eq } from "drizzle-orm";
-import { db, savingsActions, savingsPositions, users } from "@comadre/db";
+import { db, savingsActions, savingsPositions, smartWallets, users } from "@comadre/db";
 import { getRedis } from "@comadre/cache";
 import { GuardaditoActionAmountInput } from "@comadre/types";
 import { getSavingsAdapter } from "../lib/savings/index.js";
@@ -262,7 +262,20 @@ savingsRouter.post("/actions/:id/confirm", async (c) => {
       );
     }
 
-    const walletAddress = user.id as Address;
+    // Resolve the user's on-chain smart wallet address (NOT the user id) for the
+    // Neverland on-chain deposit/withdraw.
+    const swRows = await db
+      .select({ addr: smartWallets.smartWalletAddress })
+      .from(smartWallets)
+      .where(eq(smartWallets.userId, user.id))
+      .limit(1);
+    const walletAddress = swRows[0]?.addr as Address | undefined;
+    if (!walletAddress) {
+      return c.json(
+        { error: "NO_WALLET", message: "No encontramos tu wallet. Creá tu cuenta primero." },
+        404,
+      );
+    }
 
     if (action.type === "deposit") {
       let result: Awaited<ReturnType<typeof depositToNeverland>>;

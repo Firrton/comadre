@@ -78,17 +78,6 @@ function hasExplicitOnboardingConsent(message: string): boolean {
   return /\b(si|dale|ok|okay|acepto|confirmo|registrame|registro|vamos|le damos)\b/.test(normalized);
 }
 
-function walletFromOnboardingResult(result: ToolResult): string | null {
-  if (result.type !== "data" || typeof result.data !== "object" || result.data === null) {
-    return null;
-  }
-
-  const walletAddress = (result.data as { walletAddress?: unknown }).walletAddress;
-  return typeof walletAddress === "string" && walletAddress.length > 0
-    ? walletAddress
-    : null;
-}
-
 export async function runAgent({
   history,
   userMessage,
@@ -104,7 +93,7 @@ export async function runAgent({
     userTurnMsg,
   ];
   const newMessages: ChatMessage[] = [userTurnMsg];
-  let effectiveUserId = userId;
+  const effectiveUserId = userId;
 
   for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
     const completion = await llmClient.chat.completions.create({
@@ -232,10 +221,6 @@ export async function runAgent({
       };
       messages.push(toolMsg);
       newMessages.push(toolMsg);
-
-      if (call.function.name === "iniciar_onboarding") {
-        effectiveUserId = walletFromOnboardingResult(result) ?? effectiveUserId;
-      }
     }
   }
 
