@@ -90,9 +90,9 @@ El **agente nunca toca la cadena directamente**. Toda firma pasa por `wallet-inf
 
 ## 5. Modelo de datos
 
-DB Postgres vía Drizzle. **21 tablas** hoy; 7 son de tandas (legacy, a borrar en la excisión de DB). Tablas vivas del MVP: smart_wallets, session_keys, auth_sessions, users, transfers, savings (Guardadito), conversations, elevated_intents, kyc.
+DB Postgres vía Drizzle. **Identidad del cliente = `users.id` (UUID surrogate).** El cliente se identifica por `phone_hash` (UNIQUE); su wallet es `smart_wallets.smart_wallet_address`; `users.owner_address` (UNIQUE) es la llave de lookup del auth (dirección owner de Privy). Todas las FKs referencian `users.id` (`user_id`).
 
-> 🖊️ **PENDIENTE** — regenerar la documentación del modelo de datos desde `packages/db/src/schema.ts` real una vez podadas las tablas de tanda. (Reemplaza al viejo `DATA_MODEL.md`, borrado por estar desactualizado.)
+Tablas vivas (14): `users`, `smart_wallets`, `session_keys`, `auth_sessions`, `elevated_intents`, `transfers`, `conversations`, `idempotency_keys`, `ramps`, `kyc_sessions`, `savings_positions`, `savings_actions`, `savings_nudges`, `contact_routes`. Las 7 tablas de tanda + 5 enums + columnas de reputación fueron **excisadas**; migraciones con baseline-reset a un único `0000_init`. Detalle: `docs/superpowers/plans/2026-06-05-db-uuid-identity.md`.
 
 ---
 
