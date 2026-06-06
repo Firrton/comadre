@@ -1,8 +1,8 @@
 /**
- * Resolve a Twilio "From" identifier to a registered user's Solana wallet.
+ * Resolve a Twilio "From" identifier to a registered user's id (users.id).
  *
  * Returns null if the user has not been onboarded yet — the agent must
- * then either ask for consent or call iniciar_onboarding (depending on
+ * then either ask for consent or run the onboarding flow (depending on
  * the system prompt's flow).
  */
 import { hashPhone } from "@comadre/cache";
@@ -12,7 +12,7 @@ import { eq } from "drizzle-orm";
 import { normalizePhoneE164 } from "./phoneNormalize.js";
 
 export interface ResolvedUser {
-  wallet: string;
+  userId: string;
   phoneE164: string;
   phoneHash: string;
 }
@@ -27,13 +27,13 @@ export async function resolveUserFromTwilio(
   const phoneHash = await hashPhone(phoneE164);
 
   const rows = await db
-    .select({ wallet: users.wallet })
+    .select({ id: users.id })
     .from(users)
     .where(eq(users.phoneHash, phoneHash))
     .limit(1);
 
-  const wallet = rows[0]?.wallet;
-  if (!wallet) return null;
+  const userId = rows[0]?.id;
+  if (!userId) return null;
 
-  return { wallet, phoneE164, phoneHash };
+  return { userId, phoneE164, phoneHash };
 }

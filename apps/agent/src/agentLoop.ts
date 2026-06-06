@@ -8,7 +8,7 @@
  *   4. Return final assistant text + every new message added during the turn
  *
  * Onboarding bypass: tools listed in `TOOLS_ALLOWED_WITHOUT_WALLET` may be
- * called even when `userWallet` is null (used for the implicit Privy onboarding
+ * called even when `userId` is null (used for the implicit Privy onboarding
  * flow when a phone messages Comadre for the first time).
  */
 import type {
@@ -33,7 +33,7 @@ export interface RunAgentArgs {
   history: ChatMessage[];
   userMessage: string;
   /** null if phone is not yet registered — only iniciar_onboarding allowed. */
-  userWallet: string | null;
+  userId: string | null;
   /** E.164 phone number (e.g. "+528116346072"), required for onboarding tool. */
   senderPhone: string;
   /** Small internal context about available/saved USDC. */
@@ -59,9 +59,9 @@ const ONBOARDING_CONSENT_REQUIRED_ERROR =
   "CONSENT_REQUIRED: antes de crear la billetera, pedile al usuario que confirme con 'sí', 'dale' o 'registrame'.";
 
 export function toolsForWalletState(
-  userWallet: string | null,
+  userId: string | null,
 ): (typeof ALL_TOOLS)[number][] {
-  if (userWallet === null) return [...ALL_TOOLS];
+  if (userId === null) return [...ALL_TOOLS];
   return ALL_TOOLS.filter((tool) => tool.function.name !== "iniciar_cuenta_segura");
 }
 
@@ -92,7 +92,7 @@ function walletFromOnboardingResult(result: ToolResult): string | null {
 export async function runAgent({
   history,
   userMessage,
-  userWallet,
+  userId,
   senderPhone,
   financialContext,
 }: RunAgentArgs): Promise<RunAgentResult> {
@@ -104,13 +104,13 @@ export async function runAgent({
     userTurnMsg,
   ];
   const newMessages: ChatMessage[] = [userTurnMsg];
-  let effectiveUserWallet = userWallet;
+  let effectiveUserId = userId;
 
   for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
     const completion = await llmClient.chat.completions.create({
       model: env.KIMI_MODEL,
       messages,
-      tools: toolsForWalletState(effectiveUserWallet),
+      tools: toolsForWalletState(effectiveUserId),
       tool_choice: "auto",
       temperature: COMADRE_LLM_TEMPERATURE,
       max_tokens: 4000,
@@ -155,7 +155,7 @@ export async function runAgent({
 
       // Reject wallet-required tools when user not registered
       if (
-        effectiveUserWallet === null &&
+        effectiveUserId === null &&
         !TOOLS_ALLOWED_WITHOUT_WALLET.has(call.function.name)
       ) {
         const errMsg: ChatCompletionToolMessageParam = {
@@ -172,7 +172,7 @@ export async function runAgent({
       }
 
       if (
-        effectiveUserWallet === null &&
+        effectiveUserId === null &&
         call.function.name === "iniciar_onboarding" &&
         !hasExplicitOnboardingConsent(userMessage)
       ) {
@@ -210,7 +210,7 @@ export async function runAgent({
       }
 
       const toolContext: ToolContext = {
-        userWallet: effectiveUserWallet ?? "",
+        userId: effectiveUserId ?? "",
         senderPhone,
       };
 
@@ -234,7 +234,7 @@ export async function runAgent({
       newMessages.push(toolMsg);
 
       if (call.function.name === "iniciar_onboarding") {
-        effectiveUserWallet = walletFromOnboardingResult(result) ?? effectiveUserWallet;
+        effectiveUserId = walletFromOnboardingResult(result) ?? effectiveUserId;
       }
     }
   }

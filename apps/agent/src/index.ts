@@ -99,20 +99,20 @@ app.post("/process", async (c) => {
   const start = Date.now();
 
   try {
-    let userWallet: string | null = null;
+    let userId: string | null = null;
     try {
       const resolved = await resolveUserFromTwilio(from);
-      userWallet = resolved?.wallet ?? null;
+      userId = resolved?.userId ?? null;
     } catch (resolveErr) {
       log.error({ err: resolveErr, from }, "user resolve failed");
     }
 
     const history = await loadHistory(conversationKey);
-    const nudgeDecision = userWallet
-      ? await shouldNudgeGuardadito({ userWallet, userMessage: body, history })
+    const nudgeDecision = userId
+      ? await shouldNudgeGuardadito({ userId, userMessage: body, history })
       : { ok: false, source: null as null };
-    const financialContext = userWallet
-      ? await loadSavingsContext(userWallet)
+    const financialContext = userId
+      ? await loadSavingsContext(userId)
       : null;
 
     const senderPhone = normalizePhoneE164(
@@ -122,17 +122,17 @@ app.post("/process", async (c) => {
     const result = await runAgent({
       history,
       userMessage: body,
-      userWallet,
+      userId,
       senderPhone,
       financialContext,
     });
 
     await saveHistory(conversationKey, [...history, ...result.newMessages]);
 
-    if (nudgeDecision.ok && userWallet && nudgeDecision.source) {
+    if (nudgeDecision.ok && userId && nudgeDecision.source) {
       try {
         await recordGuardaditoNudge({
-          userWallet,
+          userId,
           source: nudgeDecision.source,
           amountMicroUsdc: 0n,
           message: result.reply,
@@ -145,7 +145,7 @@ app.post("/process", async (c) => {
     log.info(
       {
         from,
-        userWallet: userWallet ?? "unregistered",
+        userId: userId ?? "unregistered",
         latencyMs: Date.now() - start,
         len: result.reply.length,
         newMessageCount: result.newMessages.length,

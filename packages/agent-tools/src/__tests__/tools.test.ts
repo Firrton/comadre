@@ -23,7 +23,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-const ctx = { userWallet: "BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh" };
+const ctx = { userId: "BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh" };
 
 describe("tool registry", () => {
   it("exposes 22 tools", () => {
@@ -62,7 +62,7 @@ describe("tool registry", () => {
 
 describe("read-only tools", () => {
   it("consultar_perfil → GET /api/v1/users/me", async () => {
-    globalThis.fetch = makeMockFetch({ wallet: ctx.userWallet, kyc_tier: "t0_demo" });
+    globalThis.fetch = makeMockFetch({ wallet: ctx.userId, kyc_tier: "t0_demo" });
     const result = await executeTool("consultar_perfil", {}, ctx);
     expect(result.type).toBe("data");
     expect(lastRequest?.url).toContain("/api/v1/users/me");
@@ -72,7 +72,7 @@ describe("read-only tools", () => {
     // Audit COM-006: X-Dev-Wallet is only sent in NODE_ENV=development. In
     // tests (NODE_ENV=test) the header is intentionally absent.
     if (process.env["NODE_ENV"] === "development") {
-      expect(headers["X-Dev-Wallet"]).toBe(ctx.userWallet);
+      expect(headers["X-Dev-Wallet"]).toBe(ctx.userId);
     } else {
       expect(headers["X-Dev-Wallet"]).toBeUndefined();
     }
@@ -238,7 +238,7 @@ describe("phone onboarding tool (legacy Solana path retired — audit COM-032)",
   // now exclusively uses `iniciar_cuenta_segura` for the Monad ERC-4337 flow.
   it("rejects iniciar_onboarding as unknown (registration removed)", async () => {
     const result = await executeTool("iniciar_onboarding", {}, {
-      userWallet: "",
+      userId: "",
       senderPhone: "+528116346072",
     });
     expect(result.type).toBe("error");
