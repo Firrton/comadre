@@ -48,7 +48,7 @@ export interface SessionKeyPlaintext {
 
 export interface SmartWalletRow {
   id: string;
-  userWallet: string;
+  userId: string;
   privyUserId: string;
   ownerAddress: Address;
   smartWalletAddress: Address;

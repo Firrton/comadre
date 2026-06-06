@@ -13,9 +13,6 @@ import { env } from "@comadre/config";
 import { closeDb } from "@comadre/db";
 import { logger } from "./lib/logger.js";
 import { scheduleJob } from "./lib/scheduler.js";
-import { payoutCrank } from "./jobs/payoutCrank.js";
-import { disputeResolveCrank } from "./jobs/disputeResolveCrank.js";
-import { reminderJob } from "./jobs/reminderJob.js";
 import { kycRefreshJob } from "./jobs/kycRefreshJob.js";
 
 // ── Health server ─────────────────────────────────────────────────────────────
@@ -44,21 +41,6 @@ logger.info({ port }, "cron health server started");
 // ── Job registration ──────────────────────────────────────────────────────────
 
 const tasks: ScheduledTask[] = [
-  scheduleJob({
-    name: "payoutCrank",
-    schedule: "*/5 * * * *",
-    fn: payoutCrank,
-  }),
-  scheduleJob({
-    name: "disputeResolveCrank",
-    schedule: "0 * * * *",
-    fn: disputeResolveCrank,
-  }),
-  scheduleJob({
-    name: "reminderJob",
-    schedule: "0 9 * * *",
-    fn: reminderJob,
-  }),
   scheduleJob({
     name: "kycRefreshJob",
     schedule: "0 4 * * *",
