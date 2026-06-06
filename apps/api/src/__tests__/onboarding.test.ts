@@ -1,8 +1,9 @@
 /**
- * onboarding.test.ts — internal-auth guard for phone onboarding.
+ * onboarding.test.ts — internal-auth guard for legacy /init.
  *
- * We intentionally stop at auth/validation here. The happy path talks to
- * Privy + Postgres and belongs in integration/E2E tests.
+ * /init is a 410 tombstone (legacy Solana onboarding; replaced by /monad/start).
+ * These tests verify the internal-HMAC guard still runs (401 on bad/missing/
+ * expired signatures) and that the route returns 410 once authenticated.
  */
 import { createHmac } from "node:crypto";
 import { describe, it, expect, beforeAll } from "bun:test";
@@ -67,16 +68,16 @@ describe("POST /api/v1/onboarding/init", () => {
     expect(res.status).toBe(401);
   });
 
-  it("runs JSON validation after valid internal auth", async () => {
-    const body = JSON.stringify({ phone: "not-e164" });
+  it("returns 410 Gone after valid internal auth (legacy /init removed)", async () => {
+    const body = JSON.stringify({ phone: "+528116346072" });
     const res = await app.request(PATH, {
       method: "POST",
       headers: signedHeaders(body),
       body,
     });
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(410);
     const payload = (await res.json()) as Record<string, unknown>;
-    expect(payload["error"]).toBe("validation");
+    expect(payload["error"]).toBe("gone");
   });
 });
