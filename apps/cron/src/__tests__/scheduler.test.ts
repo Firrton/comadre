@@ -6,8 +6,8 @@
  * - Skips a tick if a previous run is still in-flight
  */
 
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
-import cron, { type ScheduledTask } from "node-cron";
+import { describe, it, expect, afterEach } from "bun:test";
+import { type ScheduledTask } from "node-cron";
 import { scheduleJob } from "../lib/scheduler.js";
 
 // We drive scheduling manually by calling the task's handler via node-cron's
@@ -26,12 +26,12 @@ describe("scheduleJob", () => {
   });
 
   it("returns a ScheduledTask", () => {
-    let counter = 0;
+    let _counter = 0;
     const task = scheduleJob({
       name: "test-job",
       schedule: "* * * * * *", // every second
       fn: async () => {
-        counter++;
+        _counter++;
       },
     });
     tasks.push(task);

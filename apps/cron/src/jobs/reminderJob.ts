@@ -8,7 +8,7 @@
  * once that service is merged into main.
  */
 
-import { and, eq, lte, lt, sql } from "drizzle-orm";
+import { and, eq, lte, lt } from "drizzle-orm";
 import { db, tandas, members, users } from "@comadre/db";
 import { isWithinWindow } from "@comadre/cache";
 import { logger } from "../lib/logger.js";

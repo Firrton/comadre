@@ -8,7 +8,6 @@
 
 import {
   provisionUserAgent,
-  type ProvisionUserAgentParams,
   type ProvisionUserAgentResult,
 } from "../turnkey/client.js";
 

@@ -13,9 +13,9 @@ import { describe, it, expect, mock, beforeEach } from "bun:test";
 
 const updateMock = mock(async () => undefined);
 
-// Track calls for assertions
-let selectCallCount = 0;
-let updateCallCount = 0;
+// Track calls for assertions (prefixed _ — counters reserved for future assertions)
+const _selectCallCount = 0;
+const _updateCallCount = 0;
 
 // Simulate one due tanda returned from the DB
 const mockDueTanda = {

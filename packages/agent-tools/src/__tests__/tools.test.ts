@@ -5,7 +5,7 @@ import { ALL_TOOLS, executeTool, TOOL_EXECUTORS } from "../tools";
 let lastRequest: { url: string; init: RequestInit | undefined } | null = null;
 const originalFetch = globalThis.fetch;
 
-function makeMockFetch(responseBody: unknown, ok = true, status = 200): typeof fetch {
+function makeMockFetch(responseBody: unknown, _ok = true, status = 200): typeof fetch {
   return mock(async (url: string | URL | Request, init?: RequestInit) => {
     lastRequest = { url: String(url), init };
     return new Response(JSON.stringify(responseBody), {

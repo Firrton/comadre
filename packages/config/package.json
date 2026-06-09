@@ -10,7 +10,7 @@
     "./loadEnv": "./src/loadEnv.ts"
   },
   "scripts": {
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint src",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
