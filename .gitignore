@@ -59,6 +59,9 @@ coverage/
 
 # Drizzle
 drizzle/
+!packages/db/drizzle/
+!packages/db/drizzle/migrations/
+!packages/db/drizzle/migrations/**
 
 # Mobile
 .expo-shared/
