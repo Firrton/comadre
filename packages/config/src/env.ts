@@ -11,27 +11,6 @@ const optionalSecret = z.preprocess(
 );
 
 // -----------------------------------------------------------------------
-// Solana
-// -----------------------------------------------------------------------
-const solanaSchema = z.object({
-  SOLANA_CLUSTER: z.enum(["devnet", "mainnet-beta", "testnet", "localnet"]),
-  SOLANA_RPC_URL: z.string().url(),
-  SOLANA_WS_URL: z.string().url(),
-  COMADRE_PROGRAM_ID: z.string().min(1),
-  USDC_MINT: z.string().min(1),
-});
-
-// -----------------------------------------------------------------------
-// Wallets — base58 secret keys
-// -----------------------------------------------------------------------
-const walletsSchema = z.object({
-  FEE_PAYER_SK: z.string().min(1),
-  CRANK_AUTHORITY_SK: z.string().min(1),
-  KYC_ORACLE_SK: z.string().min(1),
-  ADMIN_SK: z.string().min(1),
-});
-
-// -----------------------------------------------------------------------
 // Privy — embedded wallets + auth
 // -----------------------------------------------------------------------
 const privySchema = z.object({
@@ -126,14 +105,6 @@ const elevenLabsSchema = z.object({
 });
 
 // -----------------------------------------------------------------------
-// Helius — Solana RPC + enhanced webhooks
-// -----------------------------------------------------------------------
-const heliusSchema = z.object({
-  HELIUS_API_KEY: z.string().min(1),
-  HELIUS_WEBHOOK_SECRET: z.string().min(1).optional(),
-});
-
-// -----------------------------------------------------------------------
 // Postgres
 // -----------------------------------------------------------------------
 const postgresSchema = z.object({
@@ -217,7 +188,6 @@ const serviceUrlsSchema = z.object({
   API_URL: z.string().url(),
   WA_URL: z.string().url(),
   AGENT_URL: z.string().url(),
-  INDEXER_URL: z.string().url(),
 });
 
 // -----------------------------------------------------------------------
@@ -252,14 +222,11 @@ const appSchema = z.object({
 // object schema. We compose by intersecting: the base schema (everything
 // else merged) AND the LLM schema's refined object. Zod handles the
 // intersection cleanly and the inferred type is the union of fields.
-const baseSchema = solanaSchema
-  .merge(walletsSchema)
-  .merge(privySchema)
+const baseSchema = privySchema
   .merge(turnkeySchema)
   .merge(sumsubSchema)
   .merge(twilioSchema)
   .merge(elevenLabsSchema)
-  .merge(heliusSchema)
   .merge(postgresSchema)
   .merge(upstashSchema)
   .merge(internalAuthSchema)
