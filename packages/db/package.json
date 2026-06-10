@@ -12,7 +12,7 @@
     "generate": "drizzle-kit generate",
     "migrate": "bun run scripts/migrate.ts",
     "studio": "drizzle-kit studio",
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint src",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
