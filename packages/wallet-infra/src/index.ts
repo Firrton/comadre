@@ -3,7 +3,6 @@ export * from "./types.js";
 export {
   loadWalletInfraEnv,
   pimlicoBundlerUrl,
-  ENCRYPTION_VERSION,
   type WalletInfraEnv,
 } from "./config.js";
 export * as sessionKey from "./sessionKey/index.js";

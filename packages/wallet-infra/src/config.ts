@@ -4,7 +4,7 @@ const hexAddress = z
   .string()
   .regex(/^0x[a-fA-F0-9]{40}$/, "must be a 0x-prefixed 20-byte hex address");
 
-const walletInfraEnvSchema = z.object({
+export const walletInfraEnvSchema = z.object({
   // --- Chain ---
   MONAD_CHAIN_ID: z.coerce.number().int().positive().default(10143),
   MONAD_RPC_URL: z.string().url(),
@@ -20,12 +20,6 @@ const walletInfraEnvSchema = z.object({
     .enum(["true", "false"])
     .transform((v) => v === "true")
     .default("true"),
-
-  // --- AWS KMS ---
-  AWS_REGION: z.string().min(1),
-  KMS_KEY_ARN: z
-    .string()
-    .regex(/^arn:aws:kms:[a-z0-9-]+:\d+:key\/[a-f0-9-]+$/, "must be a valid KMS key ARN"),
 
   // --- On-chain contracts (filled once Comadre.sol is deployed) ---
   COMADRE_CONTRACT_ADDRESS: hexAddress.optional(),
@@ -67,6 +61,3 @@ export function loadWalletInfraEnv(): WalletInfraEnv {
 export function pimlicoBundlerUrl(chainId: number, apiKey: string): string {
   return `https://api.pimlico.io/v2/${chainId}/rpc?apikey=${apiKey}`;
 }
-
-/** Encryption version tag persisted alongside ciphertexts for forward compatibility. */
-export const ENCRYPTION_VERSION = "v1:aes-256-gcm:aws-kms";

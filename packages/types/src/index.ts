@@ -54,3 +54,10 @@ export {
   HeliusWebhookEvent,
   HeliusWebhookPayload,
 } from "./webhooks.js";
+
+// --- Confirmation parsing (shared between apps/api and apps/agent) ---
+export {
+  parseConfirmation,
+  isConfirmationShaped,
+  type ConfirmationParseResult,
+} from "./confirmation.js";

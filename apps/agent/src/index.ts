@@ -9,6 +9,7 @@ import { z } from "zod";
 import { agentToolRateLimit, checkRateLimit, markNonceSeen } from "@comadre/cache";
 import { env } from "@comadre/config";
 import { resolveTransferConfirmation } from "@comadre/agent-tools";
+import { isConfirmationShaped } from "@comadre/types";
 
 import { runAgent } from "./agentLoop.js";
 import { loadHistory, saveHistory } from "./lib/conversationStore.js";
@@ -30,6 +31,9 @@ const log = pino({ name: "agent" });
 export const processDeps = {
   runAgent,
   resolveTransferConfirmation,
+  resolveUserFromTwilio,
+  loadHistory,
+  saveHistory,
 };
 
 const processBodySchema = z.object({
@@ -131,17 +135,23 @@ app.post("/process", async (c) => {
       }
     } catch (confirmationErr) {
       log.warn({ err: confirmationErr, sender: senderLogKey }, "transfer confirmation resolve failed");
+      if (isConfirmationShaped(body)) {
+        return c.json({
+          reply:
+            "No pude procesar tu respuesta en este momento. Si estabas confirmando o cancelando una transferencia, volvé a enviarla en unos minutos.",
+        });
+      }
     }
 
     let userId: string | null = null;
     try {
-      const resolved = await resolveUserFromTwilio(senderPhone);
+      const resolved = await processDeps.resolveUserFromTwilio(senderPhone);
       userId = resolved?.userId ?? null;
     } catch (resolveErr) {
       log.error({ err: resolveErr, sender: senderLogKey }, "user resolve failed");
     }
 
-    const history = await loadHistory(conversationKey);
+    const history = await processDeps.loadHistory(conversationKey);
     const nudgeDecision = userId
       ? await shouldNudgeGuardadito({ userId, userMessage: body, history })
       : { ok: false, source: null as null };
@@ -157,7 +167,7 @@ app.post("/process", async (c) => {
       financialContext,
     });
 
-    await saveHistory(conversationKey, [...history, ...result.newMessages]);
+    await processDeps.saveHistory(conversationKey, [...history, ...result.newMessages]);
 
     if (nudgeDecision.ok && userId && nudgeDecision.source) {
       try {

@@ -20,10 +20,16 @@ function makeProcessHeaders(body: string, overrides: Record<string, string> = {}
 
 const originalRunAgent = processDeps.runAgent;
 const originalResolveTransferConfirmation = processDeps.resolveTransferConfirmation;
+const originalResolveUserFromTwilio = processDeps.resolveUserFromTwilio;
+const originalLoadHistory = processDeps.loadHistory;
+const originalSaveHistory = processDeps.saveHistory;
 
 afterEach(() => {
   processDeps.runAgent = originalRunAgent;
   processDeps.resolveTransferConfirmation = originalResolveTransferConfirmation;
+  processDeps.resolveUserFromTwilio = originalResolveUserFromTwilio;
+  processDeps.loadHistory = originalLoadHistory;
+  processDeps.saveHistory = originalSaveHistory;
 });
 
 describe("agent service", () => {
@@ -81,6 +87,97 @@ describe("agent service", () => {
     expect(await res.json()).toEqual({ reply });
     expect(resolveTransferConfirmation.mock.calls[0]?.[0]).toBe("+59171234567");
     expect(resolveTransferConfirmation.mock.calls[0]?.[1]).toBe("no");
+    expect(runAgent.mock.calls.length).toBe(0);
+  });
+
+  test("POST /process — resolveTransferConfirmation throws + confirmation-shaped body → safe reply, runAgent NOT called", async () => {
+    const runAgent = mock(async () => ({
+      reply: "LLM reply",
+      newMessages: [],
+    }));
+    const resolveTransferConfirmation = mock(async () => {
+      throw new Error("Redis timeout");
+    });
+    processDeps.runAgent = runAgent;
+    processDeps.resolveTransferConfirmation = resolveTransferConfirmation;
+
+    for (const confirmBody of ["si", "sí"]) {
+      const res = await app.request("/process", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          from: "whatsapp:+59171234567",
+          body: confirmBody,
+          conversationKey: "conv-failclosed",
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { reply: string };
+      // Must contain a safe Spanish message about retrying
+      expect(json.reply).toMatch(/confirmación|confirmar|minutos|reenv/i);
+      expect(runAgent.mock.calls.length).toBe(0);
+    }
+  });
+
+  test("POST /process — resolveTransferConfirmation throws + non-confirmation body → falls through, runAgent IS called", async () => {
+    const resolveTransferConfirmation = mock(async () => {
+      throw new Error("Redis timeout");
+    });
+    const runAgent = mock(async () => ({
+      reply: "Hola! ¿En qué te puedo ayudar?",
+      newMessages: [],
+    }));
+    processDeps.runAgent = runAgent;
+    processDeps.resolveTransferConfirmation = resolveTransferConfirmation;
+    // Stub out service-dependent calls so the test doesn't hang.
+    processDeps.resolveUserFromTwilio = mock(async () => null);
+    processDeps.loadHistory = mock(async () => []);
+    processDeps.saveHistory = mock(async () => {});
+
+    const res = await app.request("/process", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        from: "whatsapp:+59171234567",
+        body: "hola, como estas?",
+        conversationKey: "conv-fallthrough",
+      }),
+    });
+
+    // The safe-reply guard must NOT fire for non-confirmation messages.
+    const json = (await res.json()) as { reply?: string; error?: string };
+    expect(json.reply ?? "").not.toMatch(/confirmación|confirmar|minutos|reenv/i);
+    // runAgent was called (fallthrough path reached).
+    expect(runAgent.mock.calls.length).toBe(1);
+  });
+
+  test("POST /process — confirmation.handled=true returns handled reply", async () => {
+    const reply = "Listo, envié 10.00 USDC a +59199887766.";
+    const resolveTransferConfirmation = mock(async () => ({
+      handled: true as const,
+      outcome: "confirmed" as const,
+      reply,
+    }));
+    const runAgent = mock(async () => ({
+      reply: "should not happen",
+      newMessages: [],
+    }));
+    processDeps.runAgent = runAgent;
+    processDeps.resolveTransferConfirmation = resolveTransferConfirmation;
+
+    const res = await app.request("/process", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        from: "whatsapp:+59171234567",
+        body: "si",
+        conversationKey: "conv-handled",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ reply });
     expect(runAgent.mock.calls.length).toBe(0);
   });
 
