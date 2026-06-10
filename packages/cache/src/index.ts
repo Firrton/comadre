@@ -26,3 +26,6 @@ export {
   isWithinWindow,
   getWindowExpiry,
 } from "./waWindow.js";
+
+// ─── Twilio MessageSid deduplication ─────────────────────────────────────────
+export { markMessageSeen } from "./msgDedup.js";
