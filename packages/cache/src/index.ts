@@ -29,3 +29,14 @@ export {
 
 // ─── Twilio MessageSid deduplication ─────────────────────────────────────────
 export { markMessageSeen } from "./msgDedup.js";
+
+// ─── API in-process state (nonce dedup, onboarding handshake, recipient phone) ─
+export type { OnboardingHandshake } from "./apiState.js";
+export {
+  markNonceSeen,
+  putOnboardingHandshake,
+  takeOnboardingHandshake,
+  putPendingRecipientPhone,
+  getPendingRecipientPhone,
+  delPendingRecipientPhone,
+} from "./apiState.js";

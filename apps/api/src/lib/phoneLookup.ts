@@ -95,7 +95,7 @@ export async function lookupByPhone(e164: string): Promise<PhoneLookupResult> {
   } catch (err) {
     // Treat all Privy lookup failures uniformly as "not found" to avoid fingerprinting
     // (previously only 404-like errors were swallowed, leaking that Privy is reachable)
-    rootLogger.warn({ err, phoneE164: e164 }, "[phoneLookup] privy lookup failed, treating as not registered");
+    rootLogger.warn({ err, phoneHash }, "[phoneLookup] privy lookup failed, treating as not registered");
     return { phone: e164, phoneHash, registered: false };
   }
 

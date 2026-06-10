@@ -34,6 +34,11 @@ import {
 } from "../lib/recipientPolicy.js";
 import { requireInternalSignature } from "./onboarding.js";
 import { getLogger } from "../middlewares/logger.js";
+import {
+  putPendingRecipientPhone,
+  getPendingRecipientPhone,
+  delPendingRecipientPhone,
+} from "@comadre/cache";
 import { checkDailyBudget } from "../lib/spendBudget.js";
 import type { Address } from "viem";
 
@@ -42,8 +47,6 @@ export const transfersMonadRouter = new Hono();
 const TRANSFER_DEFERRED_TTL_DAYS = 7;
 const TRANSFER_CONFIRMATION_TTL_MS = 15 * 60 * 1000;
 const CANCELLED_REPLY = "Cancelado, no envié nada.";
-
-const pendingRecipientPhones = new Map<string, { phone: string; expiresAt: number }>();
 
 const TransferBody = z.object({
   senderPhone: z.string().regex(/^\+\d{6,15}$/, "E.164 required"),
@@ -181,7 +184,7 @@ transfersMonadRouter.post(
       const row = inserted[0];
       if (!row) throw new Error("Insert returned no row");
 
-      rememberPendingRecipientPhone(row.id, input.toPhone, expiresAt);
+      await rememberPendingRecipientPhone(row.id, input.toPhone, expiresAt);
       const amountUsdc = microToUsdc(microUsdc);
 
       return c.json({
@@ -364,7 +367,7 @@ transfersMonadRouter.post(
 
     const outcome = parseConfirmation(input.message);
     const amountUsdc = microToUsdc(candidate.amountMicroUsdc);
-    const recipientPhone = recipientPhoneForReply(candidate.id);
+    const recipientPhone = await recipientPhoneForReply(candidate.id);
 
     if (outcome === "ambiguous") {
       return c.json({
@@ -386,7 +389,7 @@ transfersMonadRouter.post(
         )
         .returning();
       if (cancelled.length > 0) {
-        forgetPendingRecipientPhone(candidate.id);
+        await forgetPendingRecipientPhone(candidate.id);
       }
       return c.json({
         handled: true,
@@ -416,7 +419,7 @@ transfersMonadRouter.post(
     const budgetCheck = await checkDailyBudget(sender.userId);
     if (!budgetCheck.ok) {
       await markTransferFailed(claimed.id, "daily_cap_exceeded");
-      forgetPendingRecipientPhone(claimed.id);
+      await forgetPendingRecipientPhone(claimed.id);
       const spentUsdc = (Number(budgetCheck.spentMicroUsdc) / 1_000_000).toFixed(2);
       const capUsdc = (Number(budgetCheck.capMicroUsdc) / 1_000_000).toFixed(2);
       return c.json({
@@ -428,7 +431,7 @@ transfersMonadRouter.post(
 
     if (!claimed.recipientWallet) {
       await markTransferFailed(claimed.id, "missing_recipient_wallet");
-      forgetPendingRecipientPhone(claimed.id);
+      await forgetPendingRecipientPhone(claimed.id);
       return c.json({
         handled: true,
         outcome: "failed",
@@ -445,7 +448,7 @@ transfersMonadRouter.post(
 
     if (!appendResult.ok) {
       await markTransferFailed(claimed.id, appendResult.reason);
-      forgetPendingRecipientPhone(claimed.id);
+      await forgetPendingRecipientPhone(claimed.id);
       return c.json({
         handled: true,
         outcome: "failed",
@@ -459,7 +462,7 @@ transfersMonadRouter.post(
     const usdcAddress = process.env["USDC_CONTRACT_ADDRESS"];
     if (!usdcAddress) {
       await markTransferFailed(claimed.id, "usdc_not_configured");
-      forgetPendingRecipientPhone(claimed.id);
+      await forgetPendingRecipientPhone(claimed.id);
       return c.json({
         handled: true,
         outcome: "failed",
@@ -482,7 +485,7 @@ transfersMonadRouter.post(
 
     if (!signResult.ok) {
       await markTransferFailed(claimed.id, signResult.reason);
-      forgetPendingRecipientPhone(claimed.id);
+      await forgetPendingRecipientPhone(claimed.id);
       return c.json({
         handled: true,
         outcome: "failed",
@@ -502,7 +505,7 @@ transfersMonadRouter.post(
       })
       .where(eqId(claimed.id));
 
-    forgetPendingRecipientPhone(claimed.id);
+    await forgetPendingRecipientPhone(claimed.id);
     return c.json({
       handled: true,
       outcome: "confirmed",
@@ -587,20 +590,20 @@ async function markTransferFailed(id: string, failureReason: string): Promise<vo
     .where(eqId(id));
 }
 
-function rememberPendingRecipientPhone(transferId: string, phone: string, expiresAt: Date): void {
-  pendingRecipientPhones.set(transferId, { phone, expiresAt: expiresAt.getTime() });
+async function rememberPendingRecipientPhone(
+  transferId: string,
+  phone: string,
+  expiresAt: Date,
+): Promise<void> {
+  const ttlSeconds = Math.max(1, Math.ceil((expiresAt.getTime() - Date.now()) / 1000));
+  await putPendingRecipientPhone(transferId, phone, ttlSeconds);
 }
 
-function recipientPhoneForReply(transferId: string): string {
-  const row = pendingRecipientPhones.get(transferId);
-  if (!row) return "ese número";
-  if (row.expiresAt <= Date.now()) {
-    pendingRecipientPhones.delete(transferId);
-    return "ese número";
-  }
-  return row.phone;
+async function recipientPhoneForReply(transferId: string): Promise<string> {
+  const phone = await getPendingRecipientPhone(transferId);
+  return phone ?? "ese número";
 }
 
-function forgetPendingRecipientPhone(transferId: string): void {
-  pendingRecipientPhones.delete(transferId);
+async function forgetPendingRecipientPhone(transferId: string): Promise<void> {
+  await delPendingRecipientPhone(transferId);
 }

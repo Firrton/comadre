@@ -8,15 +8,23 @@ import { getWhatsAppRoute } from "./contactCrypto.js";
 export const GUARDADITO_NUDGE_MESSAGE =
   "Te llegó platita, mija. ¿Querés que guardemos una parte para que no se quede quieta?";
 
+function signWhatsAppReply(secret: string, timestamp: string, body: string): string {
+  return createHmac("sha256", secret)
+    .update(`POST\n/reply\n${timestamp}\n${body}`)
+    .digest("hex");
+}
+
 async function sendWhatsApp(toE164: string, body: string): Promise<boolean> {
   const payload = JSON.stringify({ to: `whatsapp:${toE164}`, body });
-  const signature = createHmac("sha256", env.INTERNAL_HMAC_SECRET).update(payload).digest("hex");
+  const timestamp = String(Date.now());
+  const signature = signWhatsAppReply(env.INTERNAL_HMAC_SECRET, timestamp, payload);
   try {
     const res = await fetch(`${env.WA_URL}/reply`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Internal-Auth": signature,
+        "X-Internal-Signature": signature,
+        "X-Internal-Timestamp": timestamp,
       },
       body: payload,
     });
