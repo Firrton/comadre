@@ -25,6 +25,11 @@ import {
   sessionKey as walletSessionKey,
   privy as walletPrivy,
 } from "@comadre/wallet-infra";
+import {
+  markNonceSeen,
+  putOnboardingHandshake,
+  takeOnboardingHandshake,
+} from "@comadre/cache";
 
 export const onboardingRouter = new Hono();
 
@@ -87,14 +92,24 @@ export const requireInternalSignature: MiddlewareHandler = async (c, next) => {
   }
 
   // Audit COM-022: reject signature replay within the validity window.
+  // Redis path (when available): SET NX EX — atomic across instances.
+  // Fallback: in-memory seenSignatures Map (single-instance, safe for test/dev).
   const now = Date.now();
-  pruneSeenSignatures(now);
-  const seenExpiresAt = seenSignatures.get(signature);
-  if (seenExpiresAt && seenExpiresAt > now) {
+  let fresh: boolean;
+  try {
+    fresh = await markNonceSeen(signature, Math.ceil(MAX_SIGNATURE_AGE_MS / 1000));
+  } catch {
+    // markNonceSeen already falls back to memory internally; this outer catch
+    // guards against any unexpected throw so the API stays up.
+    pruneSeenSignatures(now);
+    const seenExpiresAt = seenSignatures.get(signature);
+    fresh = !(seenExpiresAt && seenExpiresAt > now);
+    if (fresh) seenSignatures.set(signature, now + MAX_SIGNATURE_AGE_MS);
+  }
+  if (!fresh) {
     log.warn({ path: c.req.path }, "[onboarding] HMAC replay rejected");
     return c.json({ error: "unauthorized", message: "Signature already used" }, 401);
   }
-  seenSignatures.set(signature, now + MAX_SIGNATURE_AGE_MS);
 
   return next();
 };
@@ -111,34 +126,27 @@ const SESSION_PK_TTL_SECONDS = 5 * 60;
 const DAILY_PER_CALL_CAP_MICRO_USDC = 50_000_000n;
 const DAILY_VALIDITY_MS = 30 * 24 * 60 * 60 * 1000;
 
+// In-memory fallback for sessionAgent is managed inside packages/cache/src/apiState.ts.
+// takeOnboardingHandshake returns { subOrgId, walletId, agentAddress } or null.
 interface SessionAgentEntry {
   subOrgId: string;
   walletId: string;
   agentAddress: string;
   expiresAt: number;
 }
-const sessionAgentMemory = new Map<string, SessionAgentEntry>();
 
-function rememberSessionAgent(
+async function rememberSessionAgent(
   token: string,
   provisioned: { subOrgId: string; walletId: string; agentAddress: string },
-): void {
-  const expiresAt = Date.now() + SESSION_PK_TTL_SECONDS * 1000;
-  sessionAgentMemory.set(token, { ...provisioned, expiresAt });
-  setTimeout(() => {
-    const row = sessionAgentMemory.get(token);
-    if (row && row.expiresAt <= Date.now()) sessionAgentMemory.delete(token);
-  }, SESSION_PK_TTL_SECONDS * 1000).unref?.();
+): Promise<void> {
+  await putOnboardingHandshake(token, provisioned, SESSION_PK_TTL_SECONDS);
 }
 
-function takeSessionAgent(token: string): SessionAgentEntry | null {
-  const row = sessionAgentMemory.get(token);
-  if (!row) return null;
-  if (row.expiresAt <= Date.now()) {
-    sessionAgentMemory.delete(token);
-    return null;
-  }
-  return row;
+async function takeSessionAgent(token: string): Promise<SessionAgentEntry | null> {
+  const data = await takeOnboardingHandshake(token);
+  if (!data) return null;
+  // Synthesize expiresAt for API compatibility; Redis TTL is the real authority.
+  return { ...data, expiresAt: Date.now() + SESSION_PK_TTL_SECONDS * 1000 };
 }
 
 function hashPhoneSync(e164: string): string {
@@ -296,7 +304,7 @@ onboardingRouter.post(
       userExternalId: row.phoneHash,
       displayName: `comadre-agent-${row.phoneHash.slice(0, 8)}`,
     });
-    rememberSessionAgent(token, provisioned);
+    await rememberSessionAgent(token, provisioned);
 
     return c.json({ sessionAddress: provisioned.agentAddress }, 200);
   },
@@ -345,7 +353,7 @@ onboardingRouter.post(
       return c.json({ error: "unauthorized", message: "ownerAddress mismatch" }, 401);
     }
 
-    const sessionAgent = takeSessionAgent(token);
+    const sessionAgent = await takeSessionAgent(token);
     if (!sessionAgent) return c.json({ error: "session_expired" }, 410);
 
     const chainId = Number(process.env["MONAD_CHAIN_ID"] ?? MONAD_DEFAULT_CHAIN_ID);
@@ -430,7 +438,6 @@ onboardingRouter.post(
       return c.json({ error: "install_failed", message: "Database transaction failed" }, 500);
     }
 
-    sessionAgentMemory.delete(token);
     log.info({ normalizedSmart }, "[onboarding] monad session key installed");
 
     return c.json({ ok: true, smartWalletAddress: normalizedSmart }, 200);
