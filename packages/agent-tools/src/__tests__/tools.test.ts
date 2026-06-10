@@ -27,16 +27,13 @@ afterEach(() => {
 const ctx = { userId: "BfVXncFhJdSsDciLx7UzVjFbEBw1EtcnJCsYSRis54Sh" };
 
 describe("tool registry", () => {
-  it("exposes 22 tools", () => {
-    expect(ALL_TOOLS.length).toBe(22);
+  it("exposes 12 tools", () => {
+    expect(ALL_TOOLS.length).toBe(12);
   });
 
-  it("includes transfer and onboarding tools", () => {
+  it("includes live tools and excludes dead ones", () => {
     const names = ALL_TOOLS.map((t) => t.function.name);
     expect(names).toContain("consultar_balance");
-    expect(names).toContain("iniciar_transfer");
-    expect(names).toContain("confirmar_transfer");
-    expect(names).toContain("cancelar_transfer");
     // Audit COM-032: iniciar_onboarding (legacy Solana plaintext-key path)
     // is intentionally NOT registered. The Monad replacement is iniciar_cuenta_segura.
     expect(names).not.toContain("iniciar_onboarding");
@@ -47,6 +44,18 @@ describe("tool registry", () => {
     expect(names).toContain("retirar_guardadito");
     expect(names).toContain("cancelar_guardadito");
     expect(names).toContain("confirmar_codigo_seguridad");
+    // Tanda tools removed — /api/v1/tandas/* route excised
+    expect(names).not.toContain("consultar_tanda");
+    expect(names).not.toContain("crear_tanda");
+    expect(names).not.toContain("unirse_tanda");
+    expect(names).not.toContain("aportar_turno");
+    expect(names).not.toContain("abrir_disputa");
+    expect(names).not.toContain("votar_disputa");
+    expect(names).not.toContain("mis_tandas");
+    // Solana transfer tools removed — /api/v1/transfers route excised
+    expect(names).not.toContain("iniciar_transfer");
+    expect(names).not.toContain("confirmar_transfer");
+    expect(names).not.toContain("cancelar_transfer");
   });
 
   it("every tool name maps to an executor", () => {
@@ -78,80 +87,6 @@ describe("read-only tools", () => {
       expect(headers["X-Dev-Wallet"]).toBeUndefined();
     }
   });
-
-  it("consultar_tanda → GET /api/v1/tandas/:id", async () => {
-    globalThis.fetch = makeMockFetch({ id: "TandA1", state: "forming" });
-    const result = await executeTool("consultar_tanda", { tanda_id: "TandA1" }, ctx);
-    expect(result.type).toBe("data");
-    expect(lastRequest?.url).toContain("/api/v1/tandas/TandA1");
-  });
-});
-
-describe("crear_tanda", () => {
-  it("converts cents → atomic and days → seconds", async () => {
-    globalThis.fetch = makeMockFetch({ unsigned_tx: "AAA=", idempotency_key: "k1" });
-    const result = await executeTool(
-      "crear_tanda",
-      {
-        name: "Vamos por la casa",
-        member_target: 5,
-        contribution_amount_cents: 5000, // $50
-        frequency_days: 7,
-        payout_order_mode: "join_order",
-      },
-      ctx
-    );
-    expect(result.type).toBe("unsigned_tx");
-    expect(lastRequest?.init?.method).toBe("POST");
-    const body = JSON.parse((lastRequest?.init?.body as string) ?? "{}");
-    // 5000 cents × 10_000 = 50_000_000 atomic (USDC has 6 decimals; $50 = 50_000_000 atomic)
-    expect(body.contribution_amount).toBe("50000000");
-    expect(body.stake_amount).toBe("50000000");
-    // 7 days × 86_400 = 604_800 seconds
-    expect(body.frequency_seconds).toBe(604800);
-    expect(body.payout_order_mode).toBe("join_order");
-    expect(body.usdc_mint).toBe("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
-  });
-
-  it("returns data when API creates the tanda on-chain", async () => {
-    globalThis.fetch = makeMockFetch({
-      tanda_id: "TandaPda1111111111111111111111111111111",
-      signature: "Sig111",
-      explorer_url: "https://solscan.io/tx/Sig111?cluster=devnet",
-    });
-    const result = await executeTool(
-      "crear_tanda",
-      {
-        name: "Ahorros",
-        member_target: 3,
-        contribution_amount_cents: 1000,
-        frequency_days: 7,
-        payout_order_mode: "join_order",
-      },
-      ctx
-    );
-
-    expect(result.type).toBe("data");
-    if (result.type === "data") {
-      expect(result.summary).toContain('Tanda "Ahorros" creada');
-    }
-  });
-
-  it("rejects negative cents (RangeError)", async () => {
-    globalThis.fetch = makeMockFetch({ unsigned_tx: "AAA=", idempotency_key: "k1" });
-    const result = await executeTool(
-      "crear_tanda",
-      {
-        name: "x",
-        member_target: 3,
-        contribution_amount_cents: -1,
-        frequency_days: 1,
-        payout_order_mode: "join_order",
-      },
-      ctx
-    );
-    expect(result.type).toBe("error");
-  });
 });
 
 describe("HMAC signature", () => {
@@ -159,8 +94,8 @@ describe("HMAC signature", () => {
     globalThis.fetch = makeMockFetch({ ok: true });
     await executeTool("consultar_perfil", {}, ctx);
     const sig1 = (lastRequest?.init?.headers as Record<string, string>)["X-Internal-Signature"];
-    globalThis.fetch = makeMockFetch({ id: "x" });
-    await executeTool("consultar_tanda", { tanda_id: "x" }, ctx);
+    globalThis.fetch = makeMockFetch({ summary: { available: { usdc: "0" }, saved: { usdc: "0" }, suggested: { shouldSuggest: false, amountUsdc: "0", liquidReserveUsdc: "0" }, copy: { short: "", risk: "" } } });
+    await executeTool("consultar_guardadito", {}, ctx);
     const sig2 = (lastRequest?.init?.headers as Record<string, string>)["X-Internal-Signature"];
     expect(sig1).not.toBe(sig2);
   });
@@ -212,72 +147,9 @@ describe("enviar_plata confirmation relay", () => {
   });
 });
 
-describe("phone-to-phone transfer tools (PR D)", () => {
-  const validResp = {
-    mode: "immediate",
-    transferId: "uuid-1",
-    recipient: { registered: true, phone: "+5218116346072", wallet: "Ag4...J4yX", walletPreview: "...J4yX" },
-    amount: { usdc: "10.50", microUsdc: "10500000" },
-    expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
-    unsignedTxBase64: "AAAA",
-  };
-
-  it("iniciar_transfer POSTs to /api/v1/transfers with toPhone/amountUsdc/note", async () => {
-    globalThis.fetch = makeMockFetch(validResp);
-    const result = await executeTool(
-      "iniciar_transfer",
-      { to_phone: "+5218116346072", amount_usdc: "10.50", note: "almuerzo" },
-      ctx
-    );
-    expect(result.type).toBe("data");
-    expect(lastRequest?.url).toContain("/api/v1/transfers");
-    const body = JSON.parse((lastRequest?.init?.body as string) ?? "{}");
-    expect(body.toPhone).toBe("+5218116346072");
-    expect(body.amountUsdc).toBe("10.50");
-    expect(body.note).toBe("almuerzo");
-  });
-
-  it("iniciar_transfer surfaces 'deferred' summary when recipient unregistered", async () => {
-    globalThis.fetch = makeMockFetch({
-      mode: "deferred",
-      transferId: "uuid-2",
-      recipient: { registered: false, phone: "+5218116346072" },
-      amount: { usdc: "10.50", microUsdc: "10500000" },
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString(),
-      message: "María te quiere mandar 10.5 USDC. Para reclamar...",
-    });
-    const result = await executeTool(
-      "iniciar_transfer",
-      { to_phone: "+5218116346072", amount_usdc: "10.50" },
-      ctx
-    );
-    expect(result.type).toBe("data");
-    if (result.type === "data") {
-      expect(result.summary).toMatch(/no está registrado/);
-    }
-  });
-
-  it("confirmar_transfer POSTs to /api/v1/transfers/:id/confirm", async () => {
-    globalThis.fetch = makeMockFetch({
-      signature: "5kx7abc",
-      status: "confirmed",
-      explorerUrl: "https://explorer.solana.com/tx/5kx7abc?cluster=devnet",
-    });
-    const result = await executeTool("confirmar_transfer", { transfer_id: "uuid-1" }, ctx);
-    expect(result.type).toBe("data");
-    expect(lastRequest?.url).toContain("/api/v1/transfers/uuid-1/confirm");
-    if (result.type === "data") {
-      expect(result.summary).toContain("✅");
-    }
-  });
-
-  it("cancelar_transfer POSTs to /api/v1/transfers/:id/cancel", async () => {
-    globalThis.fetch = makeMockFetch({ status: "cancelled", transferId: "uuid-1" });
-    const result = await executeTool("cancelar_transfer", { transfer_id: "uuid-1" }, ctx);
-    expect(result.type).toBe("data");
-    expect(lastRequest?.url).toContain("/api/v1/transfers/uuid-1/cancel");
-  });
-});
+// Solana transfer tools (iniciar_transfer, confirmar_transfer, cancelar_transfer) were
+// removed — /api/v1/transfers route was excised in the Monad migration.
+// The active transfer path is enviar_plata → /api/v1/transfers-monad.
 
 describe("phone onboarding tool (legacy Solana path retired — audit COM-032)", () => {
   // The legacy `iniciar_onboarding` tool (Solana plaintext-key path) was
