@@ -278,6 +278,30 @@ transfersMonadRouter.post(
   },
 );
 
+/**
+ * Atomically claims a transfer that is in `awaiting_confirmation` status by
+ * transitioning it to `pending` in a single UPDATE … RETURNING CAS.
+ *
+ * Returns the claimed row when this caller wins the race, or null when another
+ * concurrent caller already claimed it (or the transfer does not exist).
+ *
+ * This is an exported helper so it can be unit-tested in isolation without
+ * spinning up the full HTTP stack.
+ */
+export async function claimAwaitingConfirmation(
+  transferId: string,
+  // Injectable for unit tests: module-level mocks of @comadre/db leak across
+  // bun test files in the same process, so the race tests pass a fake handle.
+  dbi: Pick<typeof db, "update"> = db,
+): Promise<typeof transfers.$inferSelect | null> {
+  const rows = await dbi
+    .update(transfers)
+    .set({ status: "pending" })
+    .where(and(eq(transfers.id, transferId), eq(transfers.status, "awaiting_confirmation")))
+    .returning();
+  return rows[0] ?? null;
+}
+
 transfersMonadRouter.post(
   "/resolve-confirmation",
   requireInternalSignature,
@@ -296,6 +320,10 @@ transfersMonadRouter.post(
     const now = new Date();
     await expireAwaitingConfirmations(sender.userId, now);
 
+    // Read the most recent awaiting_confirmation transfer for this sender.
+    // We use a SELECT here only to determine which transfer to act on and to
+    // read fields needed for the reply (amount, recipient phone). The actual
+    // ownership claim happens below via a CAS UPDATE.
     const pendingRows = await db
       .select()
       .from(transfers)
@@ -309,12 +337,12 @@ transfersMonadRouter.post(
       .orderBy(desc(transfers.createdAt))
       .limit(1);
 
-    const pending = pendingRows[0];
-    if (!pending) return c.json({ handled: false });
+    const candidate = pendingRows[0];
+    if (!candidate) return c.json({ handled: false });
 
     const outcome = parseConfirmation(input.message);
-    const amountUsdc = microToUsdc(pending.amountMicroUsdc);
-    const recipientPhone = recipientPhoneForReply(pending.id);
+    const amountUsdc = microToUsdc(candidate.amountMicroUsdc);
+    const recipientPhone = recipientPhoneForReply(candidate.id);
 
     if (outcome === "ambiguous") {
       return c.json({
@@ -325,11 +353,19 @@ transfersMonadRouter.post(
     }
 
     if (outcome === "negative") {
-      await db
+      // CAS cancel: only cancel if still in awaiting_confirmation — races with
+      // a concurrent confirm are safe; whichever wins the UPDATE acts, the
+      // other gets no row and returns handled:true silently.
+      const cancelled = await db
         .update(transfers)
         .set({ status: "cancelled" })
-        .where(eqId(pending.id));
-      forgetPendingRecipientPhone(pending.id);
+        .where(
+          and(eq(transfers.id, candidate.id), eq(transfers.status, "awaiting_confirmation")),
+        )
+        .returning();
+      if (cancelled.length > 0) {
+        forgetPendingRecipientPhone(candidate.id);
+      }
       return c.json({
         handled: true,
         outcome: "cancelled",
@@ -337,9 +373,25 @@ transfersMonadRouter.post(
       });
     }
 
-    if (!pending.recipientWallet) {
-      await markTransferFailed(pending.id, "missing_recipient_wallet");
-      forgetPendingRecipientPhone(pending.id);
+    // ---- Affirmative path ----
+    // Atomic claim: transition awaiting_confirmation → pending.
+    // Only the first concurrent caller gets a row back; the rest return
+    // handled:true (same shape as "no pending transfer") so Twilio retries
+    // and double-taps are silently dropped without exposing an error to the
+    // user.
+    const claimed = await claimAwaitingConfirmation(candidate.id);
+    if (!claimed) {
+      // Lost the CAS race — another concurrent request already claimed or
+      // confirmed this transfer.
+      return c.json({ handled: true });
+    }
+
+    // From here we own the row (status="pending"). Use `claimed` for all
+    // subsequent reads so we operate on the row we atomically claimed.
+
+    if (!claimed.recipientWallet) {
+      await markTransferFailed(claimed.id, "missing_recipient_wallet");
+      forgetPendingRecipientPhone(claimed.id);
       return c.json({
         handled: true,
         outcome: "failed",
@@ -347,13 +399,16 @@ transfersMonadRouter.post(
       });
     }
 
+    // Single-statement JSONB append — atomic on its own. signMonadTransfer
+    // (network call) deliberately happens outside any DB transaction.
     const appendResult = await appendAllowedRecipient(
-      sender.smartWalletAddress,
-      pending.recipientWallet,
+      sender.smartWalletAddress as string,
+      claimed.recipientWallet as string,
     );
+
     if (!appendResult.ok) {
-      await markTransferFailed(pending.id, appendResult.reason);
-      forgetPendingRecipientPhone(pending.id);
+      await markTransferFailed(claimed.id, appendResult.reason);
+      forgetPendingRecipientPhone(claimed.id);
       return c.json({
         handled: true,
         outcome: "failed",
@@ -366,8 +421,8 @@ transfersMonadRouter.post(
 
     const usdcAddress = process.env["USDC_CONTRACT_ADDRESS"];
     if (!usdcAddress) {
-      await markTransferFailed(pending.id, "usdc_not_configured");
-      forgetPendingRecipientPhone(pending.id);
+      await markTransferFailed(claimed.id, "usdc_not_configured");
+      forgetPendingRecipientPhone(claimed.id);
       return c.json({
         handled: true,
         outcome: "failed",
@@ -376,20 +431,21 @@ transfersMonadRouter.post(
     }
 
     const calldata = buildUsdcTransferCalldata(
-      pending.recipientWallet as Address,
-      pending.amountMicroUsdc,
+      claimed.recipientWallet as Address,
+      claimed.amountMicroUsdc,
     );
 
+    // Network call — outside any DB transaction.
     const signResult = await signMonadTransfer({
       smartWalletAddress: sender.smartWalletAddress as Address,
       to: usdcAddress as Address,
       data: calldata,
-      amountMicroUsdc: pending.amountMicroUsdc,
+      amountMicroUsdc: claimed.amountMicroUsdc,
     });
 
     if (!signResult.ok) {
-      await markTransferFailed(pending.id, signResult.reason);
-      forgetPendingRecipientPhone(pending.id);
+      await markTransferFailed(claimed.id, signResult.reason);
+      forgetPendingRecipientPhone(claimed.id);
       return c.json({
         handled: true,
         outcome: "failed",
@@ -407,9 +463,9 @@ transfersMonadRouter.post(
         txSignature: signResult.txHash,
         confirmedAt: new Date(),
       })
-      .where(eqId(pending.id));
+      .where(eqId(claimed.id));
 
-    forgetPendingRecipientPhone(pending.id);
+    forgetPendingRecipientPhone(claimed.id);
     return c.json({
       handled: true,
       outcome: "confirmed",
