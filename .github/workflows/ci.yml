@@ -18,6 +18,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.2.0
+      # monad-contracts tests run through forge (turbo run test includes them)
+      - uses: foundry-rs/foundry-toolchain@v1
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run lint
