@@ -254,9 +254,10 @@ Las secciones Solana abajo se mantienen como **historia del proyecto** (Phase 0)
 - [x] Forward al agent service via `AGENT_URL`
 - [x] `POST /reply` interno con HMAC-SHA256 auth
 - [x] Rate limiting `webhookRateLimit` (60 req/min por phone) wired en POST /webhook
+- [x] **MessageSid dedup** — `SET NX EX 300` en `wa:msgsid:{sid}`, fail-open, guard `SKIP_REDIS` / `NODE_ENV=test` (D1 BLOCKER resuelto)
 - [x] HMAC-SHA256 outbound a `apps/agent /process` (`X-Internal-Signature` + `X-Internal-Timestamp`)
 - [x] Sentry inicializado (`@sentry/bun`)
-- [x] Tests pasan (3/3)
+- [x] Tests pasan (4/4 whatsapp + 6/6 cache)
 - [x] Typecheck pasa
 - [ ] **Migrar a Twilio API Key** (SK...) en lugar de master Auth Token
 - [ ] Templates aprobados con Twilio:

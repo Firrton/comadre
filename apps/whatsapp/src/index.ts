@@ -6,7 +6,7 @@ import { logger } from "hono/logger";
 import pino from "pino";
 import { z } from "zod";
 
-import { webhookRateLimit, checkRateLimit } from "@comadre/cache";
+import { webhookRateLimit, checkRateLimit, markMessageSeen } from "@comadre/cache";
 import { env } from "@comadre/config";
 
 import { sendWhatsAppMessage } from "./lib/sendMessage.js";
@@ -85,6 +85,26 @@ app.post("/webhook", async (c) => {
       }
     } catch (rlErr) {
       log.warn({ err: rlErr, from }, "[rateLimit] Redis unavailable, allowing through");
+    }
+  }
+
+  // Dedup on Twilio MessageSid — Twilio retries webhooks on network errors,
+  // which can re-trigger the agent with the same message. Skip if already seen.
+  if (
+    messageSid.length > 0 &&
+    process.env["SKIP_REDIS"] !== "true" &&
+    process.env["NODE_ENV"] !== "test"
+  ) {
+    try {
+      const isDuplicate = await markMessageSeen(messageSid);
+      if (isDuplicate) {
+        log.info({ from, messageSid }, "duplicate MessageSid, skipping agent forward");
+        return c.body('<?xml version="1.0" encoding="UTF-8"?><Response/>', 200, {
+          "content-type": "text/xml",
+        });
+      }
+    } catch (dedupErr) {
+      log.warn({ err: dedupErr, from, messageSid }, "[dedup] Redis unavailable, allowing through");
     }
   }
 
