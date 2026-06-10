@@ -15,7 +15,7 @@ export interface ToolContext {
   userId: string;
   /**
    * E.164 phone number of the user (e.g. "+528116346072"), set by the agent
-   * service from the Twilio "From" header. Required by `iniciar_onboarding`.
+   * service from the normalized inbound channel sender. Required by `iniciar_onboarding`.
    */
   senderPhone?: string;
   /** Optional idempotency key. If absent, the tool generates one (UUID v4). */
@@ -25,13 +25,15 @@ export interface ToolContext {
 /**
  * Discriminated result returned by every tool's `Execute` function.
  *
- * - `data`: the tool returned read-only information; the LLM can present it directly.
- * - `unsigned_tx`: the tool built a Solana transaction the user must sign. The agent
- *   is responsible for delivering this to the user (e.g. via a signing link).
- * - `error`: the tool failed in a recoverable way; the LLM can ask the user to retry.
- */
+  * - `data`: the tool returned read-only information; the LLM can present it directly.
+ * - `confirmation`: the backend needs the channel to relay an out-of-band prompt verbatim.
+  * - `unsigned_tx`: the tool built a Solana transaction the user must sign. The agent
+  *   is responsible for delivering this to the user (e.g. via a signing link).
+  * - `error`: the tool failed in a recoverable way; the LLM can ask the user to retry.
+  */
 export type ToolResult =
   | { type: "data"; data: unknown; summary?: string }
+  | { type: "confirmation"; confirmationPrompt: string; data?: unknown }
   | { type: "unsigned_tx"; unsigned_tx_base64: string; idempotency_key: string; summary: string }
   | { type: "error"; error: string };
 

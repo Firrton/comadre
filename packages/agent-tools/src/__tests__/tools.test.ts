@@ -1,4 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
+import { resolveTransferConfirmation } from "../apiClient";
 import { ALL_TOOLS, executeTool, TOOL_EXECUTORS } from "../tools";
 
 // We mock global fetch to capture the requests each tool would emit
@@ -162,6 +163,52 @@ describe("HMAC signature", () => {
     await executeTool("consultar_tanda", { tanda_id: "x" }, ctx);
     const sig2 = (lastRequest?.init?.headers as Record<string, string>)["X-Internal-Signature"];
     expect(sig1).not.toBe(sig2);
+  });
+
+  it("resolveTransferConfirmation POSTs to the backend confirmation endpoint with HMAC and no dev user headers", async () => {
+    globalThis.fetch = makeMockFetch({ handled: false });
+    const result = await resolveTransferConfirmation("+59171234567", "sí");
+
+    expect(result).toEqual({ handled: false });
+    expect(lastRequest?.url).toContain("/api/v1/transfers-monad/resolve-confirmation");
+    expect(lastRequest?.init?.method).toBe("POST");
+    const headers = lastRequest?.init?.headers as Record<string, string>;
+    expect(headers["X-Internal-Signature"]).toMatch(/^[0-9a-f]{64}$/);
+    expect(headers["X-Idempotency-Key"]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(headers["X-Dev-User-Id"]).toBeUndefined();
+    expect(headers["X-Dev-Wallet"]).toBeUndefined();
+    expect(JSON.parse((lastRequest?.init?.body as string) ?? "{}")).toEqual({
+      senderPhone: "+59171234567",
+      message: "sí",
+    });
+  });
+});
+
+describe("enviar_plata confirmation relay", () => {
+  it("returns ToolResult.confirmation with the backend prompt verbatim", async () => {
+    const prompt =
+      "Es la primera vez que enviás a +59176543210. ¿Confirmás enviar 7 USDC? Respondé SÍ para confirmar o NO para cancelar.";
+    globalThis.fetch = makeMockFetch({
+      ok: true,
+      needsConfirmation: true,
+      transferId: "uuid-1",
+      amountUsdc: "7",
+      confirmationPrompt: prompt,
+      expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+    });
+
+    const result = await executeTool(
+      "enviar_plata",
+      { to_phone: "+59176543210", amount_usdc: "7" },
+      { userId: "", senderPhone: "+59171234567" },
+    );
+
+    expect(result.type).toBe("confirmation");
+    if (result.type === "confirmation") {
+      expect(result.confirmationPrompt).toBe(prompt);
+    }
   });
 });
 

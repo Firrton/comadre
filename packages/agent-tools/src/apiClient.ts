@@ -20,10 +20,20 @@ export interface ApiCallParams {
   path: string;
   body?: unknown;
   /** The user we're acting on behalf of (users.id UUID). */
-  userId: string;
+  userId?: string;
   /** Required on POST. Avoids replay + duplicate effect. */
   idempotencyKey?: string;
+  signal?: AbortSignal;
 }
+
+export type ResolveTransferConfirmationResult =
+  | { handled: false }
+  | {
+      handled: true;
+      outcome: "confirmed" | "failed" | "cancelled" | "reprompted";
+      reply: string;
+      txHash?: string;
+    };
 
 function signRequest(secret: string, method: string, path: string, body: string, timestamp: string): string {
   const payload = `${method}\n${path}\n${timestamp}\n${body}`;
@@ -58,6 +68,7 @@ export async function apiCall<T>(params: ApiCallParams): Promise<T> {
     method: params.method,
     headers,
     body: params.method === "POST" ? bodyStr : undefined,
+    signal: params.signal,
   });
 
   if (!response.ok) {
@@ -65,6 +76,25 @@ export async function apiCall<T>(params: ApiCallParams): Promise<T> {
     throw new Error(`API ${params.method} ${params.path} -> ${response.status}: ${errorBody}`);
   }
   return (await response.json()) as T;
+}
+
+export async function resolveTransferConfirmation(
+  senderPhone: string,
+  message: string,
+): Promise<ResolveTransferConfirmationResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3_000);
+  try {
+    return await apiCall<ResolveTransferConfirmationResult>({
+      method: "POST",
+      path: "/api/v1/transfers-monad/resolve-confirmation",
+      idempotencyKey: newIdempotencyKey(),
+      body: { senderPhone, message },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 /** Generate a UUID v4 for idempotency keys. */
