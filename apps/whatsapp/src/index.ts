@@ -69,10 +69,12 @@ app.post("/webhook", async (c) => {
   const from = params.From ?? "";
   const body = params.Body ?? "";
   const messageSid = params.MessageSid ?? "";
-  const profileName = params.ProfileName ?? "";
+  // profileName intentionally not read — WhatsApp display name is PII and not needed for processing
+
+  const sender = redactPhoneForLog(from.replace(/^whatsapp:/i, ""));
 
   log.info(
-    { from, messageSid, profileName, len: body.length },
+    { sender, messageSid, len: body.length },
     "inbound whatsapp",
   );
 
@@ -80,11 +82,11 @@ app.post("/webhook", async (c) => {
     try {
       const rl = await checkRateLimit(webhookRateLimit, from);
       if (!rl.allowed) {
-        log.warn({ from, resetAt: rl.resetAt }, "webhook rate limited");
+        log.warn({ sender, resetAt: rl.resetAt }, "webhook rate limited");
         return c.body('<?xml version="1.0" encoding="UTF-8"?><Response/>', 429);
       }
     } catch (rlErr) {
-      log.warn({ err: rlErr, from }, "[rateLimit] Redis unavailable, allowing through");
+      log.warn({ err: rlErr, sender }, "[rateLimit] Redis unavailable, allowing through");
     }
   }
 
@@ -200,3 +202,9 @@ app.post("/reply", async (c) => {
 const port = Number(process.env.PORT ?? 3002);
 export default { port, fetch: app.fetch };
 export { app };
+
+/** Redact an E.164 phone number for safe logging: "+52...72" */
+function redactPhoneForLog(phone: string): string {
+  if (phone.length <= 5) return "<redacted>";
+  return `${phone.slice(0, 3)}…${phone.slice(-2)}`;
+}
