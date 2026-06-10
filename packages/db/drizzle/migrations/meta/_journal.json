@@ -8,6 +8,13 @@
       "when": 1780705870025,
       "tag": "0000_minor_silk_fever",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780963200000,
+      "tag": "0001_add_awaiting_confirmation_transfer_status",
+      "breakpoints": true
     }
   ]
 }

@@ -775,6 +775,8 @@ export const enviarPlataExecute: ToolExecutor = async (args, context) => {
   try {
     const data = await apiCall<{
       ok: true;
+      needsConfirmation?: boolean;
+      confirmationPrompt?: string;
       deferred: boolean;
       transferId: string;
       txHash?: string;
@@ -792,12 +794,27 @@ export const enviarPlataExecute: ToolExecutor = async (args, context) => {
         ...(a.note ? { note: a.note } : {}),
       },
     });
+    if (data.needsConfirmation && data.confirmationPrompt) {
+      return {
+        type: "confirmation",
+        confirmationPrompt: data.confirmationPrompt,
+        data: redactSensitiveFields(data),
+      };
+    }
     const summary = data.deferred
       ? `El contacto no tiene cuenta todavía. Le mandé un aviso por WhatsApp; cuando se registre, recibe los ${a.amount_usdc} USDC.`
       : `Mandé ${a.amount_usdc} USDC ✅`;
     return { type: "data", data: redactSensitiveFields(data), summary };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (/daily_cap_exceeded|DAILY_CAP_EXCEEDED/i.test(message)) {
+      return {
+        type: "error",
+        error: message.includes("límite diario")
+          ? message
+          : "Superaste el límite diario de transferencias. Podés volver a enviar mañana.",
+      };
+    }
     if (/cap_exceeded|CAP_EXCEEDED/i.test(message)) {
       return {
         type: "error",

@@ -294,6 +294,7 @@ export const kycSessions = pgTable(
 export const transferStatusEnum = pgEnum("transfer_status", [
   "pending",
   "awaiting_recipient",
+  "awaiting_confirmation",
   "confirmed",
   "expired",
   "cancelled",

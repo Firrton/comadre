@@ -23,6 +23,14 @@ Comadre maneja fondos de usuarios en LATAM vía WhatsApp. Las amenazas principal
 
 ### Capa 2 — Autorización
 
+#### Camino del dinero (transfers Monad)
+
+- **Allowlist de destinatarios fail-closed (COM-004, resuelto)**: `evaluateRecipient` es la única función de decisión y se aplica en DOS capas — la ruta (`transfersMonad`) y el signer (`monadSessionSigner`). Allowlist vacío = rechazo; calldata que no decodifica como `transfer(to, amount)` de USDC = rechazo.
+- **Confirmación de destinatario nuevo**: el primer envío a un destinatario desconocido queda en `awaiting_confirmation` y NO se firma. El backend resuelve el "sí/no" del usuario con `parseConfirmation` (determinístico, sin LLM) ANTES de que el mensaje llegue al modelo; afirmativo agrega al allowlist y firma.
+- **Claim atómico anti doble-confirmación**: `claimAwaitingConfirmation` transiciona `awaiting_confirmation → pending` con un UPDATE condicional (CAS); de dos "sí" concurrentes solo uno firma.
+- **Tope diario agregado**: 100 USDC por usuario por 24 horas (`DAILY_AGGREGATE_CAP_USDC`), sumando transfers `pending + awaiting_confirmation + confirmed`; el chequeo corre después de insertar/claimear la fila para que dos envíos concurrentes no puedan colarse juntos bajo el tope. Se suma al per-call cap de 50 USDC y al rate limit on-chain de 10 ops/60s.
+- **Dedup de webhooks de Twilio**: `MessageSid` se deduplica en Redis (SET NX, 5 min) antes de reenviar al agente.
+
 - **Membership checks** en `tandas/:id` y `disputes/:id` (CRIT-1, HIGH-1)
 - **Wallet ownership** en `POST /users/:wallet/confirm` (CRIT-4)
 - **Rate limiters separados**:
@@ -109,7 +117,6 @@ El system prompt del agente incluye las siguientes reglas con prioridad máxima:
 
 | Riesgo | Detalle |
 |---|---|
-| `transfers-monad` sin allowlist (COM-004) | Solo hay per-call cap; falta verificación de allowlist de recipientes. Phase 1B agrega esto. |
 | Redis sin encriptación | Historial de conversaciones en Redis en plaintext. Considerar encriptación at-rest. |
 | `session_keys.permission_id` vacío (COM-033) | El permission ID no se captura al instalar; afecta la ruta de revoke on-chain. Phase 1B agrega esto. |
 | Dependencia de Neverland | El producto Guardadito requiere que Neverland esté operativo en Monad mainnet. Si el protocolo pausa, es atacado, o es deprecado, los retiros fallan. El capital del usuario permanece en los contratos de Neverland (no hay riesgo de pérdida por falla del backend de Comadre). |
