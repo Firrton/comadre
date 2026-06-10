@@ -775,6 +775,8 @@ export const enviarPlataExecute: ToolExecutor = async (args, context) => {
   try {
     const data = await apiCall<{
       ok: true;
+      needsConfirmation?: boolean;
+      confirmationPrompt?: string;
       deferred: boolean;
       transferId: string;
       txHash?: string;
@@ -792,6 +794,13 @@ export const enviarPlataExecute: ToolExecutor = async (args, context) => {
         ...(a.note ? { note: a.note } : {}),
       },
     });
+    if (data.needsConfirmation && data.confirmationPrompt) {
+      return {
+        type: "confirmation",
+        confirmationPrompt: data.confirmationPrompt,
+        data: redactSensitiveFields(data),
+      };
+    }
     const summary = data.deferred
       ? `El contacto no tiene cuenta todavía. Le mandé un aviso por WhatsApp; cuando se registre, recibe los ${a.amount_usdc} USDC.`
       : `Mandé ${a.amount_usdc} USDC ✅`;
