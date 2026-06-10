@@ -32,7 +32,7 @@ export type ChatMessage = ChatCompletionMessageParam;
 export interface RunAgentArgs {
   history: ChatMessage[];
   userMessage: string;
-  /** null if phone is not yet registered — only iniciar_onboarding allowed. */
+  /** null if phone is not yet registered — only iniciar_cuenta_segura allowed. */
   userId: string | null;
   /** E.164 phone number (e.g. "+528116346072"), required for onboarding tool. */
   senderPhone: string;
@@ -46,6 +46,9 @@ export interface RunAgentResult {
 }
 
 const MAX_TOOL_ITERATIONS = 5;
+// A hung Moonshot request would otherwise hold the HTTP handler forever:
+// Hono has no server-level timeout and the loop awaits each completion.
+const LLM_TIMEOUT_MS = 60_000;
 // K2.5/K2.6 are reasoning models and Moonshot rejects any temperature != 1.
 // Other Moonshot models (moonshot-v1-*) accept any value; we keep 0.3 for them.
 const COMADRE_LLM_TEMPERATURE = env.KIMI_MODEL.startsWith("kimi-k2.") ? 1 : 0.3;
@@ -54,9 +57,7 @@ const COMADRE_LLM_TEMPERATURE = env.KIMI_MODEL.startsWith("kimi-k2.") ? 1 : 0.3;
 const TOOLS_ALLOWED_WITHOUT_WALLET = new Set<string>(["iniciar_cuenta_segura"]);
 
 const UNREGISTERED_TOOL_ERROR =
-  "UNREGISTERED: el usuario no tiene wallet todavía. Pide consentimiento explícito ANTES de llamar `iniciar_onboarding`.";
-const ONBOARDING_CONSENT_REQUIRED_ERROR =
-  "CONSENT_REQUIRED: antes de crear la billetera, pedile al usuario que confirme con 'sí', 'dale' o 'registrame'.";
+  "UNREGISTERED: el usuario no tiene wallet todavía. Pide consentimiento explícito ANTES de llamar `iniciar_cuenta_segura`.";
 
 type ChatCompletionLike = {
   choices: Array<{
@@ -73,11 +74,14 @@ type ChatCompletionLike = {
 };
 
 export const agentLoopDeps: {
-  createChatCompletion: (params: Parameters<typeof llmClient.chat.completions.create>[0]) => Promise<ChatCompletionLike>;
+  createChatCompletion: (
+    params: Parameters<typeof llmClient.chat.completions.create>[0],
+    opts?: { signal?: AbortSignal },
+  ) => Promise<ChatCompletionLike>;
   executeTool: typeof executeTool;
 } = {
-  createChatCompletion: (params) =>
-    llmClient.chat.completions.create(params) as unknown as Promise<ChatCompletionLike>,
+  createChatCompletion: (params, opts) =>
+    llmClient.chat.completions.create(params, opts) as unknown as Promise<ChatCompletionLike>,
   executeTool,
 };
 
@@ -86,19 +90,6 @@ export function toolsForWalletState(
 ): (typeof ALL_TOOLS)[number][] {
   if (userId === null) return [...ALL_TOOLS];
   return ALL_TOOLS.filter((tool) => tool.function.name !== "iniciar_cuenta_segura");
-}
-
-function hasExplicitOnboardingConsent(message: string): boolean {
-  const normalized = message
-    .toLocaleLowerCase("es")
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "");
-
-  if (/\b(no|nop|nunca|cancelar|cancela|no gracias)\b/.test(normalized)) {
-    return false;
-  }
-
-  return /\b(si|dale|ok|okay|acepto|confirmo|registrame|registro|vamos|le damos)\b/.test(normalized);
 }
 
 export async function runAgent({
@@ -119,14 +110,24 @@ export async function runAgent({
   const effectiveUserId = userId;
 
   for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
-    const completion = await agentLoopDeps.createChatCompletion({
-      model: env.KIMI_MODEL,
-      messages,
-      tools: toolsForWalletState(effectiveUserId),
-      tool_choice: "auto",
-      temperature: COMADRE_LLM_TEMPERATURE,
-      max_tokens: 4000,
-    });
+    const abort = new AbortController();
+    const timeout = setTimeout(() => abort.abort(), LLM_TIMEOUT_MS);
+    let completion: ChatCompletionLike;
+    try {
+      completion = await agentLoopDeps.createChatCompletion(
+        {
+          model: env.KIMI_MODEL,
+          messages,
+          tools: toolsForWalletState(effectiveUserId),
+          tool_choice: "auto",
+          temperature: COMADRE_LLM_TEMPERATURE,
+          max_tokens: 4000,
+        },
+        { signal: abort.signal },
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
 
     const choice = completion.choices[0];
     if (!choice) throw new Error("LLM returned no choices");
@@ -176,24 +177,6 @@ export async function runAgent({
           content: JSON.stringify({
             type: "error",
             error: UNREGISTERED_TOOL_ERROR,
-          } satisfies ToolResult),
-        };
-        messages.push(errMsg);
-        newMessages.push(errMsg);
-        continue;
-      }
-
-      if (
-        effectiveUserId === null &&
-        call.function.name === "iniciar_onboarding" &&
-        !hasExplicitOnboardingConsent(userMessage)
-      ) {
-        const errMsg: ChatCompletionToolMessageParam = {
-          role: "tool",
-          tool_call_id: call.id,
-          content: JSON.stringify({
-            type: "error",
-            error: ONBOARDING_CONSENT_REQUIRED_ERROR,
           } satisfies ToolResult),
         };
         messages.push(errMsg);
