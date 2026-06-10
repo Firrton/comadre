@@ -6,7 +6,7 @@ import { logger } from "hono/logger";
 import pino from "pino";
 import { z } from "zod";
 
-import { webhookRateLimit, checkRateLimit } from "@comadre/cache";
+import { webhookRateLimit, checkRateLimit, markNonceSeen } from "@comadre/cache";
 import { env } from "@comadre/config";
 
 import { sendWhatsAppMessage } from "./lib/sendMessage.js";
@@ -133,24 +133,56 @@ app.post("/webhook", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// Internal auth helpers for /reply
+// ---------------------------------------------------------------------------
+const REPLY_MAX_AGE_MS = 300_000; // 5 minutes
+
+/**
+ * Build a timestamped HMAC-SHA256 signature for outbound calls to /reply.
+ * Mirrors the pattern used by packages/agent-tools/src/apiClient.ts.
+ */
+export function signReplyRequest(
+  secret: string,
+  timestamp: string,
+  body: string,
+): string {
+  return createHmac("sha256", secret)
+    .update(`POST\n/reply\n${timestamp}\n${body}`)
+    .digest("hex");
+}
+
+// ---------------------------------------------------------------------------
 // POST /reply (internal, HMAC-authed)
 // ---------------------------------------------------------------------------
 app.post("/reply", async (c) => {
-  const provided = c.req.header("X-Internal-Auth") ?? "";
-  if (provided.length === 0) {
-    return c.json({ error: "missing X-Internal-Auth" }, 401);
+  const signature = c.req.header("X-Internal-Signature") ?? "";
+  const timestamp = c.req.header("X-Internal-Timestamp") ?? "";
+
+  if (!signature || !timestamp) {
+    return c.json({ error: "missing X-Internal-Signature or X-Internal-Timestamp" }, 401);
+  }
+
+  const age = Date.now() - Number(timestamp);
+  if (!timestamp || Number.isNaN(age) || age > REPLY_MAX_AGE_MS || age < -30_000) {
+    log.warn({ hasTimestamp: timestamp.length > 0 }, "reply HMAC timestamp rejected");
+    return c.json({ error: "request expired or invalid timestamp" }, 401);
   }
 
   const raw = await c.req.text();
 
-  const expected = createHmac("sha256", env.INTERNAL_HMAC_SECRET)
-    .update(raw)
-    .digest("hex");
+  const expected = signReplyRequest(env.INTERNAL_HMAC_SECRET, timestamp, raw);
 
-  const a = Buffer.from(provided, "hex");
+  const a = Buffer.from(signature, "hex");
   const b = Buffer.from(expected, "hex");
   if (a.length !== b.length || !timingSafeEqual(a, b)) {
-    return c.json({ error: "invalid auth" }, 401);
+    log.warn("HMAC signature mismatch on /reply");
+    return c.json({ error: "invalid signature" }, 401);
+  }
+
+  const fresh = await markNonceSeen(signature, 300);
+  if (!fresh) {
+    log.warn("replay detected on /reply");
+    return c.json({ error: "replayed request" }, 401);
   }
 
   let parsedJson: unknown;

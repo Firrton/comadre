@@ -1,6 +1,22 @@
+import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { app, processDeps } from "../index.js";
+
+const SECRET = process.env["INTERNAL_HMAC_SECRET"] ?? "test-secret";
+
+function makeProcessHeaders(body: string, overrides: Record<string, string> = {}): Record<string, string> {
+  const timestamp = String(Date.now());
+  const signature = createHmac("sha256", SECRET)
+    .update(`POST\n/process\n${timestamp}\n${body}`)
+    .digest("hex");
+  return {
+    "content-type": "application/json",
+    "X-Internal-Signature": signature,
+    "X-Internal-Timestamp": timestamp,
+    ...overrides,
+  };
+}
 
 const originalRunAgent = processDeps.runAgent;
 const originalResolveTransferConfirmation = processDeps.resolveTransferConfirmation;
@@ -66,5 +82,48 @@ describe("agent service", () => {
     expect(resolveTransferConfirmation.mock.calls[0]?.[0]).toBe("+59171234567");
     expect(resolveTransferConfirmation.mock.calls[0]?.[1]).toBe("no");
     expect(runAgent.mock.calls.length).toBe(0);
+  });
+
+  test("POST /process replayed signature returns 401 on second attempt", async () => {
+    // NODE_ENV=test skips the HMAC block. Switch to "integration" to exercise it,
+    // and mock all downstream deps so no DB/Redis connections are attempted.
+    const origEnv = process.env["NODE_ENV"];
+    process.env["NODE_ENV"] = "integration";
+
+    const body = JSON.stringify({
+      from: "whatsapp:+59171234567",
+      body: "test replay",
+      conversationKey: "replay-conv",
+    });
+    const headers = makeProcessHeaders(body);
+
+    // resolveTransferConfirmation: return handled so runAgent is never called
+    // and no DB/Twilio lookups happen.
+    const resolveTransferConfirmation = mock(async () => ({
+      handled: true as const,
+      outcome: "confirmed" as const,
+      reply: "ok",
+    }));
+    processDeps.resolveTransferConfirmation = resolveTransferConfirmation;
+
+    // First request — HMAC valid, nonce fresh → confirmation handled → 200
+    const first = await app.request("/process", {
+      method: "POST",
+      headers,
+      body,
+    });
+    expect(first.status).not.toBe(401);
+
+    // Second request with identical headers/signature — replay rejected
+    const second = await app.request("/process", {
+      method: "POST",
+      headers,
+      body,
+    });
+    expect(second.status).toBe(401);
+    const json = (await second.json()) as { error: string };
+    expect(json.error).toBe("replayed request");
+
+    process.env["NODE_ENV"] = origEnv;
   });
 });
