@@ -807,6 +807,14 @@ export const enviarPlataExecute: ToolExecutor = async (args, context) => {
     return { type: "data", data: redactSensitiveFields(data), summary };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (/daily_cap_exceeded|DAILY_CAP_EXCEEDED/i.test(message)) {
+      return {
+        type: "error",
+        error: message.includes("límite diario")
+          ? message
+          : "Superaste el límite diario de transferencias. Podés volver a enviar mañana.",
+      };
+    }
     if (/cap_exceeded|CAP_EXCEEDED/i.test(message)) {
       return {
         type: "error",

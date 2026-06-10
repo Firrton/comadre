@@ -34,6 +34,7 @@ import {
 } from "../lib/recipientPolicy.js";
 import { requireInternalSignature } from "./onboarding.js";
 import { getLogger } from "../middlewares/logger.js";
+import { checkDailyBudget } from "../lib/spendBudget.js";
 import type { Address } from "viem";
 
 export const transfersMonadRouter = new Hono();
@@ -212,6 +213,27 @@ transfersMonadRouter.post(
     const row = inserted[0];
     if (!row) throw new Error("Insert returned no row");
 
+    // Daily aggregate cap check (B-2). Row is already inserted so the SUM
+    // includes the caller's own row — concurrent transfers both see both rows.
+    const budgetCheck = await checkDailyBudget(sender.userId);
+    if (!budgetCheck.ok) {
+      await db
+        .update(transfers)
+        .set({ status: "failed", failureReason: "daily_cap_exceeded" })
+        .where(eqId(row.id));
+      const spentUsdc = (Number(budgetCheck.spentMicroUsdc) / 1_000_000).toFixed(2);
+      const capUsdc = (Number(budgetCheck.capMicroUsdc) / 1_000_000).toFixed(2);
+      return c.json(
+        {
+          error: "DAILY_CAP_EXCEEDED",
+          message: `Superaste el límite diario de ${capUsdc} USDC (llevas ${spentUsdc} USDC en las últimas 24 horas). Podés volver a enviar mañana.`,
+          spentUsdc,
+          capUsdc,
+        },
+        402,
+      );
+    }
+
     const signResult = await signMonadTransfer({
       smartWalletAddress: sender.smartWalletAddress as Address,
       to: usdcAddress as Address,
@@ -388,6 +410,21 @@ transfersMonadRouter.post(
 
     // From here we own the row (status="pending"). Use `claimed` for all
     // subsequent reads so we operate on the row we atomically claimed.
+
+    // Daily aggregate cap check (B-2). Row is already pending so the SUM
+    // includes it — same concurrency guarantee as the immediate path.
+    const budgetCheck = await checkDailyBudget(sender.userId);
+    if (!budgetCheck.ok) {
+      await markTransferFailed(claimed.id, "daily_cap_exceeded");
+      forgetPendingRecipientPhone(claimed.id);
+      const spentUsdc = (Number(budgetCheck.spentMicroUsdc) / 1_000_000).toFixed(2);
+      const capUsdc = (Number(budgetCheck.capMicroUsdc) / 1_000_000).toFixed(2);
+      return c.json({
+        handled: true,
+        outcome: "failed",
+        reply: `Superaste el límite diario de ${capUsdc} USDC (llevas ${spentUsdc} USDC en las últimas 24 horas). Podés volver a enviar mañana.`,
+      });
+    }
 
     if (!claimed.recipientWallet) {
       await markTransferFailed(claimed.id, "missing_recipient_wallet");
