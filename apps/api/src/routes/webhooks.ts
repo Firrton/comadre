@@ -158,8 +158,9 @@ webhooksRouter.post("/privy", async (c) => {
       return c.json({ error: "service_unavailable" }, 503);
     }
     logger.warn("[privy] PRIVY_WEBHOOK_SECRET unset (dev only); accepting unsigned");
-    const payload = await c.req.json().catch(() => null);
-    logger.info({ payload }, "[privy] webhook received (dev, unsigned)");
+    const devPayload = await c.req.json().catch(() => null) as Record<string, unknown> | null;
+    const devEnvelope = { type: devPayload?.["type"], id: devPayload?.["id"] };
+    logger.info(devEnvelope, "[privy] webhook received (dev, unsigned)");
     return c.json({ received: true }, 200);
   }
 
@@ -181,6 +182,7 @@ webhooksRouter.post("/privy", async (c) => {
     return c.json({ error: "bad_request", message: "Invalid JSON" }, 400);
   }
 
-  logger.info({ payload }, "[privy] webhook received");
+  const envelope = (payload as Record<string, unknown> | null) ?? {};
+  logger.info({ type: envelope["type"], id: envelope["id"] }, "[privy] webhook received");
   return c.json({ received: true }, 200);
 });

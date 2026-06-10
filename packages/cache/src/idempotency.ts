@@ -97,6 +97,12 @@ export async function withIdempotency<T>(
   handler: () => Promise<T>,
   opts?: { ttlSeconds?: number }
 ): Promise<T> {
+  // Honor SKIP_REDIS — passthrough to the handler with no cache read/write.
+  // Mirrors the pattern in apps/api/src/middlewares/rateLimit.ts:34.
+  if (process.env["SKIP_REDIS"] === "true" || process.env["NODE_ENV"] === "test") {
+    return handler();
+  }
+
   const ttl = opts?.ttlSeconds ?? DEFAULT_TTL_SECONDS;
   const cached = await getIdempotent(key);
 
@@ -111,8 +117,8 @@ export async function withIdempotency<T>(
   // is that the *next* retry won't see the cache and will run again.
   try {
     await setIdempotent(key, { status: 200, body: result as unknown }, ttl);
-  } catch (err) {
-    console.warn("[cache] idempotency write failed:", err);
+  } catch {
+    // Intentionally swallowed — best-effort write; no logger dependency in this package.
   }
 
   return result;
