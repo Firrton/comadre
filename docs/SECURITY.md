@@ -115,6 +115,40 @@ El system prompt del agente incluye las siguientes reglas con prioridad máxima:
 | Dependencia de Neverland | El producto Guardadito requiere que Neverland esté operativo en Monad mainnet. Si el protocolo pausa, es atacado, o es deprecado, los retiros fallan. El capital del usuario permanece en los contratos de Neverland (no hay riesgo de pérdida por falla del backend de Comadre). |
 | Usuarios con session key pre-Neverland | Usuarios que hicieron onboarding antes de Phase 2 no tienen las 4 políticas de Neverland en su session key. Intentar depositar/retirar fallará con error de policy en Turnkey/Kernel. Requiere reinstalación de session key (flujo pendiente de implementar). |
 
+## Disaster recovery — base de datos
+
+### Qué se pierde si se pierde la base de datos
+
+Los fondos on-chain NO se pierden: el USDC vive en la smart wallet (Kernel) del usuario, controlada por la owner key en custodia de Privy, y la signing key del agente vive en Turnkey. Lo que sí depende de Postgres:
+
+| Dato | ¿Recuperable sin la DB? | Impacto de la pérdida |
+|---|---|---|
+| `users` (userId, phone_hash, owner_address) | No | Se pierde el mapeo teléfono→usuario. El usuario debe re-onboardear. |
+| `smart_wallets` | Parcial (la address es derivable desde Privy) | Se pierde el vínculo con el userId interno. |
+| `session_keys` (`serializedPermission`, allowlist) | No (Turnkey guarda la clave, no el blob de permisos) | El agente no puede firmar; requiere reinstalar session key vía re-onboarding. |
+| `transfers` | No (no hay indexer Monad que reconstruya desde chain) | Se pierde el historial off-chain y el presupuesto diario. |
+| `savings_positions` / `savings_actions` | Parcial (el balance nUSDC on-chain sobrevive) | La contabilidad interna requiere reconciliación manual. |
+| `conversations`, `auth_sessions`, `idempotency_keys` | Pérdida aceptable | Expiran o se regeneran solos. |
+
+### Prevención (acciones de owner, dashboard de Supabase)
+
+1. Confirmar el tier de backups del proyecto: el tier Pro habilita PITR (point-in-time recovery). En free tier solo hay backup diario con retención de 7 días.
+2. Habilitar PITR si el tier lo permite. Documentar acá la fecha en que se activó.
+3. Verificar que `DIRECT_URL` y `DATABASE_URL` de producción apunten al proyecto correcto antes de cualquier restore.
+
+### Procedimiento de restore
+
+1. Congelar el sistema: pausar los servicios `api`, `agent`, `whatsapp` y `cron` en Railway (evita escrituras contra una DB inconsistente y firmas con estado viejo).
+2. En Supabase: Database → Backups → restaurar al punto más cercano previo al incidente (PITR) o al último backup diario.
+3. Correr `bun run migrate` en `packages/db` contra `DIRECT_URL` para aplicar migraciones posteriores al backup, si las hubiera.
+4. Reconciliar transfers: revisar filas en estado `pending`/`awaiting_confirmation` contra el explorador de Monad (las transferencias firmadas post-backup existen on-chain pero no en la DB restaurada). Marcar manualmente las confirmadas.
+5. Reanudar servicios y verificar `/health` en los cuatro.
+6. Probar el flujo completo con un usuario de prueba: consulta de balance + envío chico.
+
+### Verificación periódica
+
+Una vez por sprint: restore del último backup contra un proyecto Supabase descartable + `bun run migrate` + smoke test de lectura. Si el restore no se prueba, no existe.
+
 ## Auditorías de Neverland (protocolo de yield externo)
 
 Comadre no escribe contratos de yield propios. La exposición al riesgo de smart contracts es la superficie de Neverland. Auditorías públicas completadas:

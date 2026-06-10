@@ -5,6 +5,11 @@ export default defineConfig({
   out: "./drizzle/migrations",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env["DATABASE_URL"] ?? "postgresql://localhost:5432/comadre",
+    // DDL must bypass PgBouncer transaction pooling (Supabase): prefer the
+    // direct connection when configured.
+    url:
+      process.env["DIRECT_URL"] ??
+      process.env["DATABASE_URL"] ??
+      "postgresql://localhost:5432/comadre",
   },
 });

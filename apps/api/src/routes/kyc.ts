@@ -93,7 +93,7 @@ kycRouter.post("/session", async (c) => {
     logger.info({ user_id: user.id, applicantId, sessionId }, "[kyc] applicant created");
   }
 
-  const { token, url } = await generateAccessToken({
+  const { url } = await generateAccessToken({
     externalUserId: user.id,
     levelName: LEVEL_NAME,
   });

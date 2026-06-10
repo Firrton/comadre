@@ -1,6 +1,12 @@
 /**
  * onboarding.test.ts — internal-auth guard for phone onboarding.
  *
+ * Tests the requireInternalSignature middleware and request validation
+ * on the /monad/start route (Monad onboarding entry point).
+ *
+ * Note: POST /init (legacy Solana onboarding) was removed in the Monad
+ * migration and now returns 410. These tests cover its replacement.
+ *
  * We intentionally stop at auth/validation here. The happy path talks to
  * Privy + Postgres and belongs in integration/E2E tests.
  */
@@ -9,7 +15,8 @@ import { describe, it, expect, beforeAll } from "bun:test";
 import app from "../server.js";
 
 const SECRET = "test-hmac-secret-at-least-32-chars-long";
-const PATH = "/api/v1/onboarding/init";
+// /monad/start is the Monad replacement for the removed /init route.
+const PATH = "/api/v1/onboarding/monad/start";
 
 function sign(method: string, path: string, body: string, timestamp: string): string {
   const payload = `${method}\n${path}\n${timestamp}\n${body}`;
@@ -29,7 +36,7 @@ beforeAll(() => {
   process.env["INTERNAL_HMAC_SECRET"] = SECRET;
 });
 
-describe("POST /api/v1/onboarding/init", () => {
+describe("POST /api/v1/onboarding/monad/start", () => {
   it("rejects requests without internal signature", async () => {
     const res = await app.request(PATH, {
       method: "POST",

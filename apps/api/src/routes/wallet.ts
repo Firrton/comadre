@@ -5,7 +5,6 @@
  * TODO(monad-wallet): implement USDC balance via Monad RPC + ERC-20 balanceOf.
  */
 import { Hono } from "hono";
-import { formatMicroUsdc } from "../lib/savings/amounts.js";
 
 export const walletRouter = new Hono();
 

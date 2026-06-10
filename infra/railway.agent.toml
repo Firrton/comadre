@@ -1,0 +1,14 @@
+# Railway config — agent service
+# Dashboard: Settings → Config File Path → /infra/railway.agent.toml
+
+[build]
+builder = "RAILPACK"
+buildCommand = "bun install --frozen-lockfile && bun build apps/agent/src/index.ts --target=bun --outdir=apps/agent/dist"
+watchPatterns = ["apps/agent/**", "packages/**"]
+
+[deploy]
+startCommand = "bun apps/agent/dist/index.js"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

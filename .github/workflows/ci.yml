@@ -19,24 +19,17 @@ jobs:
       - run: bun run lint
       - run: bun run test
 
-  anchor:
-    name: Anchor build + test
+  deploy:
+    name: Deploy to Railway
+    needs: ts
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[skip-deploy]')
     runs-on: ubuntu-latest
+    container: ghcr.io/railwayapp/cli:latest
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install Solana CLI
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/v2.0.21/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
-      - name: Install Anchor
-        run: |
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked
-          avm install 0.31.0
-          avm use 0.31.0
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - name: Anchor build
-        run: cd packages/anchor-program && anchor build
-      - name: Anchor test
-        run: cd packages/anchor-program && anchor test --skip-local-validator || true
+      - run: railway up --service api
+      - run: railway up --service whatsapp
+      - run: railway up --service agent
+      - run: railway up --service cron

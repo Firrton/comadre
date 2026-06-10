@@ -23,11 +23,11 @@ keypairs/
 *.json.bak
 
 # Env
+# .env.test files ARE tracked: they must contain STUB values only (CI needs
+# them to run test suites). Never put real credentials in a .env.test.
 .env
 .env.local
 .env.*.local
-.env.test
-*.env.test
 !.env.example
 
 # Logs

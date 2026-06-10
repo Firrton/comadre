@@ -2,6 +2,7 @@
   "name": "comadre",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "description": "Comadre — agente de IA en WhatsApp: wallet custodial en Monad para gente no-cripto (enviar, recibir, ahorrar)",
   "scripts": {
     "dev": "turbo run dev",
@@ -17,10 +18,12 @@
     "db:studio": "cd packages/db && pnpm exec drizzle-kit studio"
   },
   "devDependencies": {
+    "@types/bun": "latest",
+    "eslint": "^10.4.1",
+    "prettier": "^3.4.0",
     "turbo": "^2.3.0",
     "typescript": "^5.7.0",
-    "@types/bun": "latest",
-    "prettier": "^3.4.0"
+    "typescript-eslint": "^8.61.0"
   },
   "engines": {
     "node": ">=20",
