@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { agentToolRateLimit, checkRateLimit } from "@comadre/cache";
 import { env } from "@comadre/config";
+import { resolveTransferConfirmation } from "@comadre/agent-tools";
 
 import { runAgent } from "./agentLoop.js";
 import { loadHistory, saveHistory } from "./lib/conversationStore.js";
@@ -25,6 +26,11 @@ if (env.SENTRY_DSN) {
 }
 
 const log = pino({ name: "agent" });
+
+export const processDeps = {
+  runAgent,
+  resolveTransferConfirmation,
+};
 
 const processBodySchema = z.object({
   from: z.string().min(1),
@@ -80,6 +86,10 @@ app.post("/process", async (c) => {
   }
 
   const { from, body, conversationKey } = parsed.data;
+  const senderPhone = normalizePhoneE164(
+    from.replace(/^[^:]+:/, "").trim(),
+  );
+  const senderLogKey = redactPhoneForLog(senderPhone);
 
   // ── Rate limiting (skipped in test / when Redis unavailable) ────────────
   if (process.env["SKIP_REDIS"] !== "true" && process.env["NODE_ENV"] !== "test") {
@@ -99,12 +109,30 @@ app.post("/process", async (c) => {
   const start = Date.now();
 
   try {
+    try {
+      const confirmation = await processDeps.resolveTransferConfirmation(senderPhone, body);
+      if (confirmation.handled) {
+        log.info(
+          {
+            sender: senderLogKey,
+            outcome: confirmation.outcome,
+            latencyMs: Date.now() - start,
+            len: confirmation.reply.length,
+          },
+          "agent confirmation handled",
+        );
+        return c.json({ reply: confirmation.reply });
+      }
+    } catch (confirmationErr) {
+      log.warn({ err: confirmationErr, sender: senderLogKey }, "transfer confirmation resolve failed");
+    }
+
     let userId: string | null = null;
     try {
-      const resolved = await resolveUserFromTwilio(from);
+      const resolved = await resolveUserFromTwilio(senderPhone);
       userId = resolved?.userId ?? null;
     } catch (resolveErr) {
-      log.error({ err: resolveErr, from }, "user resolve failed");
+      log.error({ err: resolveErr, sender: senderLogKey }, "user resolve failed");
     }
 
     const history = await loadHistory(conversationKey);
@@ -115,11 +143,7 @@ app.post("/process", async (c) => {
       ? await loadSavingsContext(userId)
       : null;
 
-    const senderPhone = normalizePhoneE164(
-      from.replace(/^whatsapp:/, "").trim(),
-    );
-
-    const result = await runAgent({
+    const result = await processDeps.runAgent({
       history,
       userMessage: body,
       userId,
@@ -144,7 +168,7 @@ app.post("/process", async (c) => {
 
     log.info(
       {
-        from,
+        sender: senderLogKey,
         userId: userId ?? "unregistered",
         latencyMs: Date.now() - start,
         len: result.reply.length,
@@ -155,7 +179,7 @@ app.post("/process", async (c) => {
 
     return c.json({ reply: result.reply });
   } catch (err) {
-    log.error({ err, from }, "agent error");
+    log.error({ err, sender: senderLogKey }, "agent error");
     return c.json({ error: "agent failed" }, 500);
   }
 });
@@ -163,3 +187,8 @@ app.post("/process", async (c) => {
 const port = Number(process.env.PORT ?? 3003);
 export default { port, fetch: app.fetch };
 export { app };
+
+function redactPhoneForLog(phone: string): string {
+  if (phone.length <= 5) return "<redacted>";
+  return `${phone.slice(0, 3)}…${phone.slice(-2)}`;
+}

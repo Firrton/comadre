@@ -58,6 +58,29 @@ const UNREGISTERED_TOOL_ERROR =
 const ONBOARDING_CONSENT_REQUIRED_ERROR =
   "CONSENT_REQUIRED: antes de crear la billetera, pedile al usuario que confirme con 'sí', 'dale' o 'registrame'.";
 
+type ChatCompletionLike = {
+  choices: Array<{
+    finish_reason?: string | null;
+    message: {
+      content?: string | null;
+      tool_calls?: Array<{
+        id: string;
+        type: string;
+        function: { name: string; arguments: string };
+      }>;
+    };
+  }>;
+};
+
+export const agentLoopDeps: {
+  createChatCompletion: (params: Parameters<typeof llmClient.chat.completions.create>[0]) => Promise<ChatCompletionLike>;
+  executeTool: typeof executeTool;
+} = {
+  createChatCompletion: (params) =>
+    llmClient.chat.completions.create(params) as unknown as Promise<ChatCompletionLike>,
+  executeTool,
+};
+
 export function toolsForWalletState(
   userId: string | null,
 ): (typeof ALL_TOOLS)[number][] {
@@ -96,7 +119,7 @@ export async function runAgent({
   const effectiveUserId = userId;
 
   for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
-    const completion = await llmClient.chat.completions.create({
+    const completion = await agentLoopDeps.createChatCompletion({
       model: env.KIMI_MODEL,
       messages,
       tools: toolsForWalletState(effectiveUserId),
@@ -205,7 +228,7 @@ export async function runAgent({
 
       let result: ToolResult;
       try {
-        result = await executeTool(call.function.name, args, toolContext);
+        result = await agentLoopDeps.executeTool(call.function.name, args, toolContext);
       } catch (toolErr) {
         result = {
           type: "error",
@@ -221,6 +244,16 @@ export async function runAgent({
       };
       messages.push(toolMsg);
       newMessages.push(toolMsg);
+
+      if (result.type === "confirmation") {
+        const replyMsg: ChatMessage = {
+          role: "assistant",
+          content: result.confirmationPrompt,
+        };
+        messages.push(replyMsg);
+        newMessages.push(replyMsg);
+        return { reply: result.confirmationPrompt, newMessages };
+      }
     }
   }
 
