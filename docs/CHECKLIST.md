@@ -6,6 +6,119 @@
 
 ---
 
+# 🎯 Tablero de producción — EMPEZÁ ACÁ (2026-06-10, AUTORITATIVO)
+
+> **Este es el punto de entrada del proyecto.** Si abrís el repo y no sabés en qué estado está, leé esta sección entera primero. Todo lo que está DEBAJO de la línea "Estado de revisión 2026-06-05" es historia del proyecto (legacy Phase 0/1) y NO refleja la realidad vigente — no lo uses para decidir.
+
+## ⚠️ Cómo trabajar este proyecto: la disciplina de reinicio de sesión
+
+Este proyecto carga **mucho contexto** (auditoría de 12 ejes, plan de dos vías, ~20 PRs, custodia on-chain). Una sola sesión de IA no puede sostener todo sin degradarse: cuando el historial crece, la calidad baja y se pierde precisión.
+
+**Por eso trabajamos por tramos, y entre tramo y tramo se REINICIA la sesión** (`/clear`). No es opcional, es parte del método:
+
+- Toda la memoria importante (decisiones, estado, gotchas) está **persistida fuera de la sesión**. Una sesión nueva la levanta sola — no se pierde nada.
+- Cada **Paso** de abajo es un tramo autocontenido. El marcador 🔄 te dice exactamente cuándo cortar.
+- **Regla simple:** reiniciá al cambiar de workstream grande (cada SDD trae contexto nuevo; el detalle de la ejecución anterior es ruido). NO reinicies en medio de una verificación corta o un loop de dashboard.
+- Cuando arranques una sesión nueva, abrí este checklist y decí en qué Paso estás. Con eso y la memoria persistida, la IA retoma con contexto completo.
+
+> En resumen: **si ves que la sesión ya hizo mucho y vas a empezar algo nuevo de la lista → `/clear` y volvé a este documento.**
+
+## Heat map de madurez (objetivo: todo en verde antes de mainnet)
+
+Escala /12. "Antes" = auditoría 2026-06-09 (pre Vía B). "Ahora" = main tras Vía B + P1.
+
+| Eje | Antes | Ahora | Estado | Qué falta para completar |
+|---|---|---|---|---|
+| API | 8 | 9 | 🟢 | `wallet/balance` devuelve 501 (necesita RPC Monad) |
+| Auth | 7 | 9 | 🟢 | Replay cerrado en todos los endpoints internos. Nada crítico |
+| Security | 5 | 8 | 🟡 | `permissionId` vacío (sin revocación on-chain); policies Neverland `to`/`onBehalfOf` sin pinear; rotación de credenciales (owner) |
+| CI/CD | 4 | 9 | 🟢 | `ts` y `migrate` verdes y probados. `deploy` queda diferido por decisión de billing (ver Paso opcional) — NO es bloqueante de ingeniería |
+| Database | 6 | 8 | 🟢 | Migrada y verificada en prod. Falta: transaccionalidad savings, job de reconciliación (depende del indexer) |
+| DR | 4 | 5 | 🟡 | Runbook escrito. Falta: PITR de Supabase (owner) + 1 simulacro de restore real |
+| Scaling | 1 | 6 | 🟡 | api ya escala >1 réplica (Maps→Redis). cron sigue clavado en 1 (sin lock distribuido) |
+| Hosting | 5 | 6 | 🟡 | Config-as-code lista (`infra/railway.*.toml`). Deploy real diferido (Railway cuesta $5/mes para correr servicios). Config lista = no es hueco de ingeniería |
+| Logs | 7 | 8 | 🟡 | PII redactada. Falta: cliente BetterStack (token existe, sin uso); `SENTRY_DSN` en prod (owner) |
+| RLS | 1 | 1 | ⚪ | Ausente. N/A para arquitectura single-tenant custodial — no bloquea |
+| Load Balancing | 1 | 1 | ⚪ | Ausente. No bloquea para testnet single-instance |
+
+**Huecos grandes que el heat map de 12 ejes NO cubre (alcance MVP):**
+
+- 🔴 **Indexer de Monad** — `recibir-con-aviso` no existe (0 código). Único pilar del MVP en cero. Además destraba el job de reconciliación pending-vs-chain.
+- 🟡 **Canal OpenWA** — decisión tomada 2026-06-10: OpenWA, fuera Twilio. `apps/whatsapp` es adaptador Twilio de punta a punta; hay que migrarlo.
+- 🟡 **Validación E2E en testnet** — nada del camino del dinero se probó aún contra Monad + WhatsApp reales.
+
+## 🧠 Decisiones lockeadas (no re-litigar)
+
+- **Vía B**: pipeline primero, después camino del dinero, después P1. (Ya ejecutado.)
+- **Tope diario**: 100 USDC / 24h por usuario.
+- **Canal**: OpenWA. **Fuera Twilio** (2026-06-10).
+- **Deploy**: diferido. No se gasta en Railway por ahora; se valida local en testnet.
+- **Package manager**: pnpm. **Nunca** npm/npx. Runtime: bun.
+
+---
+
+## 🗺️ Ruta para completar el mapa — en orden, con puntos de reinicio
+
+> 🔄 = cortá la sesión acá (`/clear`) y volvé a este documento antes del siguiente Paso.
+
+### ✅ Hecho (Vía B + P1, en main)
+Camino del dinero completo: confirmación de destinatario, allowlist fail-closed (ruta + signer), CAS anti doble-firma, tope 100 USDC/24h, dedup de webhooks. Pipeline gateado y verde (`ts` + `migrate`). PII fuera de logs. Estado en Redis (api escala). DB migrada en prod.
+
+### Paso 1 — Validación E2E en testnet (PRÓXIMO) — sesión fresca
+Probar el camino del dinero entero contra Monad testnet + WhatsApp reales, corriendo los servicios **localmente** (`bun run dev` por app). No requiere deploy ni gastar plata.
+- [ ] Onboarding real → wallet Monad provisionada (Turnkey)
+- [ ] Envío a destinatario NUEVO → prompt de confirmación → "sí" → tx on-chain
+- [ ] Segundo envío al mismo destinatario → sin confirmación
+- [ ] Doble "sí" concurrente → una sola tx (CAS)
+- [ ] Exceder 100 USDC/24h → rechazo con mensaje claro
+- [ ] Webhook duplicado de WhatsApp → procesado una sola vez
+- → Valida: que todo lo construido funciona de verdad
+- 🔄 **Reiniciá ANTES de empezar este Paso.**
+
+### Paso 2 — Indexer de Monad — sesión fresca, SDD completo
+El hueco MVP más grande: sin esto no existe "recibir con aviso".
+- [ ] SDD: explorar → proponer → spec → diseño → tasks
+- [ ] Indexer que escucha transfers USDC entrantes a wallets de usuarios
+- [ ] `recibir-con-aviso`: notificación por WhatsApp al recibir
+- [ ] Job de reconciliación: filas `pending`/`confirmed` vs estado on-chain
+- → Cierra: el hueco MVP más grande + Database → 9 (transaccionalidad)
+- 🔄 **Reiniciá ANTES.** SDD grande, merece contexto limpio.
+
+### Paso 3 — Canal OpenWA — sesión fresca, SDD completo
+Ejecuta la decisión de canal del 2026-06-10.
+- [ ] SDD del bridge OpenWA (sesión de browser persistente, dedup de message-id, auth bridge↔backend)
+- [ ] Reemplazar webhook + send de Twilio
+- [ ] Purgar deps `twilio` + env vars `TWILIO_*` + código de firma Twilio
+- [ ] Actualizar docs FLOWS/SECURITY
+- 🔄 **Reiniciá ANTES.** Workstream independiente.
+
+### Paso 4 — Hardening P2 de seguridad — sesión fresca
+- [ ] `permissionId` real al instalar session key (habilita revocación on-chain)
+- [ ] Pinear `to`/`onBehalfOf` en policies Neverland (`wallet-infra/policies.ts`)
+- [ ] Transaccionalidad en confirmaciones de savings
+- → Cierra: **Security → 10+**
+- 🔄 **Reiniciá ANTES.**
+
+### Paso OPCIONAL — Deploy a la nube (cuando decidas gastar) — sesión fresca
+Diferido a propósito: Railway cobra ~$5/mes para correr los servicios. La config-as-code ya está lista; esto es solo la última milla cuando quieras un entorno vivo 24/7.
+- [ ] Decidir vía: `RAILWAY_TOKEN` + CI gateado (recomendado), o GitHub-integration sobre trial (gratis pero sin gate; requiere sacar el job `deploy` del `ci.yml`)
+- [ ] Crear el token / conectar, cargar env vars por servicio, Config File Path `/infra/railway.<svc>.toml`, cron Replicas=1
+- [ ] Re-disparar el pipeline → `deploy` verde
+- 🔄 **Reiniciá ANTES.**
+
+### Acciones de owner transversales (sin sesión de IA, cuando puedas)
+- [ ] Rotar credenciales de Twilio (en git history) + secretos vivos en `.env`/`.env.local` + **password de la DB** (quedó expuesta en transcript)
+- [ ] Habilitar PITR de Supabase + anotar fecha en `docs/SECURITY.md` → sube DR
+- [ ] Provisionar `SENTRY_DSN` → sube Logs
+
+---
+
+## 🧹 Limpieza pendiente
+- [ ] Mergear PR #51 (`baseline.ts`)
+- [ ] Cerrar PRs viejos: #27 (superseded por #38-#40), #19, #20, #24, #25 (stale/legacy)
+
+---
+
 ## 🧭 Estado de revisión — sesión Monad (2026-06-05, branch `claude/laughing-ishizaka-263771`)
 
 > ⚠️ Gran parte de este CHECKLIST es **legacy Phase 0 (Solana / Anchor / Twilio / Helius)** y NO refleja la stack actual. Realidad vigente: **Monad / EVM / ZeroDev (AA) / Turnkey / Pimlico**; WhatsApp migrando a **open-wa** (Twilio aún presente en el código). Tomar lo de abajo con pinzas.
