@@ -18,8 +18,8 @@
  */
 
 export type { ToolContext, ToolResult, ToolDefinition, ToolExecutor } from "./types";
-export { apiCall, newIdempotencyKey } from "./apiClient";
-export type { ApiCallParams } from "./apiClient";
+export { apiCall, newIdempotencyKey, resolveTransferConfirmation } from "./apiClient";
+export type { ApiCallParams, ResolveTransferConfirmationResult } from "./apiClient";
 
 export {
   ALL_TOOLS,
