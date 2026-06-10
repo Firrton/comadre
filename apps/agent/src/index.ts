@@ -6,7 +6,7 @@ import { logger } from "hono/logger";
 import pino from "pino";
 import { z } from "zod";
 
-import { agentToolRateLimit, checkRateLimit } from "@comadre/cache";
+import { agentToolRateLimit, checkRateLimit, markNonceSeen } from "@comadre/cache";
 import { env } from "@comadre/config";
 import { resolveTransferConfirmation } from "@comadre/agent-tools";
 
@@ -66,6 +66,12 @@ app.post("/process", async (c) => {
     if (a.length !== b.length || !timingSafeEqual(a, b)) {
       log.warn("HMAC signature mismatch on /process");
       return c.json({ error: "invalid signature" }, 401);
+    }
+
+    const fresh = await markNonceSeen(signature, 300);
+    if (!fresh) {
+      log.warn("replay detected on /process");
+      return c.json({ error: "replayed request" }, 401);
     }
   }
 
