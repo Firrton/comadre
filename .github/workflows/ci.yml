@@ -11,6 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # turbo resolves the workspace via the root packageManager field
+      # (pnpm) and needs its binary on PATH even though installs run
+      # through bun. action-setup reads the version from package.json.
+      - uses: pnpm/action-setup@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.2.0
