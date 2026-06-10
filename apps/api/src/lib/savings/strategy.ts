@@ -3,13 +3,12 @@
  *
  * Providers:
  *   - `mock`      — in-memory demo, no on-chain calls. Default in dev.
- *   - `kamino`    — Kamino Lend on Solana (legacy; returns 501 post Monad migration).
- *   - `neverland` — Neverland (Aave V3 fork) on Monad mainnet. Active when
+ *   - `neverland` — Neverland (Aave V3 fork) on Monad. Active when
  *                   YIELD_STRATEGY_PROVIDER=neverland and NEVERLAND_POOL_ADDRESS is set.
  */
 
 export interface BuiltStrategyTx {
-  provider: "mock" | "kamino" | "neverland";
+  provider: "mock" | "neverland";
   strategyId: string;
   /** Chain-specific instructions (currently unused; reserved for Monad integration). */
   instructions: unknown[];
@@ -18,7 +17,7 @@ export interface BuiltStrategyTx {
 }
 
 export interface SavingsSummary {
-  provider: "mock" | "kamino" | "neverland";
+  provider: "mock" | "neverland";
   strategyId: string;
   savedMicroUsdc: bigint;
   shareAmount: string;

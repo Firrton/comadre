@@ -59,12 +59,13 @@ export async function lookupByPhone(e164: string): Promise<PhoneLookupResult> {
   const dbUser = dbRows[0];
 
   if (dbUser) {
+    const wallet = dbUser.ownerAddress ?? "";
     return {
       phone: e164,
       phoneHash,
       registered: true,
-      wallet: dbUser.wallet,
-      walletPreview: previewWallet(dbUser.wallet),
+      wallet,
+      walletPreview: previewWallet(wallet),
       kycTier: dbUser.kycTier,
     };
   }

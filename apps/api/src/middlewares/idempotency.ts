@@ -34,7 +34,7 @@ export const idempotencyMiddleware: MiddlewareHandler = async (c, next) => {
   }
 
   const user = (c.get as (k: string) => unknown)("user") as AuthUser | undefined;
-  const userId = user?.userId ?? "anon";
+  const userId = user?.id ?? "anon";
   const routeName = c.req.path.replace(/\//g, "_");
   const cacheKey = `api:${userId}:${routeName}:${idempKey}`;
 

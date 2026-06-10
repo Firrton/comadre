@@ -36,12 +36,12 @@ export function isPostTandaCreation(history: ChatMessage[]): boolean {
   return false;
 }
 
-export async function recentNudgeExists(userWallet: string): Promise<boolean> {
+export async function recentNudgeExists(userId: string): Promise<boolean> {
   const cutoff = new Date(Date.now() - NUDGE_COOLDOWN_MS);
   const rows = await db
     .select({ id: savingsNudges.id })
     .from(savingsNudges)
-    .where(and(eq(savingsNudges.userWallet, userWallet), gte(savingsNudges.createdAt, cutoff)))
+    .where(and(eq(savingsNudges.userId, userId), gte(savingsNudges.createdAt, cutoff)))
     .limit(1);
   return rows.length > 0;
 }
@@ -49,7 +49,7 @@ export async function recentNudgeExists(userWallet: string): Promise<boolean> {
 export type NudgeSource = "greeting" | "post_tanda";
 
 export async function shouldNudgeGuardadito(args: {
-  userWallet: string;
+  userId: string;
   userMessage: string;
   history: ChatMessage[];
 }): Promise<{ ok: boolean; source: NudgeSource | null }> {
@@ -58,19 +58,19 @@ export async function shouldNudgeGuardadito(args: {
   else if (isPostTandaCreation(args.history)) source = "post_tanda";
 
   if (source === null) return { ok: false, source: null };
-  if (await recentNudgeExists(args.userWallet)) return { ok: false, source };
+  if (await recentNudgeExists(args.userId)) return { ok: false, source };
   return { ok: true, source };
 }
 
 /** Insert a nudge row to start the 24h cooldown. */
 export async function recordGuardaditoNudge(params: {
-  userWallet: string;
+  userId: string;
   source: NudgeSource;
   amountMicroUsdc: bigint;
   message?: string;
 }): Promise<void> {
   await db.insert(savingsNudges).values({
-    userWallet: params.userWallet,
+    userId: params.userId,
     source: params.source,
     sourceRef: `${params.source}:${Date.now()}`,
     amountMicroUsdc: params.amountMicroUsdc,

@@ -65,7 +65,7 @@ async function getPrincipalsFromDb(
     .from(savingsPositions)
     .where(
       and(
-        eq(savingsPositions.userWallet, walletAddress),
+        eq(savingsPositions.userId, walletAddress),
         eq(savingsPositions.provider, "neverland"),
         eq(savingsPositions.strategyId, NEVERLAND_STRATEGY_ID),
         eq(savingsPositions.status, "active"),

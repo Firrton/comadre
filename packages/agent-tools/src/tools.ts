@@ -118,7 +118,7 @@ export const consultarPerfilExecute: ToolExecutor = async (_args, context) => {
   const data = await apiCall<unknown>({
     method: "GET",
     path: "/api/v1/users/me",
-    userWallet: context.userWallet,
+    userId: context.userId,
   });
   return { type: "data", data: redactSensitiveFields(data), summary: "Perfil cargado" };
 };
@@ -150,7 +150,7 @@ export const consultarTandaExecute: ToolExecutor = async (args, context) => {
   const data = await apiCall<unknown>({
     method: "GET",
     path: `/api/v1/tandas/${encodeURIComponent(tanda_id)}`,
-    userWallet: context.userWallet,
+    userId: context.userId,
   });
   return { type: "data", data: redactSensitiveFields(data), summary: `Tanda ${tanda_id} cargada` };
 };
@@ -231,7 +231,7 @@ export const crearTandaExecute: ToolExecutor = async (args, context) => {
       payout_order_mode: a.payout_order_mode,
       usdc_mint: process.env["USDC_MINT"] ?? "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
     },
-    userWallet: context.userWallet,
+    userId: context.userId,
     idempotencyKey,
   });
   const dollars = (a.contribution_amount_cents / 100).toFixed(2);
@@ -284,7 +284,7 @@ export const unirseTandaExecute: ToolExecutor = async (args, context) => {
     method: "POST",
     path: `/api/v1/tandas/${encodeURIComponent(tanda_id)}/join`,
     body: {},
-    userWallet: context.userWallet,
+    userId: context.userId,
     idempotencyKey,
   });
   if (result.signature) {
@@ -334,7 +334,7 @@ export const aportarTurnoExecute: ToolExecutor = async (args, context) => {
     method: "POST",
     path: `/api/v1/tandas/${encodeURIComponent(tanda_id)}/contribute`,
     body: {},
-    userWallet: context.userWallet,
+    userId: context.userId,
     idempotencyKey,
   });
   return {
@@ -382,7 +382,7 @@ export const abrirDisputaExecute: ToolExecutor = async (args, context) => {
     method: "POST",
     path: `/api/v1/tandas/${encodeURIComponent(tanda_id)}/disputes`,
     body: { reason },
-    userWallet: context.userWallet,
+    userId: context.userId,
     idempotencyKey,
   });
   return {
@@ -425,7 +425,7 @@ export const votarDisputaExecute: ToolExecutor = async (args, context) => {
     method: "POST",
     path: `/api/v1/disputes/${encodeURIComponent(dispute_id)}/vote`,
     body: { continue_tanda },
-    userWallet: context.userWallet,
+    userId: context.userId,
     idempotencyKey,
   });
   return {
@@ -454,7 +454,7 @@ export const solicitarKycExecute: ToolExecutor = async (_args, context) => {
     method: "POST",
     path: "/api/v1/kyc/session",
     body: {},
-    userWallet: context.userWallet,
+    userId: context.userId,
     idempotencyKey,
   });
   return { type: "data", data: redactSensitiveFields(data), summary: "Sesión KYC iniciada" };
@@ -494,8 +494,8 @@ export const iniciarOnrampExecute: ToolExecutor = async (args, context) => {
   const data = await apiCall<unknown>({
     method: "POST",
     path: "/api/v1/onramp/quote",
-    body: { fiat_currency, fiat_amount_cents: amount_cents, user_wallet: context.userWallet },
-    userWallet: context.userWallet,
+    body: { fiat_currency, fiat_amount_cents: amount_cents, user_wallet: context.userId },
+    userId: context.userId,
     idempotencyKey,
   });
   const dollars = (amount_cents / 100).toFixed(2);
@@ -520,7 +520,7 @@ export const consultarBalanceExecute: ToolExecutor = async (_args, context) => {
   const data = await apiCall<unknown>({
     method: "GET",
     path: "/api/v1/wallet/balance",
-    userWallet: context.userWallet,
+    userId: context.userId,
   });
   return { type: "data", data: redactSensitiveFields(data), summary: "Saldo USDC consultado" };
 };
@@ -539,7 +539,7 @@ export const misTandasExecute: ToolExecutor = async (_args, context) => {
   const data = await apiCall<unknown>({
     method: "GET",
     path: "/api/v1/tandas",
-    userWallet: context.userWallet,
+    userId: context.userId,
   });
   return { type: "data", data: redactSensitiveFields(data), summary: "Tandas del usuario cargadas" };
 };
@@ -599,7 +599,7 @@ export const iniciarTransferExecute: ToolExecutor = async (args, context) => {
       amountUsdc: a.amount_usdc,
       ...(a.note ? { note: a.note } : {}),
     },
-    userWallet: context.userWallet,
+    userId: context.userId,
     idempotencyKey,
   });
 
@@ -647,7 +647,7 @@ export const confirmarTransferExecute: ToolExecutor = async (args, context) => {
     method: "POST",
     path: `/api/v1/transfers/${encodeURIComponent(transfer_id)}/confirm`,
     body: {},
-    userWallet: context.userWallet,
+    userId: context.userId,
     idempotencyKey,
   });
   return {
@@ -681,7 +681,7 @@ export const cancelarTransferExecute: ToolExecutor = async (args, context) => {
     method: "POST",
     path: `/api/v1/transfers/${encodeURIComponent(transfer_id)}/cancel`,
     body: {},
-    userWallet: context.userWallet,
+    userId: context.userId,
     idempotencyKey,
   });
   return {
@@ -720,7 +720,7 @@ export const iniciarCuentaSeguraExecute: ToolExecutor = async (_args, context) =
     const data = await apiCall<{ ok: true; magicLink?: string }>({
       method: "POST",
       path: "/api/v1/onboarding/monad/start",
-      userWallet: "",
+      userId: "",
       idempotencyKey: newIdempotencyKey(),
       body: { phone: telefono },
     });
@@ -783,7 +783,7 @@ export const enviarPlataExecute: ToolExecutor = async (args, context) => {
     }>({
       method: "POST",
       path: "/api/v1/transfers-monad",
-      userWallet: "",
+      userId: "",
       idempotencyKey: context.idempotencyKey ?? newIdempotencyKey(),
       body: {
         senderPhone: context.senderPhone,
@@ -842,7 +842,7 @@ export const consultarGuardaditoExecute: ToolExecutor = async (_args, context) =
   }>({
     method: "GET",
     path: "/api/v1/savings/summary",
-    userWallet: context.userWallet,
+    userId: context.userId,
   });
   return {
     type: "data",
@@ -884,7 +884,7 @@ export const prepararGuardaditoExecute: ToolExecutor = async (args, context) => 
     method: "POST",
     path: "/api/v1/savings/deposits",
     body: { amountUsdc: amount_usdc },
-    userWallet: context.userWallet,
+    userId: context.userId,
     idempotencyKey,
   });
   return {
@@ -917,7 +917,7 @@ export const confirmarGuardaditoExecute: ToolExecutor = async (args, context) =>
     method: "POST",
     path: `/api/v1/savings/actions/${encodeURIComponent(action_id)}/confirm`,
     body: {},
-    userWallet: context.userWallet,
+    userId: context.userId,
     idempotencyKey,
   });
   return {
@@ -955,7 +955,7 @@ export const retirarGuardaditoExecute: ToolExecutor = async (args, context) => {
     method: "POST",
     path: "/api/v1/savings/withdrawals",
     body: { amountUsdc: amount_usdc },
-    userWallet: context.userWallet,
+    userId: context.userId,
     idempotencyKey,
   });
   return {
@@ -988,7 +988,7 @@ export const cancelarGuardaditoExecute: ToolExecutor = async (args, context) => 
     method: "POST",
     path: `/api/v1/savings/actions/${encodeURIComponent(action_id)}/cancel`,
     body: {},
-    userWallet: context.userWallet,
+    userId: context.userId,
     idempotencyKey,
   });
   return { type: "data", data: redactSensitiveFields(data), summary: "Acción de Guardadito cancelada." };
@@ -1027,7 +1027,7 @@ export const confirmarCodigoSeguridadExecute: ToolExecutor = async (args, contex
     method: "POST",
     path: `/api/v1/elevated-intents/${encodeURIComponent(intent_id)}/confirm`,
     body: { code },
-    userWallet: context.userWallet,
+    userId: context.userId,
     idempotencyKey: newIdempotencyKey(),
   });
   return {

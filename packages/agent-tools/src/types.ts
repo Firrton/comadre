@@ -8,11 +8,11 @@
 
 export interface ToolContext {
   /**
-   * The Solana wallet (base58 pubkey) of the user this tool acts on behalf of.
+   * The canonical user id (users.id UUID) of the user this tool acts on behalf of.
    * For onboarding-only tools where the user is not yet registered, this MAY
    * be an empty string.
    */
-  userWallet: string;
+  userId: string;
   /**
    * E.164 phone number of the user (e.g. "+528116346072"), set by the agent
    * service from the Twilio "From" header. Required by `iniciar_onboarding`.

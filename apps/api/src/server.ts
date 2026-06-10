@@ -10,8 +10,6 @@
  *
  * Routers mounted:
  *   /api/v1/users/*         — users router
- *   /api/v1/tandas/*        — tandas router (GETs live; POSTs are 501 — Monad pending)
- *   /api/v1 (disputes)      — disputes router (mixed paths)
  *   /api/v1/kyc/*           — kyc router
  *   /api/v1 (ramps)         — ramps router
  *   /api/v1/elevated-intents/* — elevated intents router (OTP confirmation)
@@ -28,8 +26,6 @@ import { rateLimitMiddleware } from "./middlewares/rateLimit.js";
 import { idempotencyMiddleware } from "./middlewares/idempotency.js";
 
 import { usersRouter } from "./routes/users.js";
-import { tandasRouter } from "./routes/tandas.js";
-import { disputesRouter } from "./routes/disputes.js";
 import { kycRouter } from "./routes/kyc.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { rampsRouter } from "./routes/ramps.js";
@@ -113,8 +109,6 @@ app.use("/api/*", async (c, next) => {
 app.route("/api/v1/users", usersRouter);
 app.route("/api/v1/wallet", walletRouter);
 app.route("/api/v1/savings", savingsRouter);
-app.route("/api/v1/tandas", tandasRouter);
-app.route("/api/v1", disputesRouter);
 app.route("/api/v1/kyc", kycRouter);
 app.route("/api/v1", rampsRouter);
 app.route("/api/v1/elevated-intents", elevatedIntentsRouter);

@@ -38,7 +38,7 @@ function getSql(): ReturnType<typeof postgres> {
  *
  * @example
  * import { db } from "@comadre/db";
- * const rows = await db.select().from(users).where(eq(users.wallet, wallet));
+ * const rows = await db.select().from(users).where(eq(users.id, userId));
  */
 export function getDb(): DbInstance {
   if (_db === null) {

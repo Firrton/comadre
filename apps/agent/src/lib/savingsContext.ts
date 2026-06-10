@@ -1,6 +1,6 @@
 import { apiCall } from "@comadre/agent-tools";
 
-export async function loadSavingsContext(userWallet: string): Promise<string | null> {
+export async function loadSavingsContext(userId: string): Promise<string | null> {
   try {
     const summary = await apiCall<{
       available: { usdc: string };
@@ -15,7 +15,7 @@ export async function loadSavingsContext(userWallet: string): Promise<string | n
     }>({
       method: "GET",
       path: "/api/v1/savings/summary",
-      userWallet,
+      userId,
     });
 
     return [

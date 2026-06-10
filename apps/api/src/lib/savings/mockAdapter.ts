@@ -10,7 +10,7 @@ async function getMockPosition(wallet: string): Promise<bigint> {
     .from(savingsPositions)
     .where(
       and(
-        eq(savingsPositions.userWallet, wallet),
+        eq(savingsPositions.userId, wallet),
         eq(savingsPositions.provider, "mock"),
         eq(savingsPositions.strategyId, MOCK_STRATEGY_ID),
         eq(savingsPositions.status, "active"),

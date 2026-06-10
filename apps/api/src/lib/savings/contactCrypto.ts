@@ -43,21 +43,21 @@ export function decryptPhoneE164(ciphertext: string): string {
 }
 
 export async function upsertContactRoute(params: {
-  userWallet: string;
+  userId: string;
   phoneE164: string;
 }): Promise<void> {
   const phoneHash = await hashPhone(params.phoneE164);
   await db
     .insert(contactRoutes)
     .values({
-      userWallet: params.userWallet,
+      userId: params.userId,
       phoneHash,
       phoneCiphertext: encryptPhoneE164(params.phoneE164),
       channel: "whatsapp",
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
-      target: [contactRoutes.userWallet, contactRoutes.channel],
+      target: [contactRoutes.userId, contactRoutes.channel],
       set: {
         phoneHash,
         phoneCiphertext: encryptPhoneE164(params.phoneE164),
@@ -66,11 +66,11 @@ export async function upsertContactRoute(params: {
     });
 }
 
-export async function getWhatsAppRoute(userWallet: string): Promise<string | null> {
+export async function getWhatsAppRoute(userId: string): Promise<string | null> {
   const rows = await db
     .select({ phoneCiphertext: contactRoutes.phoneCiphertext })
     .from(contactRoutes)
-    .where(and(eq(contactRoutes.userWallet, userWallet), eq(contactRoutes.channel, "whatsapp")))
+    .where(and(eq(contactRoutes.userId, userId), eq(contactRoutes.channel, "whatsapp")))
     .limit(1);
 
   const ciphertext = rows[0]?.phoneCiphertext;

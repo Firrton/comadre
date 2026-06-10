@@ -5,36 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1778274151626,
-      "tag": "0000_foamy_warstar",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1778295335746,
-      "tag": "0001_harsh_earthquake",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1778358614351,
-      "tag": "0002_dashing_onslaught",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1778373922510,
-      "tag": "0003_needy_puff_adder",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1748304000000,
-      "tag": "0004_neverland",
+      "when": 1780705870025,
+      "tag": "0000_minor_silk_fever",
       "breakpoints": true
     }
   ]

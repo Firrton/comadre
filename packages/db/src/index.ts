@@ -9,13 +9,6 @@
 // Tables
 export {
   users,
-  tandas,
-  members,
-  disputes,
-  disputeVotes,
-  loans,
-  loanCosigners,
-  badges,
   conversations,
   idempotencyKeys,
   ramps,
@@ -34,10 +27,6 @@ export {
 // Enums (Drizzle pgEnum objects — useful for .notInArray / .inArray helpers)
 export {
   kycTierEnum,
-  tandaStateEnum,
-  payoutOrderEnum,
-  disputeStateEnum,
-  badgeTypeEnum,
   channelEnum,
   savingsProviderEnum,
   savingsPositionStatusEnum,
@@ -45,7 +34,6 @@ export {
   savingsActionStatusEnum,
   rampDirectionEnum,
   rampStatusEnum,
-  loanStateEnum,
   kycSessionStatusEnum,
   transferStatusEnum,
   sessionKeyStatusEnum,

@@ -12,7 +12,7 @@
  *
  *   for (const call of completion.choices[0].message.tool_calls ?? []) {
  *     const result = await executeTool(call.function.name, JSON.parse(call.function.arguments), {
- *       userWallet,
+ *       userId,
  *     });
  *   }
  */

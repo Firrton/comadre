@@ -20,7 +20,7 @@ export async function kycRefreshJob(): Promise<void> {
   const staleSessions = await db
     .select({
       id: kycSessions.id,
-      userWallet: kycSessions.userWallet,
+      userId: kycSessions.userId,
       applicantId: kycSessions.applicantId,
       createdAt: kycSessions.createdAt,
     })
@@ -38,7 +38,7 @@ export async function kycRefreshJob(): Promise<void> {
     log.info(
       {
         sessionId: session.id,
-        userWallet: session.userWallet,
+        userId: session.userId,
         applicantId: session.applicantId,
         ageMs: Date.now() - (session.createdAt?.getTime() ?? 0),
       },

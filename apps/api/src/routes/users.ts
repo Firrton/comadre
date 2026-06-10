@@ -1,9 +1,9 @@
 /**
  * /api/v1/users — user profile endpoints
  *
- * POST /api/v1/users/init       — stub tx-build for init_user_profile
- * POST /api/v1/users/:wallet/confirm — confirm user after tx + insert into DB
- * GET  /api/v1/users/me          — authed user's profile from DB
+ * POST /api/v1/users/init    — stub tx-build for init_user_profile
+ * POST /api/v1/users/confirm — confirm the authenticated user's profile
+ * GET  /api/v1/users/me      — authed user's profile from DB
  */
 
 import { Hono } from "hono";
@@ -36,7 +36,7 @@ usersRouter.post(
     const stub = makeTxStub(idempKey, {
       instruction: "init_user_profile",
       args: { phone_hash, country_code },
-      accounts: { wallet: user.walletAddress },
+      accounts: { wallet: user.ownerAddress },
     });
 
     return c.json(stub, 200);
@@ -44,53 +44,37 @@ usersRouter.post(
 );
 
 // ---------------------------------------------------------------------------
-// POST /api/v1/users/:wallet/confirm — insert user row (STUB tx-confirm)
+// POST /api/v1/users/confirm — confirm the authenticated user's profile
+//
+// Identity is now the surrogate UUID (users.id) resolved by the auth
+// middleware. The legacy wallet-path squatting check is obsolete: the caller
+// can only ever act on their own resolved id. We simply touch the row.
 // ---------------------------------------------------------------------------
 const ConfirmBody = z.object({ signature: z.string().min(1) });
 
 usersRouter.post(
-  "/:wallet/confirm",
+  "/confirm",
   zValidator("json", ConfirmBody, (result, c) => {
     if (!result.success) {
       return c.json({ error: "validation", issues: result.error.format() }, 400);
     }
   }),
   async (c) => {
-    const pathWallet = c.req.param("wallet");
     const user = (c.get as (k: string) => unknown)("user") as AuthUser;
     const logger = getLogger(c);
 
-    // Prevent account squatting: caller may only confirm their own wallet
-    if (pathWallet !== user.walletAddress) {
-      return c.json({ error: "forbidden", message: "wallet mismatch" }, 403);
+    const updated = await db
+      .update(users)
+      .set({ updatedAt: new Date() })
+      .where(eq(users.id, user.id))
+      .returning({ id: users.id });
+
+    if (!updated[0]) {
+      return c.json({ error: "not_found", message: "User profile not found" }, 404);
     }
 
-    const wallet = pathWallet;
-
-    // Upsert: insert user if not exists, otherwise just return current state.
-    await db
-      .insert(users)
-      .values({
-        wallet,
-        phoneHash: "",
-        countryCode: null,
-        kycTier: "t0_demo",
-        reputationScore: 0,
-        tandasCompleted: 0,
-        tandasDefaulted: 0,
-        tandasCreated: BigInt(0),
-        loansRepaid: 0,
-        loansDefaulted: 0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: users.wallet,
-        set: { updatedAt: new Date() },
-      });
-
-    logger.info({ wallet }, "user confirmed");
-    return c.json({ wallet, status: "confirmed" }, 200);
+    logger.info({ user_id: user.id }, "user confirmed");
+    return c.json({ id: user.id, status: "confirmed" }, 200);
   }
 );
 
@@ -103,7 +87,7 @@ usersRouter.get("/me", async (c) => {
   const rows = await db
     .select()
     .from(users)
-    .where(eq(users.wallet, user.walletAddress))
+    .where(eq(users.id, user.id))
     .limit(1);
 
   const row = rows[0];
@@ -113,11 +97,9 @@ usersRouter.get("/me", async (c) => {
 
   return c.json(
     {
-      wallet: row.wallet,
+      id: row.id,
+      owner_address: row.ownerAddress ?? null,
       kyc_tier: row.kycTier,
-      reputation_score: row.reputationScore,
-      tandas_completed: row.tandasCompleted,
-      tandas_defaulted: row.tandasDefaulted,
       country_code: row.countryCode ?? null,
     },
     200

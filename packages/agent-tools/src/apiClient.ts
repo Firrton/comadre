@@ -19,8 +19,8 @@ export interface ApiCallParams {
   method: "GET" | "POST";
   path: string;
   body?: unknown;
-  /** The user we're acting on behalf of (base58 Solana pubkey). */
-  userWallet: string;
+  /** The user we're acting on behalf of (users.id UUID). */
+  userId: string;
   /** Required on POST. Avoids replay + duplicate effect. */
   idempotencyKey?: string;
 }
@@ -46,9 +46,11 @@ export async function apiCall<T>(params: ApiCallParams): Promise<T> {
     "X-Internal-Timestamp": timestamp,
   };
   // Audit COM-006: dev-bypass headers gated on NODE_ENV === "development".
-  if (process.env["NODE_ENV"] === "development" && params.userWallet) {
-    headers["X-Dev-Wallet"] = params.userWallet;
-    headers["X-Dev-User-Id"] = `agent-tool:${params.userWallet}`;
+  // Identity is users.id (UUID); X-Dev-Wallet carries a non-empty placeholder to
+  // satisfy the dev gate (owner address is not needed to identify the user).
+  if (process.env["NODE_ENV"] === "development" && params.userId) {
+    headers["X-Dev-User-Id"] = params.userId;
+    headers["X-Dev-Wallet"] = params.userId;
   }
   if (params.idempotencyKey) headers["X-Idempotency-Key"] = params.idempotencyKey;
 

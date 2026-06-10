@@ -27,7 +27,7 @@ async function sendWhatsApp(toE164: string, body: string): Promise<boolean> {
 }
 
 export async function createSavingsNudge(params: {
-  userWallet: string;
+  userId: string;
   source: string;
   sourceRef: string;
   amountMicroUsdc: bigint;
@@ -37,7 +37,7 @@ export async function createSavingsNudge(params: {
   const inserted = await db
     .insert(savingsNudges)
     .values({
-      userWallet: params.userWallet,
+      userId: params.userId,
       source: params.source,
       sourceRef: params.sourceRef,
       amountMicroUsdc: params.amountMicroUsdc,
@@ -52,7 +52,7 @@ export async function createSavingsNudge(params: {
     return { created: Boolean(nudge), sent: false };
   }
 
-  const phone = await getWhatsAppRoute(params.userWallet);
+  const phone = await getWhatsAppRoute(params.userId);
   if (!phone) return { created: true, sent: false };
 
   const sent = await sendWhatsApp(
