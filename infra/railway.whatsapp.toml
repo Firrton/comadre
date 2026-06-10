@@ -1,0 +1,14 @@
+# Railway config — whatsapp service
+# Dashboard: Settings → Config File Path → /infra/railway.whatsapp.toml
+
+[build]
+builder = "RAILPACK"
+buildCommand = "bun install --frozen-lockfile && bun build apps/whatsapp/src/index.ts --target=bun --outdir=apps/whatsapp/dist"
+watchPatterns = ["apps/whatsapp/**", "packages/**"]
+
+[deploy]
+startCommand = "bun apps/whatsapp/dist/index.js"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
