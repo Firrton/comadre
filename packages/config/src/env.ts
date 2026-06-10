@@ -166,6 +166,10 @@ const comadreYieldSchema = z.object({
   /** Wallet that receives the performance fee. Must be a Turnkey-managed wallet.
    *  Required in production when yield feature is active; optional in dev. */
   COMADRE_FEE_WALLET: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  /** Daily aggregate spend cap per sender (trailing 24h). Integer USDC string.
+   *  In-flight rows (pending + awaiting_confirmation + confirmed) count toward the cap.
+   *  Default 100 USDC = 100_000_000 microUSDC. */
+  DAILY_AGGREGATE_CAP_USDC: z.string().regex(/^\d+$/).default("100"),
 });
 
 // -----------------------------------------------------------------------
