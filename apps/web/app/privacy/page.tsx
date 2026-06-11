@@ -28,10 +28,9 @@ export default function PrivacyPage() {
         <section>
           <h2 className="font-headline text-xl">Qué no hacemos</h2>
           <p className="mt-2">
-            No vendemos tus datos. No compartimos tus conversaciones con
-            terceros para publicidad. No te contactamos fuera de la
-            conversación que tú inicias, salvo recordatorios que tú misma
-            hayas pedido.
+            No vendemos tus datos ni usamos tus conversaciones para venderte
+            publicidad. No te contactamos fuera de la conversación que tú
+            inicias, salvo recordatorios que hayas pedido.
           </p>
         </section>
 

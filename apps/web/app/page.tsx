@@ -8,7 +8,7 @@ function WhatsAppButton({ label }: { label: string }) {
   return (
     <a
       href={WA_LINK}
-      className="inline-block rounded-full bg-nopal px-8 py-4 text-lg font-medium text-papel shadow-md transition-colors hover:bg-olivo"
+      className="inline-block rounded-full bg-olivo px-8 py-4 text-lg font-medium text-papel shadow-md transition-colors hover:bg-hoja"
     >
       {label}
     </a>
@@ -47,7 +47,7 @@ export default function Home() {
         <div className="mt-10">
           <WhatsAppButton label="Escríbele a Comadre" />
         </div>
-        <p className="mt-4 font-hand text-2xl text-barro">
+        <p aria-hidden="true" className="mt-4 font-hand text-2xl text-barro">
           tu vecina de confianza, en tu teléfono
         </p>
       </section>
@@ -101,7 +101,11 @@ export default function Home() {
           <h2 className="text-center font-headline text-2xl">
             Así se siente usar Comadre
           </h2>
-          <div className="mt-8 space-y-3 rounded-2xl bg-olivo/10 p-5">
+          <div
+            role="img"
+            aria-label="Ejemplo de conversación: le pides a Comadre mandar $20 a tu mamá, ella confirma contigo y lo envía."
+            className="mt-8 space-y-3 rounded-2xl bg-olivo/10 p-5"
+          >
             <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-nopal px-4 py-2 text-papel">
               Comadre, mándale $20 a mi mamá
             </p>
