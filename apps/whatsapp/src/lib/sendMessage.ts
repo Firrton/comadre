@@ -1,23 +1,38 @@
-import { twilioClient } from "./twilioClient.js";
+import { sendText } from "./openwaClient.js";
+
+// ---------------------------------------------------------------------------
+// Address conversion: Comadre canonical → OpenWA chatId
+// ---------------------------------------------------------------------------
 
 /**
- * Send a free-form WhatsApp text message via Twilio.
+ * Convert a Comadre canonical WhatsApp address to an OpenWA chatId.
+ *   "whatsapp:+5491112345678" → "5491112345678@c.us"
  *
- * Only valid within the 24-hour conversation window. Outside that window,
- * use `sendTemplate` with a pre-approved template.
+ * Strips the "whatsapp:" prefix (case-insensitive) and the leading "+".
+ * The resulting string is the E.164 digit sequence appended with "@c.us".
+ */
+export function toChatId(to: string): string {
+  const digits = to.replace(/^whatsapp:/i, "").replace(/^\+/, "");
+  return `${digits}@c.us`;
+}
+
+// ---------------------------------------------------------------------------
+// sendWhatsAppMessage — public API (signature preserved from Twilio era)
+// ---------------------------------------------------------------------------
+
+/**
+ * Send a free-form WhatsApp text via the OpenWA bridge.
  *
- * @param to E.164 with `whatsapp:` prefix, e.g. `whatsapp:+5218116346072`
- * @param body Plain text body (max 4096 chars)
+ * @param to   Comadre canonical address: "whatsapp:+E164"
+ * @param body Plain text (max 4096 chars)
+ * @returns    { messageId, timestamp } on success
+ * @throws     OpenWaSendError — caller decides logging vs. surfacing.
+ *             Inbound reply path (index.ts) wraps in try/catch → swallows.
+ *             /reply handler maps to 502 so nudge caller can retry later.
  */
 export async function sendWhatsAppMessage(
   to: string,
   body: string,
-): Promise<{ messageSid: string; status: string }> {
-  // NOTE: TWILIO_WHATSAPP_FROM removed from schema in PR 1; replaced by OPENWA_* in PR 3.
-  const msg = await twilioClient.messages.create({
-    from: process.env["TWILIO_WHATSAPP_FROM"] ?? "",
-    to,
-    body,
-  });
-  return { messageSid: msg.sid, status: msg.status };
+): Promise<{ messageId: string; timestamp: number }> {
+  return sendText(toChatId(to), body);
 }

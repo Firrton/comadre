@@ -12,6 +12,7 @@ import { env } from "@comadre/config";
 import { sendWhatsAppMessage } from "./lib/sendMessage.js";
 import { openWaEnvelope, verifyOpenWaSignature } from "./lib/openwaInbound.js";
 import { jidToWhatsAppAddress } from "./lib/jid.js";
+import { bootstrapOpenWa } from "./lib/openwaBootstrap.js";
 
 if (env.SENTRY_DSN) {
   Sentry.init({
@@ -188,7 +189,7 @@ app.post("/webhooks/whatsapp", async (c) => {
       if (reply.length > 0 && addr.length > 0) {
         try {
           const sent = await sendWhatsAppMessage(addr, reply);
-          log.info({ messageId: sent.messageSid }, "reply sent");
+          log.info({ messageId: sent.messageId }, "reply sent");
         } catch (err) {
           log.error({ err }, "failed to send openwa reply");
         }
@@ -272,12 +273,25 @@ app.post("/reply", async (c) => {
 
   try {
     const sent = await sendWhatsAppMessage(parsedBody.data.to, parsedBody.data.body);
-    return c.json({ messageSid: sent.messageSid });
+    return c.json({ messageId: sent.messageId });
   } catch (err) {
-    log.error({ err }, "twilio send failed");
-    return c.json({ error: "twilio send failed" }, 502);
+    log.error({ err }, "send failed");
+    return c.json({ error: "send failed" }, 502);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Startup — bootstrap OpenWA session + webhook subscription
+// Guarded by NODE_ENV !== "test" (mirrors Sentry guard at the top of the file).
+// bootstrapOpenWa() swallows all failures internally — it must NEVER crash
+// the service even if the OpenWA container is unreachable.
+// ---------------------------------------------------------------------------
+if (process.env["NODE_ENV"] !== "test") {
+  bootstrapOpenWa().catch(() => {
+    // Already logged inside bootstrapOpenWa; this outer catch prevents an
+    // unhandled rejection in case of an unexpected synchronous throw.
+  });
+}
 
 const port = Number(process.env.PORT ?? 3002);
 export default { port, fetch: app.fetch };

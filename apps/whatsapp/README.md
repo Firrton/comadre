@@ -1,73 +1,87 @@
 # @comadre/whatsapp
 
-Twilio WhatsApp webhook receiver + outbound reply service. Bridge entre Twilio sandbox y `@comadre/agent`.
+OpenWA webhook receiver + outbound reply service. Bridge between the OpenWA self-hosted WhatsApp container and `@comadre/agent`.
 
 **Port:** 3002
-**Stack:** Bun + Hono 4 + Twilio SDK
-**Provider:** Twilio (NO Meta) — sandbox `whatsapp:+14155238886`
-**Routes:** `GET /health`, `POST /webhook`, `POST /reply`
+**Stack:** Bun + Hono 4
+**Provider:** OpenWA (self-hosted whatsapp-web.js bridge)
+**Routes:** `GET /health`, `POST /webhooks/whatsapp`, `POST /reply`
 
 ## Endpoints
 
-### `POST /webhook` — Twilio inbound
-- Verifica `X-Twilio-Signature` con `twilio.validateRequest(authToken, signature, url, params)`. URL debe ser EXACTAMENTE la configurada en Twilio dashboard (cloudflared/ngrok URL en dev).
-- Parsea form-urlencoded de Twilio (`From`, `Body`, `MessageSid`, `ProfileName`, `WaId`, etc.)
-- Forward a `apps/agent` (`POST {AGENT_URL}/process`) con `{ from, body, conversationKey: from }`
-- Si agent responde con `{ reply }`, llama `sendWhatsAppMessage(from, reply)` para mandar al user
-- Siempre devuelve TwiML vacío 200 (Twilio espera esto — outbound es REST API separado)
+### `POST /webhooks/whatsapp` — OpenWA inbound
+- Verifies `X-OpenWA-Signature` (HMAC-SHA256, `sha256=<hex>` format) keyed by `OPENWA_WEBHOOK_SECRET`. Bypassed in `NODE_ENV=test`.
+- Parses JSON envelope (`{ event, sessionId, data: { id, from, body, type, fromMe, isGroup } }`).
+- Filter pipeline: signature → JSON validate → event type → fromMe/group/self-loop → type → rate limit → dedup → normalize JID → forward to agent.
+- Forwards to `apps/agent` (`POST {AGENT_URL}/process`) with `{ from, body, conversationKey: from }` (HMAC-signed).
+- If agent responds with `{ reply }`, calls `sendWhatsAppMessage(from, reply)` — wrapped in try/catch so outbound failure never blocks the inbound ack.
+- Always returns `{ ok: true }` (200) to OpenWA.
 
 ### `POST /reply` — internal HMAC-authed
-- Header `X-Internal-Auth`: `createHmac("sha256", INTERNAL_HMAC_SECRET).update(body).digest("hex")` con `timingSafeEqual` comparison
-- Body: `{ to: "whatsapp:+E164", body: string (1-4096) }`
-- Llama `sendWhatsAppMessage(to, body)` y retorna `{ messageSid }`
-- Lo usan `apps/api` (mensajes deferred a recipients no registrados) y `apps/cron` (recordatorios)
+- Headers: `X-Internal-Signature` (timestamped HMAC-SHA256), `X-Internal-Timestamp`.
+- Body: `{ to: "whatsapp:+E164", body: string (1-4096) }`.
+- Calls `sendWhatsAppMessage(to, body)` and returns `{ messageId }` on success, `502` on `OpenWaSendError`.
+- Used by `apps/api` (deferred messages, nudges) and `apps/cron` (reminders).
 
 ### `GET /health`
-- Retorna `{ ok: true, service: "whatsapp" }`. No auth.
+- Returns `{ ok: true, service: "whatsapp" }`. No auth.
 
 ## Source layout
 
 ```
 src/
-├── index.ts                 ← Hono app + routes (entry point)
+├── index.ts                   ← Hono app + routes (entry point) + bootstrap call
 ├── lib/
-│   ├── sendMessage.ts       ← Twilio SDK wrapper
-│   ├── twilioClient.ts      ← Singleton client con API Key SK auth
-│   └── verifySignature.ts   ← Wrap de twilio.validateRequest
+│   ├── openwaClient.ts        ← OpenWA REST client: sendText(), OpenWaSendError taxonomy
+│   ├── sendMessage.ts         ← sendWhatsAppMessage() + toChatId() address conversion
+│   ├── openwaInbound.ts       ← Zod envelope schema + verifyOpenWaSignature()
+│   ├── openwaBootstrap.ts     ← Idempotent session + webhook bootstrap (startup module)
+│   └── jid.ts                 ← JID normalization: jidToWhatsAppAddress(), isIndividualJid()
 └── __tests__/
-    └── index.test.ts        ← Health + signature 403 + auth 401
+    ├── index.test.ts          ← Health + filter pipeline + /reply HMAC auth
+    ├── openwaInbound.test.ts  ← Signature verification + envelope schema
+    ├── jid.test.ts            ← JID normalization unit tests
+    ├── sendMessage.test.ts    ← toChatId conversion + error taxonomy propagation
+    └── openwaBootstrap.test.ts ← Idempotency, unknown status, health-unreachable
 ```
 
-## Twilio auth model
+## OpenWA auth model
 
-Dos credenciales separadas:
-
-| Var | Uso | Source |
-|---|---|---|
-| `TWILIO_AUTH_TOKEN` | Verificar inbound webhook signature **solamente** | Master token (rotar si se filtra) |
-| `TWILIO_API_KEY_SID` (SK...) + `TWILIO_API_KEY_SECRET` | Outbound: enviar mensajes via `client.messages.create` | API Key scoped, rotatable sin tocar el account |
-
-**No usar `TWILIO_AUTH_TOKEN` para outbound** (es el master token; si se compromete, todo el account está expuesto).
+| Var | Usage |
+|---|---|
+| `OPENWA_API_KEY` | `X-API-Key` header for all OpenWA REST calls (outbound send + bootstrap). Dev mode: `dev-admin-key`. |
+| `OPENWA_WEBHOOK_SECRET` | HMAC-SHA256 secret for verifying `X-OpenWA-Signature` on inbound deliveries. Distinct from `INTERNAL_HMAC_SECRET`. |
+| `INTERNAL_HMAC_SECRET` | HMAC for internal `/reply` auth (apps/api → apps/whatsapp). Unchanged from previous provider. |
 
 ## Env vars
 
 ```
-TWILIO_ACCOUNT_SID=AC...                  # account ID (público-ish)
-TWILIO_AUTH_TOKEN=...                     # webhook signature verify ONLY
-TWILIO_API_KEY_SID=SK...                  # outbound auth
-TWILIO_API_KEY_SECRET=...                 # outbound auth
-TWILIO_WHATSAPP_FROM=whatsapp:+14155238886  # sandbox sender
-WA_URL=https://<tunnel>.trycloudflare.com   # tunneled URL (Twilio reaches us here)
-AGENT_URL=http://localhost:3003           # mismo bridge
-INTERNAL_HMAC_SECRET=...                  # 32+ chars; shared con apps/api/cron
+OPENWA_API_URL=http://localhost:3005       # OpenWA container REST API (host-side)
+OPENWA_API_KEY=dev-admin-key              # X-API-Key (dev mode value)
+OPENWA_SESSION_ID=comadre                 # Session name registered with OpenWA
+OPENWA_WEBHOOK_SECRET=<32+ chars>         # Inbound HMAC secret (X-OpenWA-Signature)
+OPENWA_WEBHOOK_URL=http://host.docker.internal:3002/webhooks/whatsapp  # bootstrap default
+WA_URL=http://localhost:3002              # Self-referential for /reply callers
+AGENT_URL=http://localhost:3003           # Agent service
+INTERNAL_HMAC_SECRET=<32+ chars>         # Shared with apps/api and apps/cron
 ```
 
-## Notas
+## Session bootstrap
 
-- **24h window state** se maneja en `apps/agent` via `@comadre/cache.recordInbound/isWithinWindow` — NO en este servicio
-- **Templates Twilio aprobados** son obligatorios para outbound fuera de la ventana 24h. Aprobación toma 24-48h en Twilio dashboard. Mientras estamos en sandbox: solo recipients que hicieron `join <código>` reciben mensajes
-- **Cloudflare Tunnel** durante dev: `cloudflared tunnel --url http://localhost:3002` (la URL pública cambia en cada restart — actualizar `WA_URL` y el webhook setting en Twilio dashboard)
+On startup (`NODE_ENV !== "test"`), `bootstrapOpenWa()` runs once:
+1. Health-checks the OpenWA container.
+2. Creates + starts the session if it doesn't exist.
+3. Logs QR data-URL if status is `qr_ready` (operator scans in browser).
+4. Idempotently registers the `message.received` webhook pointing at `OPENWA_WEBHOOK_URL`.
 
-## Detalle adicional
+All failures are swallowed — the service still starts and serves `/health`/`/reply` while OpenWA comes up.
 
-Ver `docs/APPS.md` (sección `apps/whatsapp`) para flow de comunicación inter-servicios y `docs/FLOWS.md` (flujos #1-#3) para sequence diagrams Mermaid.
+## Notes
+
+- **Canonical user id** stays `whatsapp:+E164` — zero Redis key migration needed.
+- **JID normalization** (`@c.us` → `whatsapp:+E164`) happens in `jid.ts`. The `+` prefix is mandatory — `resolveUserFromPhone` rejects bare E164 without it.
+- **Session security:** The `openwa-sessions` Docker volume contains WhatsApp session credentials. Never copy, commit, or include in a Docker image. A stolen session equals a full account takeover.
+
+## Additional detail
+
+See `docs/APPS.md` (section `apps/whatsapp`) and `docs/FLOWS.md` for inter-service communication flows.
