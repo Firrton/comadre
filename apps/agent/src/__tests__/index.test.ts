@@ -195,7 +195,7 @@ describe("agent service", () => {
     const headers = makeProcessHeaders(body);
 
     // resolveTransferConfirmation: return handled so runAgent is never called
-    // and no DB/Twilio lookups happen.
+    // and no DB lookups happen.
     const resolveTransferConfirmation = mock(async () => ({
       handled: true as const,
       outcome: "confirmed" as const,

@@ -401,7 +401,7 @@ transfersMonadRouter.post(
     // ---- Affirmative path ----
     // Atomic claim: transition awaiting_confirmation → pending.
     // Only the first concurrent caller gets a row back; the rest return
-    // handled:true (same shape as "no pending transfer") so Twilio retries
+    // handled:true (same shape as "no pending transfer") so duplicate deliveries
     // and double-taps are silently dropped without exposing an error to the
     // user.
     const claimed = await claimAwaitingConfirmation(candidate.id);

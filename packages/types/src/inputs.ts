@@ -147,7 +147,7 @@ export type CreateUserProfileInput = z.infer<typeof CreateUserProfileInput>;
 
 /**
  * E.164 phone number validator: starts with +, country code (1-9), 6-14 more digits.
- * Used as the wire format between WhatsApp/Twilio and our API.
+ * Used as the wire format between WhatsApp and our API.
  */
 export const E164Phone = z
   .string()

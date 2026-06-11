@@ -6,7 +6,7 @@
  *
  * Reads process.env directly instead of @comadre/config on purpose: the
  * deploy pipeline runs migrations in a context that has no business
- * holding the full application env (Twilio, Privy, etc.).
+ * holding the full application env (Privy, chain config, etc.).
  *
  * Usage:
  *   DIRECT_URL=postgresql://... bun run scripts/migrate.ts

@@ -7,7 +7,7 @@ The cryptographic security boundary of the Monad path. **All session-key custody
 | Sub-path | Purpose | Key public exports |
 |---|---|---|
 | `src/sessionKey/` | Generate, approve, sign, revoke ZeroDev Kernel session keys | `generateSessionKey`, `approveSessionKey`, `signAndSendUserOp`, `revokeSessionKey`, `buildDailyPolicies`, `buildElevatedPolicies` |
-| `src/otp/` | OTP integration (deleted — Twilio removed; provider TBD, COM-OTP-DEFER) | — |
+| `src/otp/` | OTP integration (deleted — provider TBD, COM-OTP-DEFER) | — |
 | `src/kernel/` | Counterfactual address derivation for Kernel v3.1 smart wallets | `counterfactualSmartWalletAddress` |
 | `src/privy/` | Privy JWT verification for the onboarding callback | `verifyPrivyJwt` |
 | `src/config.ts` | Zod-validated env-var loader (call `loadWalletInfraEnv()` lazily) | `loadWalletInfraEnv`, `pimlicoBundlerUrl` |

@@ -53,7 +53,7 @@ elevatedIntentsRouter.post(
       return c.json({ error: "expired" }, 410);
     }
 
-    // OTP verification deferred — Twilio Verify removed; replacement provider TBD.
+    // OTP verification deferred — SMS OTP provider removed; replacement provider TBD.
     // Elevated intents are BLOCKED (fail-closed) until a new OTP provider is wired.
     // Tracked as debt: docs/WALLET_SECURITY.md §5 / COM-OTP-DEFER.
     log.warn({ intentId }, "[elevated-intent] OTP verification not available; rejecting (fail-closed)");

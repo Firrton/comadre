@@ -17,7 +17,7 @@ export function toChatId(to: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// sendWhatsAppMessage — public API (signature preserved from Twilio era)
+// sendWhatsAppMessage — public API (stable signature)
 // ---------------------------------------------------------------------------
 
 /**

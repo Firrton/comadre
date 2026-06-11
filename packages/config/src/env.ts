@@ -49,7 +49,7 @@ const sumsubSchema = z.object({
 // -----------------------------------------------------------------------
 // OpenWA — self-hosted WhatsApp bridge (whatsapp-web.js engine)
 // -----------------------------------------------------------------------
-// Replaces Twilio. The OpenWA container exposes a REST API; auth is a
+// The OpenWA container exposes a REST API; auth is a
 // shared X-API-Key. Inbound webhook deliveries are HMAC-signed with a
 // DEDICATED secret (external trust boundary — never reuse INTERNAL_HMAC_SECRET).
 const openwaSchema = z.object({

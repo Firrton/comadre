@@ -192,7 +192,7 @@ onboardingRouter.post(
     }
     const magicLink = `${baseUrl.replace(/\/$/, "")}/o/${magicToken}`;
 
-    // SMS delivery is deferred (Twilio removed, provider TBD).
+    // SMS delivery is deferred (SMS provider removed; provider TBD).
     // The magic-link is returned in the response body — the agent forwards it to the user.
     return c.json({ ok: true, magicLink }, 200);
   },
