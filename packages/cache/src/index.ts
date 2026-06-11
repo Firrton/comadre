@@ -27,7 +27,7 @@ export {
   getWindowExpiry,
 } from "./waWindow.js";
 
-// ─── Twilio MessageSid deduplication ─────────────────────────────────────────
+// ─── WhatsApp message-id deduplication ───────────────────────────────────────
 export { markMessageSeen } from "./msgDedup.js";
 
 // ─── API in-process state (nonce dedup, onboarding handshake, recipient phone) ─

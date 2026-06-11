@@ -1,16 +1,16 @@
 import Twilio from "twilio";
 
-import { env } from "@comadre/config";
+// NOTE: Twilio env vars were removed from the global env schema in PR 1.
+// This file and its consumer (sendMessage.ts) are fully replaced in PR 3.
+// Read directly from process.env to keep compilation passing during the PR 1→3 transition.
+// These values will be undefined at runtime (intentional — this code path is unused after PR 3).
 
 /**
- * Singleton Twilio REST client.
- *
- * Uses API Key SID + Secret (scoped) for outbound auth instead of the master
- * Auth Token. The Account SID is passed as the third argument so resource
- * URLs include `/Accounts/{ACCOUNT_SID}/...`.
+ * @deprecated Will be deleted in PR 3 (openwa-outbound-bootstrap).
+ * Singleton Twilio REST client — kept for compile-time compat only.
  */
 export const twilioClient: Twilio.Twilio = Twilio(
-  env.TWILIO_API_KEY_SID,
-  env.TWILIO_API_KEY_SECRET,
-  { accountSid: env.TWILIO_ACCOUNT_SID },
+  process.env["TWILIO_API_KEY_SID"] ?? "",
+  process.env["TWILIO_API_KEY_SECRET"] ?? "",
+  { accountSid: process.env["TWILIO_ACCOUNT_SID"] ?? "" },
 );
