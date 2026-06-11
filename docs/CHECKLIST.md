@@ -44,14 +44,14 @@ Escala /12. "Antes" = auditoría 2026-06-09 (pre Vía B). "Ahora" = main tras V�
 **Huecos grandes que el heat map de 12 ejes NO cubre (alcance MVP):**
 
 - 🔴 **Indexer de Monad** — `recibir-con-aviso` no existe (0 código). Único pilar del MVP en cero. Además destraba el job de reconciliación pending-vs-chain.
-- 🟡 **Canal OpenWA** — decisión tomada 2026-06-10: OpenWA, fuera Twilio. `apps/whatsapp` es adaptador Twilio de punta a punta; hay que migrarlo.
-- 🟡 **Validación E2E en testnet** — nada del camino del dinero se probó aún contra Monad + WhatsApp reales.
+- 🔴 **Canal OpenWA** — decisión tomada 2026-06-10: OpenWA, fuera Twilio. **ADELANTADO 2026-06-11** (consola Twilio inaccesible): ahora es el PRÓXIMO paso, antes del E2E. `apps/whatsapp` es adaptador Twilio de punta a punta; hay que migrarlo.
+- 🟡 **Validación E2E en testnet** — nada del camino del dinero se probó aún contra Monad + WhatsApp reales. Pre-flight 2026-06-11 hecho: 6 escenarios verificados como implementados (PR #53 fixea los 2 blockers de código); MockUSDC deployado en testnet; `.env.local` consolidado.
 
 ## 🧠 Decisiones lockeadas (no re-litigar)
 
 - **Vía B**: pipeline primero, después camino del dinero, después P1. (Ya ejecutado.)
 - **Tope diario**: 100 USDC / 24h por usuario.
-- **Canal**: OpenWA. **Fuera Twilio** (2026-06-10).
+- **Canal**: OpenWA. **Fuera Twilio** (2026-06-10). 2026-06-11: consola Twilio inaccesible → la migración se ADELANTA antes del E2E; el E2E corre sobre OpenWA.
 - **Deploy**: diferido. No se gasta en Railway por ahora; se valida local en testnet.
 - **Package manager**: pnpm. **Nunca** npm/npx. Runtime: bun.
 
@@ -64,18 +64,29 @@ Escala /12. "Antes" = auditoría 2026-06-09 (pre Vía B). "Ahora" = main tras V�
 ### ✅ Hecho (Vía B + P1, en main)
 Camino del dinero completo: confirmación de destinatario, allowlist fail-closed (ruta + signer), CAS anti doble-firma, tope 100 USDC/24h, dedup de webhooks. Pipeline gateado y verde (`ts` + `migrate`). PII fuera de logs. Estado en Redis (api escala). DB migrada en prod.
 
-### Paso 1 — Validación E2E en testnet (PRÓXIMO) — sesión fresca
-Probar el camino del dinero entero contra Monad testnet + WhatsApp reales, corriendo los servicios **localmente** (`bun run dev` por app). No requiere deploy ni gastar plata.
-- [ ] Onboarding real → wallet Monad provisionada (Turnkey)
+### Paso 1 — Canal OpenWA (PRÓXIMO, adelantado 2026-06-11) — sesión fresca, SDD completo
+Ejecuta la decisión de canal del 2026-06-10, adelantada porque la consola Twilio quedó inaccesible (sin consola no hay webhook de sandbox, ni Verify SID, ni rotación). Punto de partida: `experimental/openwa` (sandbox docker, whatsapp-web.js).
+- [ ] SDD: explorar → proponer → spec → diseño → tasks
+- [ ] Bridge OpenWA (sesión de browser persistente, dedup de message-id equivalente al de MessageSid, auth bridge↔backend)
+- [ ] Reemplazar webhook + send de Twilio en `apps/whatsapp`
+- [ ] Alcance de purga Twilio (son TRES áreas, no una): (1) canal WhatsApp; (2) SMS del magic link de onboarding — `onboarding.ts` ya tiene fallback que devuelve el link si Twilio no está configurado (suficiente para testnet); (3) Twilio Verify OTP — relajar `TWILIO_*` en el schema de `wallet-infra` (como se hizo con KMS) y decidir reemplazo del OTP de montos altos (puede diferirse: no entra en los 6 escenarios E2E)
+- [ ] Purgar deps `twilio` + env vars `TWILIO_*` + código de firma Twilio
+- [ ] Actualizar docs FLOWS/SECURITY
+- 🔄 **Reiniciá ANTES.** SDD grande, merece contexto limpio.
+
+### Paso 2 — Validación E2E en testnet, sobre OpenWA — sesión fresca
+Probar el camino del dinero entero contra Monad testnet + WhatsApp reales (vía bridge OpenWA), corriendo los servicios **localmente** (`bun run dev` por app). No requiere deploy ni gastar plata.
+Pre-flight 2026-06-11 ya hecho: los 6 escenarios verificados como implementados (verificación adversarial); blockers de código fixeados en PR #53; MockUSDC deployado y verificado en testnet (`0x9e7e3761b0513604Dee812565591a247b57e6651`, minter en `packages/monad-contracts/.env`); `.env.local` consolidado con `USDC_CONTRACT_ADDRESS` seteada.
+- [ ] Onboarding real → wallet Monad provisionada (Turnkey) → mint de mUSDC a la smart wallet
 - [ ] Envío a destinatario NUEVO → prompt de confirmación → "sí" → tx on-chain
 - [ ] Segundo envío al mismo destinatario → sin confirmación
 - [ ] Doble "sí" concurrente → una sola tx (CAS)
 - [ ] Exceder 100 USDC/24h → rechazo con mensaje claro
-- [ ] Webhook duplicado de WhatsApp → procesado una sola vez
+- [ ] Mensaje duplicado del canal (mismo message-id) → procesado una sola vez
 - → Valida: que todo lo construido funciona de verdad
 - 🔄 **Reiniciá ANTES de empezar este Paso.**
 
-### Paso 2 — Indexer de Monad — sesión fresca, SDD completo
+### Paso 3 — Indexer de Monad — sesión fresca, SDD completo
 El hueco MVP más grande: sin esto no existe "recibir con aviso".
 - [ ] SDD: explorar → proponer → spec → diseño → tasks
 - [ ] Indexer que escucha transfers USDC entrantes a wallets de usuarios
@@ -83,14 +94,6 @@ El hueco MVP más grande: sin esto no existe "recibir con aviso".
 - [ ] Job de reconciliación: filas `pending`/`confirmed` vs estado on-chain
 - → Cierra: el hueco MVP más grande + Database → 9 (transaccionalidad)
 - 🔄 **Reiniciá ANTES.** SDD grande, merece contexto limpio.
-
-### Paso 3 — Canal OpenWA — sesión fresca, SDD completo
-Ejecuta la decisión de canal del 2026-06-10.
-- [ ] SDD del bridge OpenWA (sesión de browser persistente, dedup de message-id, auth bridge↔backend)
-- [ ] Reemplazar webhook + send de Twilio
-- [ ] Purgar deps `twilio` + env vars `TWILIO_*` + código de firma Twilio
-- [ ] Actualizar docs FLOWS/SECURITY
-- 🔄 **Reiniciá ANTES.** Workstream independiente.
 
 ### Paso 4 — Hardening P2 de seguridad — sesión fresca
 - [ ] `permissionId` real al instalar session key (habilita revocación on-chain)
