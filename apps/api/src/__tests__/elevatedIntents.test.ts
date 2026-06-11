@@ -18,11 +18,10 @@
  *
  * Note: all addresses are EVM/Monad hex stored lowercase (schema contract).
  */
-import { describe, it, expect, beforeAll, afterAll, spyOn } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { eq } from "drizzle-orm";
 import app from "../server.js";
 import { db, users, smartWallets, elevatedIntents } from "@comadre/db";
-import { otp } from "@comadre/wallet-infra";
 
 // Gate: this file does real DB I/O. Opt in with RUN_DB_TESTS=1 (see header).
 const runDbTests = process.env["RUN_DB_TESTS"] === "1";
@@ -51,14 +50,6 @@ if (runDbTests)
     beforeAll(async () => {
       process.env["NODE_ENV"] = "test";
       process.env["DEV_AUTH_BYPASS"] = "true";
-
-      // Keep OTP verification from making real network calls. The owner path
-      // reaches it; a non-owner must be rejected BEFORE this is ever called.
-      try {
-        spyOn(otp, "checkOtp").mockResolvedValue({ approved: false, status: "pending" });
-      } catch {
-        /* otp shape differs — owner test still asserts non-404 */
-      }
 
       // Clean leftovers from a prior failed run (cascades to smart_wallets + intents).
       await db.delete(users).where(eq(users.id, OWNER_ID));
@@ -117,8 +108,8 @@ if (runDbTests)
         body: JSON.stringify({ code: "000000" }),
       });
 
-      // Owner (matching users.id) passes the ownership gate and reaches OTP
-      // verification (mocked → non-404). Guards against an over-aggressive fix.
+      // Owner (matching users.id) passes the ownership gate and reaches the OTP
+      // deferred gate (503 otp_unavailable). Guards against an over-aggressive fix.
       expect(res.status).not.toBe(404);
     });
   });

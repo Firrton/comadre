@@ -3,7 +3,6 @@ import { eq } from "drizzle-orm";
 import { db, elevatedIntents, smartWallets } from "@comadre/db";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import { otp } from "@comadre/wallet-infra";
 import { getLogger } from "../middlewares/logger.js";
 import type { AuthUser } from "../middlewares/auth.js";
 
@@ -20,11 +19,11 @@ elevatedIntentsRouter.post(
   }),
   async (c) => {
     const intentId = c.req.param("id");
-    const { code } = c.req.valid("json");
+    const { code: _code } = c.req.valid("json"); // validated; unused until OTP provider is wired
     const log = getLogger(c);
     const user = (c.get as (k: string) => unknown)("user") as AuthUser;
 
-    // Look up intent + linked smart wallet to get phone for OTP verify
+    // Look up intent + linked smart wallet for ownership check
     const rows = await db
       .select({
         intent: elevatedIntents,
@@ -54,37 +53,10 @@ elevatedIntentsRouter.post(
       return c.json({ error: "expired" }, 410);
     }
 
-    // Verify OTP via Twilio Verify.
-    // phoneE164 must be stored in actionPayload at intent creation time.
-    const payload = row.intent.actionPayload as Record<string, unknown>;
-    const phoneE164 = payload.phoneE164 as string | undefined;
-    if (!phoneE164) {
-      return c.json({ error: "intent_corrupted", message: "phoneE164 missing from payload" }, 500);
-    }
-
-    let checkResult: { approved: boolean; status: string };
-    try {
-      checkResult = await otp.checkOtp(phoneE164, code);
-    } catch (err) {
-      log.error({ err }, "[elevated-intent] OTP verify failed");
-      return c.json({ error: "otp_verify_failed" }, 502);
-    }
-
-    if (!checkResult.approved) {
-      return c.json({ error: "invalid_code" }, 401);
-    }
-
-    await db
-      .update(elevatedIntents)
-      .set({ status: "approved", consumedAt: new Date() })
-      .where(eq(elevatedIntents.id, intentId));
-
-    // Return ok=true with the actionPayload echoed back.
-    // A future Phase 2 worker will pick up approved intents and execute them.
-    return c.json({
-      ok: true,
-      intent_id: intentId,
-      action: payload,
-    });
+    // OTP verification deferred — Twilio Verify removed; replacement provider TBD.
+    // Elevated intents are BLOCKED (fail-closed) until a new OTP provider is wired.
+    // Tracked as debt: docs/WALLET_SECURITY.md §5 / COM-OTP-DEFER.
+    log.warn({ intentId }, "[elevated-intent] OTP verification not available; rejecting (fail-closed)");
+    return c.json({ error: "otp_unavailable", message: "OTP verification is not configured" }, 503);
   },
 );
