@@ -66,7 +66,7 @@ WhatsApp (OpenWA)  →  apps/api (Monad-only)  ⇄  apps/agent (Kimi K2.x)
 | `apps/whatsapp` | Bridge del canal (migrar Twilio → **OpenWA**) | vivo |
 | `apps/api` | Backend central Hono/Bun (Monad-only) | vivo |
 | `apps/agent` | Loop de tool-use con Kimi K2.x | vivo |
-| `apps/web` | Onboarding browser (`/o/[token]`) | vivo — **promover al workspace** |
+| `apps/web` | Landing + `/privacy` + onboarding browser (`/o/[token]`) | vivo — en el workspace desde 2026-06-11 |
 | `apps/indexer` | Indexer de eventos | **reconstruir para Monad** (el actual es Solana) |
 | `apps/cron` | Jobs programados | solo `scheduler.ts`; jobs viejos a reescribir/borrar |
 | `packages/wallet-infra` | Frontera de custodia (Turnkey/ZeroDev/Pimlico/session keys) | núcleo de seguridad |
