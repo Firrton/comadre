@@ -4,8 +4,9 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        # Pin to a commit SHA for reproducibility: OPENWA_REF=abc123
-        OPENWA_REF: "${OPENWA_REF:-main}"
+        # Pin to a known-good commit SHA for reproducibility.
+        # SHA 0fbee7fbee9d746050a20c57544bf7bbb80e65d2 = HEAD of main, 2026-06-11.
+        OPENWA_REF: "${OPENWA_REF:-0fbee7fbee9d746050a20c57544bf7bbb80e65d2}"
     container_name: comadre-openwa
     restart: unless-stopped
     env_file: .env

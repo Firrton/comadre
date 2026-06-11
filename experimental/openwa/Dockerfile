@@ -11,7 +11,8 @@ FROM node:22-slim AS builder
 
 # Build-time pin — override with a commit SHA for reproducibility:
 #   docker build --build-arg OPENWA_REF=<sha> .
-ARG OPENWA_REF=main
+# Pinned SHA: 0fbee7fbee9d746050a20c57544bf7bbb80e65d2 (HEAD of main, 2026-06-11)
+ARG OPENWA_REF=0fbee7fbee9d746050a20c57544bf7bbb80e65d2
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \

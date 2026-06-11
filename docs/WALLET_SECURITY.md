@@ -26,15 +26,17 @@ Attackers we defend against:
 | T5 | Privy session theft | Attacker steals a Privy JWT and forces a session refresh. | Owner-key actions possible. |
 | T6 | Over-helpful LLM | No attacker — the model just decides to "help" in ways the user didn't ask for. | Unintended transfers within session-key power. |
 
-Out of scope (acknowledged but not defended in this doc): physical device compromise of the user's phone, Twilio/Privy/Pimlico provider compromise.
+Out of scope (acknowledged but not defended in this doc): physical device compromise of the user's phone, Privy/Pimlico provider compromise.
 
 ## 2. Architecture: four layers of defense
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Layer 4 — Out-of-band confirmation                          │
-│   Twilio Verify SMS OTP for amounts > daily limit,          │
-│   new destinations, role rotations.                         │
+│ Layer 4 — Out-of-band confirmation  [DEFERRED]              │
+│   OTP para montos > límite diario, destinos nuevos,         │
+│   rotaciones de rol. Twilio Verify removido (2026-06-11);   │
+│   proveedor alternativo pendiente de decisión. Hasta        │
+│   entonces, elevatedIntents retorna 503 fail-closed.        │
 ├─────────────────────────────────────────────────────────────┤
 │ Layer 3 — Session key (the agent's "hand")                  │
 │   secp256k1 keypair, AES-256-GCM ciphertext in DB,          │
@@ -70,7 +72,7 @@ Out of scope (acknowledged but not defended in this doc): physical device compro
 | Paymaster | Pimlico (optional, for gas sponsorship) | Same provider, sponsors Monad testnet. Alternative: omit and let the smart wallet pay gas from its MON balance. |
 | Session-key crypto | secp256k1 (viem `privateKeyToAccount` + `toECDSASigner`) | Native EVM curve, matches Kernel's permission validator. |
 | Encryption at rest | **AES-256-GCM** + **AWS KMS envelope encryption** | Industry standard. KMS holds the master key; per-user Data Encryption Keys (DEKs) cached short-term; ciphertexts in Postgres. Replaceable with GCP KMS or Vault — interface lives in `packages/wallet-infra/src/kms.ts`. |
-| OOB confirmation | Twilio Verify API | Already use Twilio for WhatsApp. Verify is their managed OTP product — cheaper and more robust than rolling our own. |
+| OOB confirmation | **DEFERRED** (Twilio Verify removido) | Twilio Verify eliminado junto con el canal Twilio (2026-06-11). `elevatedIntents` retorna 503 fail-closed hasta que se seleccione el proveedor alternativo (Privy passkey, TOTP, u otro). No bloquea los 6 escenarios E2E de testnet. |
 | Stablecoin | USDC (ERC-20, 6 decimals) | If no canonical Monad USDC at deploy time → `MockUSDC` for testnet. Mainnet pending bridge confirmation. |
 
 ### Non-picks (and why)
@@ -215,21 +217,13 @@ Triggered when ANY of:
 ```
 User:    mandale 300 a Carolina
 
-Agente:  Esa operación es más grande de lo normal — te paso un código
-         por SMS para confirmar. Pasámelo apenas te llegue.
-
-         [BACKEND: twilio.verify.start(phoneE164)
-          + insert row in `elevated_intents` with action details, 5 min TTL]
-
-User:    729384
-
-Agente:  [BACKEND: twilio.verify.check(phoneE164, "729384")]
-         [BACKEND: load ELEVATED session_keys row, decrypt, sign UserOp]
-         [BACKEND: mark elevated_intents.completed]
-         ¡Hecho! Le mandé 300 USDC a Carolina ✅
+Agente:  Esa operación es más grande de lo normal — por ahora este
+         tipo de operaciones no está disponible. [503 fail-closed]
 ```
 
-The elevated session key is a **separate session_keys row** with higher per-call caps (e.g. up to 1000 USDC) and a stricter rate-limit (e.g. 1 op per 5 minutes). Its ciphertext only decrypts when an OTP is freshly validated — the OTP becomes part of the AES additional-authenticated-data (AAD), or the workflow simply checks Twilio Verify status before calling KMS.
+> ⚠️ **Estado actual (2026-06-11):** El flujo de OTP para `elevatedIntents` está deferido. Twilio Verify fue removido junto con el canal Twilio. El endpoint retorna 503 `{"error":"otp_unavailable"}` de manera fail-closed. El proveedor alternativo de OTP está pendiente de decisión (Privy passkey, TOTP, u otro). Esta decisión NO bloquea los 6 escenarios E2E de testnet (ninguno requiere montos por encima del cap diario ordinario).
+
+The elevated session key is a **separate session_keys row** with higher per-call caps (e.g. up to 1000 USDC) and a stricter rate-limit (e.g. 1 op per 5 minutes). Its ciphertext only decrypts when an OTP is freshly validated — the OTP becomes part of the AES additional-authenticated-data (AAD), or the workflow simply checks the OTP provider status before calling KMS. Implementation pending provider selection.
 
 For amounts that exceed even the elevated cap, the flow escalates to a Privy-owner-signed transaction via webview redirect (Layer 1). Out of scope for v1.
 
@@ -531,7 +525,7 @@ Only after `ok: true` do we call KMS. Saves cost (KMS is per-call billed) and re
 | 4 | Daily limit default | 50 USDC | Per-country adjusted (MX peso buying power differs from AR peso). |
 | 5 | Recipient allowlist policy | Backend-enforced | On-chain CallPolicy with explicit allowlist (more rigid; expensive to update). |
 | 6 | Session-key rotation cadence | 30 days | 7 / 14 / 90 days — UX vs. defense tradeoff. |
-| 7 | OOB channel | Twilio Verify SMS | Privy passkey (newer; better UX on iOS 18+) once Privy supports it on Monad-chain flows. |
+| 7 | OOB channel | **PENDIENTE** — Twilio Verify eliminado (2026-06-11) | Candidatos: Privy passkey (iOS 18+), TOTP, o proveedor SMS alternativo. Decidir antes de habilitar `elevatedIntents` en producción. |
 | 8 | Elevated session lifetime | Same row, OTP gates decrypt | Ephemeral session key minted per elevated op, immediately revoked. |
 | 9 | Smart wallet deployment timing | Lazy (first UserOp) | Eager (no-op UserOp at onboarding) — burns gas but guarantees on-chain presence. |
 | 10 | Onboarding web page hosting | Same `apps/web` Next.js | Separate minimal page on edge for lower attack surface. |

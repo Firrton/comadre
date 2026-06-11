@@ -17,7 +17,7 @@ Comadre maneja fondos de usuarios en LATAM vía WhatsApp. Las amenazas principal
 
 - **Privy JWT** para usuarios autenticados (`apps/api`)
 - **HMAC-SHA256** para llamadas inter-servicios (`whatsapp↔agent↔api`) con replay protection (5 min)
-- **Twilio HMAC** para webhooks entrantes
+- **X-OpenWA-Signature** (HMAC-SHA256, formato `sha256=<hex>`) para verificar webhooks entrantes de WhatsApp. El secret se configura como `OPENWA_WEBHOOK_SECRET` (mínimo 32 chars). Fail-closed: sin header o firma inválida → 403, sin forward al agente.
 - **Sumsub HMAC** para webhooks KYC
 - **Magic links** con TTL 15 min para flujo Monad
 
@@ -29,7 +29,7 @@ Comadre maneja fondos de usuarios en LATAM vía WhatsApp. Las amenazas principal
 - **Confirmación de destinatario nuevo**: el primer envío a un destinatario desconocido queda en `awaiting_confirmation` y NO se firma. El backend resuelve el "sí/no" del usuario con `parseConfirmation` (determinístico, sin LLM) ANTES de que el mensaje llegue al modelo; afirmativo agrega al allowlist y firma.
 - **Claim atómico anti doble-confirmación**: `claimAwaitingConfirmation` transiciona `awaiting_confirmation → pending` con un UPDATE condicional (CAS); de dos "sí" concurrentes solo uno firma.
 - **Tope diario agregado**: 100 USDC por usuario por 24 horas (`DAILY_AGGREGATE_CAP_USDC`), sumando transfers `pending + awaiting_confirmation + confirmed`; el chequeo corre después de insertar/claimear la fila para que dos envíos concurrentes no puedan colarse juntos bajo el tope. Se suma al per-call cap de 50 USDC y al rate limit on-chain de 10 ops/60s.
-- **Dedup de webhooks de Twilio**: `MessageSid` se deduplica en Redis (SET NX, 5 min) antes de reenviar al agente.
+- **Dedup de webhooks de OpenWA**: `data.id` (message ID único de OpenWA) se deduplica en Redis (SET NX, TTL 5 min, key `wa:msgid:{id}`) antes de reenviar al agente. Esto reemplaza la dedup anterior por `MessageSid` de Twilio.
 
 - **Membership checks** en `tandas/:id` y `disputes/:id` (CRIT-1, HIGH-1)
 - **Wallet ownership** en `POST /users/:wallet/confirm` (CRIT-4)
@@ -121,6 +121,21 @@ El system prompt del agente incluye las siguientes reglas con prioridad máxima:
 | `session_keys.permission_id` vacío (COM-033) | El permission ID no se captura al instalar; afecta la ruta de revoke on-chain. Phase 1B agrega esto. |
 | Dependencia de Neverland | El producto Guardadito requiere que Neverland esté operativo en Monad mainnet. Si el protocolo pausa, es atacado, o es deprecado, los retiros fallan. El capital del usuario permanece en los contratos de Neverland (no hay riesgo de pérdida por falla del backend de Comadre). |
 | Usuarios con session key pre-Neverland | Usuarios que hicieron onboarding antes de Phase 2 no tienen las 4 políticas de Neverland en su session key. Intentar depositar/retirar fallará con error de policy en Turnkey/Kernel. Requiere reinstalación de session key (flujo pendiente de implementar). |
+
+### Canal WhatsApp — OpenWA (riesgo específico de canal)
+
+**Volumen de sesión (`openwa-sessions`):**
+El volumen Docker `openwa-sessions` contiene credenciales de sesión de WhatsApp (equivalentes a tener el teléfono destrabado). **Nunca copiar, commitear, ni incluir en una imagen Docker.** Una sesión robada equivale a toma de cuenta completa: el atacante puede enviar mensajes como el número propietario, revocar webhooks, y leer conversaciones.
+
+- El volumen solo existe dentro del stack Docker local (`experimental/openwa/`); está fuera del árbol del repo.
+- `.gitignore` cubre `experimental/openwa/.env` y cualquier archivo de sesión local.
+- Rotación de sesión: borrar el volumen (`docker volume rm openwa-sessions`) + re-escanear el QR.
+
+**Riesgo de ban de WhatsApp:**
+OpenWA utiliza `whatsapp-web.js`, una automatización no oficial de WhatsApp Web. Meta puede detectar y banear el número. Mitigación para MVP/testnet:
+- Usar un número dedicado, **no personal**, exclusivo para Comadre.
+- Mantener volumen de mensajes bajo (congruente con testnet).
+- Camino futuro: migrar a **Meta Cloud API** (oficial) antes de mainnet para eliminar este riesgo.
 
 ## Disaster recovery — base de datos
 
