@@ -140,24 +140,24 @@ app.post("/webhooks/whatsapp", async (c) => {
     try {
       const isDuplicate = await markMessageSeen(data.id);
       if (isDuplicate) {
-        log.info({ from: redactJidForLog(data.from), msgId: data.id }, "duplicate message id, skipping forward");
+        log.info({ from: redactJidForLog(data.from), msgId: redactMsgIdForLog(data.id) }, "duplicate message id, skipping forward");
         return c.json({ ok: true, deduped: true });
       }
     } catch (dedupErr) {
-      log.warn({ err: dedupErr, msgId: data.id }, "[dedup] Redis unavailable, allowing through");
+      log.warn({ err: dedupErr, msgId: redactMsgIdForLog(data.id) }, "[dedup] Redis unavailable, allowing through");
     }
   }
 
   // Step 9 — Normalize JID → canonical whatsapp:+E164 address
   const addr = jidToWhatsAppAddress(data.from);
   if (addr === null) {
-    log.warn({ jid: data.from }, "openwa webhook: invalid or non-individual JID, dropping");
+    log.warn({ jid: redactJidForLog(data.from) }, "openwa webhook: invalid or non-individual JID, dropping");
     return c.json({ ok: true, ignored: "badjid" });
   }
 
   const senderLog = redactPhoneForLog(addr.replace(/^whatsapp:/, ""));
   log.info(
-    { sender: senderLog, msgId: data.id, len: data.body.length },
+    { sender: senderLog, msgId: redactMsgIdForLog(data.id), len: data.body.length },
     "inbound whatsapp",
   );
 
@@ -304,10 +304,33 @@ function redactPhoneForLog(phone: string): string {
 }
 
 /** Redact a WhatsApp JID for safe logging: "549...@c.us" */
-function redactJidForLog(jid: string): string {
+export function redactJidForLog(jid: string): string {
   const atIdx = jid.indexOf("@");
   if (atIdx <= 5) return "<redacted>";
   const number = jid.slice(0, atIdx);
   const suffix = jid.slice(atIdx);
   return `${number.slice(0, 3)}…${number.slice(-2)}${suffix}`;
+}
+
+/**
+ * Redact an OpenWA message id for safe logging.
+ *
+ * OpenWA message ids follow the pattern: "true_<E164digits>@c.us_<suffix>"
+ * The middle segment embeds the phone number.  We replace it with "***" so
+ * the unique correlation suffix is preserved while PII is removed.
+ *
+ * Examples:
+ *   "true_5491112345678@c.us_3EB0abc" → "true_***@c.us_3EB0abc"
+ *   "randomid"                         → "randomid"  (no underscores — returned as-is)
+ *   ""                                 → ""
+ */
+export function redactMsgIdForLog(msgId: string): string {
+  if (msgId.length === 0) return msgId;
+  const firstUnderscore = msgId.indexOf("_");
+  if (firstUnderscore === -1) return msgId;
+  const lastUnderscore = msgId.lastIndexOf("_");
+  if (lastUnderscore === firstUnderscore) return msgId;
+  const prefix = msgId.slice(0, firstUnderscore);
+  const suffix = msgId.slice(lastUnderscore);
+  return `${prefix}_***@c.us${suffix}`;
 }
