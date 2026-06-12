@@ -1,9 +1,7 @@
 import type { NextConfig } from "next";
 
 const config: NextConfig = {
-  experimental: {
-    typedRoutes: true,
-  },
+  typedRoutes: true,
   transpilePackages: ["@comadre/types", "@comadre/wallet-infra"],
   webpack: (config) => {
     // Workspace packages use ESM ".js" specifiers over TypeScript sources
