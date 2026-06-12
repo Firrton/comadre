@@ -25,11 +25,6 @@ export const walletInfraEnvSchema = z.object({
   COMADRE_CONTRACT_ADDRESS: hexAddress.optional(),
   USDC_CONTRACT_ADDRESS: hexAddress.optional(),
 
-  // --- Twilio Verify ---
-  TWILIO_ACCOUNT_SID: z.string().min(1),
-  TWILIO_AUTH_TOKEN: z.string().min(1),
-  TWILIO_VERIFY_SERVICE_SID: z.string().min(1),
-
   // --- Onboarding magic-link UI base URL ---
   ONBOARDING_BASE_URL: z.string().url(),
 });

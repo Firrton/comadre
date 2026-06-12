@@ -11,7 +11,8 @@ FROM node:22-slim AS builder
 
 # Build-time pin — override with a commit SHA for reproducibility:
 #   docker build --build-arg OPENWA_REF=<sha> .
-ARG OPENWA_REF=main
+# Pinned SHA: 0fbee7fbee9d746050a20c57544bf7bbb80e65d2 (HEAD of main, 2026-06-11)
+ARG OPENWA_REF=0fbee7fbee9d746050a20c57544bf7bbb80e65d2
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -31,10 +32,14 @@ RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
 WORKDIR /build
 
-RUN git clone --depth 1 --branch "${OPENWA_REF}" \
-    https://github.com/rmyndharis/OpenWA.git . 2>/dev/null || \
-    (git clone --depth 1 https://github.com/rmyndharis/OpenWA.git . && \
-     git checkout "${OPENWA_REF}")
+# Robust SHA fetch: works even when OPENWA_REF is not a branch tip.
+# git clone --branch only works for named refs; --depth 1 + checkout fails
+# once the SHA is no longer reachable from HEAD.  The pattern below fetches
+# exactly the pinned commit regardless of whether it is still the branch tip.
+RUN git init && \
+    git remote add origin https://github.com/rmyndharis/OpenWA.git && \
+    git fetch --depth 1 origin "${OPENWA_REF}" && \
+    git checkout FETCH_HEAD
 
 # OpenWA's package.json declares some deps incorrectly (uses 'dotenv' and
 # '@nestjs/websockets' in code without listing them — npm hides this with

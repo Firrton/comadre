@@ -6,12 +6,11 @@ const VALID_BASE = {
   // Privy
   PRIVY_APP_ID: "privy-app-id",
   PRIVY_APP_SECRET: "privy-app-secret",
-  // Twilio
-  TWILIO_ACCOUNT_SID: "AC" + "a".repeat(32),
-  TWILIO_AUTH_TOKEN: "a".repeat(32),
-  TWILIO_API_KEY_SID: "SK" + "b".repeat(32),
-  TWILIO_API_KEY_SECRET: "b".repeat(32),
-  TWILIO_WHATSAPP_FROM: "whatsapp:+14155238886",
+  // OpenWA
+  OPENWA_API_URL: "http://localhost:3005",
+  OPENWA_API_KEY: "test_key",
+  OPENWA_SESSION_ID: "test",
+  OPENWA_WEBHOOK_SECRET: "a".repeat(32),
   // LLM
   LLM_PROVIDER: "moonshot",
   MOONSHOT_API_KEY: "sk-test",
@@ -30,7 +29,7 @@ const VALID_BASE = {
 };
 
 describe("envSchema", () => {
-  it("accepts a minimal valid env (no Solana/wallet/Helius vars needed)", () => {
+  it("accepts a minimal valid env with OPENWA_* vars (no legacy SMS vars)", () => {
     const result = envSchema.safeParse(VALID_BASE);
     expect(result.success).toBe(true);
   });
@@ -97,5 +96,33 @@ describe("envSchema", () => {
     if (result.success) {
       expect("INDEXER_URL" in result.data).toBe(false);
     }
+  });
+
+  it("rejects when OPENWA_API_URL is missing", () => {
+    const { OPENWA_API_URL: _omit, ...rest } = VALID_BASE;
+    const result = envSchema.safeParse(rest);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const fields = result.error.flatten().fieldErrors;
+      expect(Object.keys(fields)).toContain("OPENWA_API_URL");
+    }
+  });
+
+  it("rejects when OPENWA_WEBHOOK_SECRET is too short", () => {
+    const result = envSchema.safeParse({
+      ...VALID_BASE,
+      OPENWA_WEBHOOK_SECRET: "tooshort",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const fields = result.error.flatten().fieldErrors;
+      expect(Object.keys(fields)).toContain("OPENWA_WEBHOOK_SECRET");
+    }
+  });
+
+  it("does NOT carry legacy SMS env keys in a valid parse", () => {
+    const result = envSchema.safeParse(VALID_BASE);
+    // Schema no longer contains SMS provider keys; a valid parse implies they are absent.
+    expect(result.success).toBe(true);
   });
 });

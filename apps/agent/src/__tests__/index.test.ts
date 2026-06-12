@@ -20,14 +20,14 @@ function makeProcessHeaders(body: string, overrides: Record<string, string> = {}
 
 const originalRunAgent = processDeps.runAgent;
 const originalResolveTransferConfirmation = processDeps.resolveTransferConfirmation;
-const originalResolveUserFromTwilio = processDeps.resolveUserFromTwilio;
+const originalResolveUserFromPhone = processDeps.resolveUserFromPhone;
 const originalLoadHistory = processDeps.loadHistory;
 const originalSaveHistory = processDeps.saveHistory;
 
 afterEach(() => {
   processDeps.runAgent = originalRunAgent;
   processDeps.resolveTransferConfirmation = originalResolveTransferConfirmation;
-  processDeps.resolveUserFromTwilio = originalResolveUserFromTwilio;
+  processDeps.resolveUserFromPhone = originalResolveUserFromPhone;
   processDeps.loadHistory = originalLoadHistory;
   processDeps.saveHistory = originalSaveHistory;
 });
@@ -131,7 +131,7 @@ describe("agent service", () => {
     processDeps.runAgent = runAgent;
     processDeps.resolveTransferConfirmation = resolveTransferConfirmation;
     // Stub out service-dependent calls so the test doesn't hang.
-    processDeps.resolveUserFromTwilio = mock(async () => null);
+    processDeps.resolveUserFromPhone = mock(async () => null);
     processDeps.loadHistory = mock(async () => []);
     processDeps.saveHistory = mock(async () => {});
 
@@ -195,7 +195,7 @@ describe("agent service", () => {
     const headers = makeProcessHeaders(body);
 
     // resolveTransferConfirmation: return handled so runAgent is never called
-    // and no DB/Twilio lookups happen.
+    // and no DB lookups happen.
     const resolveTransferConfirmation = mock(async () => ({
       handled: true as const,
       outcome: "confirmed" as const,

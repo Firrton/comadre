@@ -20,19 +20,19 @@ mock.module("../client.js", () => ({
 const { markMessageSeen } = await import("../msgDedup.js");
 
 describe("markMessageSeen", () => {
-  it("returns false when the SID is new (SET returns 'OK')", async () => {
+  it("returns false when the message id is new (SET returns 'OK')", async () => {
     mockSet.mockImplementation(async () => "OK");
-    const isDuplicate = await markMessageSeen("SM_new_001");
+    const isDuplicate = await markMessageSeen("true_5491112345678@c.us_3EB0new001");
     expect(isDuplicate).toBe(false);
   });
 
-  it("returns true when the SID is already seen (SET NX returns null)", async () => {
+  it("returns true when the message id is already seen (SET NX returns null)", async () => {
     mockSet.mockImplementation(async () => null);
-    const isDuplicate = await markMessageSeen("SM_dup_001");
+    const isDuplicate = await markMessageSeen("true_5491112345678@c.us_3EB0dup001");
     expect(isDuplicate).toBe(true);
   });
 
-  it("calls SET with key 'wa:msgsid:{sid}', value '1', nx:true, and a positive ex TTL", async () => {
+  it("calls SET with key 'wa:msgid:{id}', value '1', nx:true, and a positive ex TTL", async () => {
     let capturedKey: unknown;
     let capturedValue: unknown;
     let capturedOpts: unknown;
@@ -42,9 +42,9 @@ describe("markMessageSeen", () => {
       return "OK";
     });
 
-    await markMessageSeen("SM_abc123");
+    await markMessageSeen("true_5491112345678@c.us_3EB0abc123");
 
-    expect(capturedKey).toBe("wa:msgsid:SM_abc123");
+    expect(capturedKey).toBe("wa:msgid:true_5491112345678@c.us_3EB0abc123");
     expect(capturedValue).toBe("1");
     const opts = capturedOpts as { nx?: boolean; ex?: number };
     expect(opts.nx).toBe(true);

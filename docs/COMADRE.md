@@ -40,7 +40,7 @@ Estamos en **Monad testnet**. El MVP busca el flujo completo de una wallet conve
 | Tema | Decisión | Nota |
 |---|---|---|
 | **Cadena** | Monad **testnet** (chain `10143`) | Excisión total de Solana (ya hecha en `main`). |
-| **Canal** | **OpenWA** (no Twilio) | ⚠️ OpenWA automatiza WhatsApp Web de forma no oficial → riesgo de ban. OK para MVP/testnet. Sandbox en `experimental/openwa/`. |
+| **Canal** | **OpenWA** (migrado de Twilio — 2026-06-11) | ⚠️ OpenWA automatiza WhatsApp Web de forma no oficial → riesgo de ban. OK para MVP/testnet. Sandbox en `experimental/openwa/`. Ver runbook QR más abajo. |
 | **Custodia** | **Turnkey HSM** + **ZeroDev Kernel v3.1** + **Pimlico** (bundler ERC-4337) | Owner del smart account vía **Privy**. KMS propio eliminado. |
 | **LLM** | **Kimi K2.x** vía Moonshot | Soporta razonamiento con temperatura condicional. |
 | **Allowlist de destinatarios** | **Confirmación + allowlist incremental** | Destinatario nuevo requiere confirmación explícita por WhatsApp antes del 1er envío; cierra el vector de drenaje del LLM (OWASP LLM01). |
@@ -63,7 +63,7 @@ WhatsApp (OpenWA)  →  apps/api (Monad-only)  ⇄  apps/agent (Kimi K2.x)
 
 | App / Paquete | Rol | Estado |
 |---|---|---|
-| `apps/whatsapp` | Bridge del canal (migrar Twilio → **OpenWA**) | vivo |
+| `apps/whatsapp` | Bridge del canal (**OpenWA** — migración de Twilio completada 2026-06-11) | vivo |
 | `apps/api` | Backend central Hono/Bun (Monad-only) | vivo |
 | `apps/agent` | Loop de tool-use con Kimi K2.x | vivo |
 | `apps/web` | Landing + `/privacy` + onboarding browser (`/o/[token]`) | vivo — en el workspace desde 2026-06-11 |
@@ -136,3 +136,63 @@ Detalle del modelo de amenazas y custodia: `docs/WALLET_SECURITY.md` (actualizar
 - 🖊️ Timing de KYC (¿antes de mover plata? ¿por monto?).
 - 🖊️ Timing del salto a **mainnet** (define cuándo se enciende yield real y contratos propios).
 - 🖊️ Cuándo vuelven las **tandas** al roadmap (reactiva `monad-contracts`).
+- 🖊️ Proveedor de OTP para `elevatedIntents` (Twilio Verify removido; actualmente fail-closed 503 hasta que se decida alternativa — Privy passkey, código in-house, u otro).
+
+---
+
+## 9. Runbook operativo — OpenWA
+
+### Configuración inicial OpenWA (QR)
+
+Esta configuración se hace una sola vez por número de WhatsApp. La sesión persiste en el volumen Docker `openwa-sessions` y no requiere re-escaneo al reiniciar el contenedor (a menos que WhatsApp invalide la sesión).
+
+**Pasos:**
+
+1. **Preparar el sandbox OpenWA:**
+   ```bash
+   cd experimental/openwa
+   cp .env.example .env
+   # Editar .env: generar un API_MASTER_KEY fuerte (ej: openssl rand -hex 32)
+   docker compose up -d
+   # Esperar ~60s a que el contenedor levante (Puppeteer + Chromium demoran)
+   docker compose logs -f openwa  # verificar "Application is running on port 2785"
+   ```
+
+2. **Configurar el entorno de Comadre:**
+   En el `.env` (o `.env.local`) de la raíz del proyecto, agregar:
+   ```
+   OPENWA_API_URL=http://localhost:3005
+   OPENWA_API_KEY=dev-admin-key        # en modo dev; en prod leer de data/.api-key
+   OPENWA_SESSION_ID=comadre
+   OPENWA_WEBHOOK_SECRET=<32+ chars aleatorios>   # debe coincidir con el que se registra
+   ```
+   > **Nota:** En modo dev (`NODE_ENV !== production`), OpenWA siembra la clave `dev-admin-key` automáticamente. En producción, la clave real se guarda en `data/.api-key` dentro del contenedor.
+
+3. **Levantar los servicios de Comadre:**
+   ```bash
+   pnpm run dev   # levanta apps/whatsapp en :3002, apps/agent en :3003, apps/api en :3001
+   ```
+   Al arrancar `apps/whatsapp`, el bootstrap (`openwaBootstrap.ts`) crea la sesión `comadre` en OpenWA y registra el webhook en `http://host.docker.internal:3002/webhooks/whatsapp`.
+
+4. **Escanear el QR (primera ejecución):**
+   En los logs de `apps/whatsapp` aparecerá una línea con el QR como data-URL:
+   ```
+   [openwaBootstrap] QR ready — data:image/png;base64,iVBORw...
+   ```
+   Copiá esa URL, pegála en el browser, y escaneá con el WhatsApp del número propietario de Comadre.
+
+5. **Verificar autenticación:**
+   Los logs mostrarán `session status: ready` (o `authenticating` mientras escanea). Una vez autenticado, enviar un mensaje de prueba al número para confirmar que llega al agente.
+
+6. **Persistencia de sesión:**
+   La sesión queda guardada en el volumen Docker `openwa-sessions`. Al hacer `docker compose restart`, la sesión se reanuda automáticamente sin nuevo QR, mientras WhatsApp no invalide la sesión.
+
+### Troubleshooting
+
+| Síntoma | Causa probable | Acción |
+|---|---|---|
+| Bootstrap loop en `qr_ready` sin QR en logs | Chromium no inició | `docker compose logs openwa` — buscar errores de Puppeteer |
+| `status: disconnected` en los logs | WhatsApp invalidó la sesión | Borrar volumen: `docker volume rm openwa-sessions`, reiniciar, re-escanear |
+| 403 en `POST /webhooks/whatsapp` | `OPENWA_WEBHOOK_SECRET` no coincide entre OpenWA y Comadre | Verificar que ambos lados usen el mismo valor en `.env` |
+| `OpenWA not reachable` en logs de whatsapp | Contenedor OpenWA no está corriendo | `docker compose up -d` en `experimental/openwa/` |
+| Mensajes llegan a OpenWA pero no al agente | `host.docker.internal` no resuelve | En Linux: agregar `--add-host host.docker.internal:host-gateway` al compose o usar la IP del host |

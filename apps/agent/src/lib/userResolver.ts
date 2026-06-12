@@ -1,5 +1,9 @@
 /**
- * Resolve a Twilio "From" identifier to a registered user's id (users.id).
+ * Resolve a channel "from" address to a registered user's id (users.id).
+ *
+ * The `from` parameter is the canonical `whatsapp:+E164` address forwarded
+ * by the inbound route (apps/whatsapp → apps/agent POST /process). It may
+ * carry any `<channel>:` prefix — the prefix is stripped before DB lookup.
  *
  * Returns null if the user has not been onboarded yet — the agent must
  * then either ask for consent or run the onboarding flow (depending on
@@ -17,10 +21,10 @@ export interface ResolvedUser {
   phoneHash: string;
 }
 
-export async function resolveUserFromTwilio(
-  twilioFrom: string,
+export async function resolveUserFromPhone(
+  from: string,
 ): Promise<ResolvedUser | null> {
-  const phoneRaw = twilioFrom.replace(/^whatsapp:/, "").trim();
+  const phoneRaw = from.replace(/^whatsapp:/, "").trim();
   if (!phoneRaw.startsWith("+")) return null;
 
   const phoneE164 = normalizePhoneE164(phoneRaw);

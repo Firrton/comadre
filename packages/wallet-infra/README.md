@@ -7,7 +7,7 @@ The cryptographic security boundary of the Monad path. **All session-key custody
 | Sub-path | Purpose | Key public exports |
 |---|---|---|
 | `src/sessionKey/` | Generate, approve, sign, revoke ZeroDev Kernel session keys | `generateSessionKey`, `approveSessionKey`, `signAndSendUserOp`, `revokeSessionKey`, `buildDailyPolicies`, `buildElevatedPolicies` |
-| `src/otp/` | Twilio Verify SMS OTP | `startOtp`, `checkOtp` |
+| `src/otp/` | OTP integration (deleted — provider TBD, COM-OTP-DEFER) | — |
 | `src/kernel/` | Counterfactual address derivation for Kernel v3.1 smart wallets | `counterfactualSmartWalletAddress` |
 | `src/privy/` | Privy JWT verification for the onboarding callback | `verifyPrivyJwt` |
 | `src/config.ts` | Zod-validated env-var loader (call `loadWalletInfraEnv()` lazily) | `loadWalletInfraEnv`, `pimlicoBundlerUrl` |
@@ -37,9 +37,6 @@ Everything that does NOT belong in this package: HTTP routing, DB schema, agent 
 | `PIMLICO_PAYMASTER_ENABLED` | `"true"` to sponsor gas; default `"true"` | `true` |
 | `COMADRE_CONTRACT_ADDRESS` | Deployed Comadre.sol (optional during scaffold) | `0x...` |
 | `USDC_CONTRACT_ADDRESS` | USDC ERC-20 (testnet: MockUSDC) | `0x...` |
-| `TWILIO_ACCOUNT_SID` | Twilio account | `ACxxxx` |
-| `TWILIO_AUTH_TOKEN` | Twilio auth | (token) |
-| `TWILIO_VERIFY_SERVICE_SID` | Twilio Verify service | `VAxxxx` |
 | `ONBOARDING_BASE_URL` | Where the magic-link page lives | `https://comadre.app` |
 
 ## Local dev — how to bootstrap without spending money

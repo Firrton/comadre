@@ -47,23 +47,21 @@ const sumsubSchema = z.object({
 });
 
 // -----------------------------------------------------------------------
-// Twilio — WhatsApp Business API provider
+// OpenWA — self-hosted WhatsApp bridge (whatsapp-web.js engine)
 // -----------------------------------------------------------------------
-// We use Twilio (NOT Meta Cloud API) for WhatsApp. Sandbox during dev,
-// approved sender for production. Auth model:
-//   - TWILIO_AUTH_TOKEN: master token. Used ONLY for webhook signature
-//     verification (X-Twilio-Signature HMAC). Treat as primary secret.
-//   - TWILIO_API_KEY_SID + TWILIO_API_KEY_SECRET: scoped credentials for
-//     outbound (Messages create). Rotatable without breaking the account.
-//
-// During the hackathon the sandbox sender `whatsapp:+14155238886` is used.
-const twilioSchema = z.object({
-  TWILIO_ACCOUNT_SID: z.string().regex(/^AC[0-9a-f]{32}$/i, "Must be an Account SID (AC...)"),
-  TWILIO_AUTH_TOKEN: z.string().min(32, "Auth Token must be at least 32 chars"),
-  TWILIO_API_KEY_SID: z.string().regex(/^SK[0-9a-f]{32}$/i, "Must be an API Key SID (SK...)"),
-  TWILIO_API_KEY_SECRET: z.string().min(32, "API Key secret must be at least 32 chars"),
-  /** WhatsApp sender, e.g. `whatsapp:+14155238886` (sandbox) or your approved number. */
-  TWILIO_WHATSAPP_FROM: z.string().regex(/^whatsapp:\+\d{6,15}$/, "Must be `whatsapp:+E164`"),
+// The OpenWA container exposes a REST API; auth is a
+// shared X-API-Key. Inbound webhook deliveries are HMAC-signed with a
+// DEDICATED secret (external trust boundary — never reuse INTERNAL_HMAC_SECRET).
+const openwaSchema = z.object({
+  /** Base URL of the OpenWA REST API. Local dev: http://localhost:3005 */
+  OPENWA_API_URL: z.string().url(),
+  /** X-API-Key value (dev mode default: 'dev-admin-key' as seeded by OpenWA on first boot). */
+  OPENWA_API_KEY: z.string().min(1),
+  /** Session id/name registered with OpenWA (3–50 alphanum+dash). */
+  OPENWA_SESSION_ID: z.string().min(1),
+  /** HMAC-SHA256 secret for verifying X-OpenWA-Signature on inbound deliveries.
+   *  Distinct from INTERNAL_HMAC_SECRET. Fail-closed when set. */
+  OPENWA_WEBHOOK_SECRET: z.string().min(32, "Must be at least 32 chars (256-bit)"),
 });
 
 // -----------------------------------------------------------------------
@@ -229,7 +227,7 @@ const appSchema = z.object({
 const baseSchema = privySchema
   .merge(turnkeySchema)
   .merge(sumsubSchema)
-  .merge(twilioSchema)
+  .merge(openwaSchema)
   .merge(elevenLabsSchema)
   .merge(postgresSchema)
   .merge(upstashSchema)
