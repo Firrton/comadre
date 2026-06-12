@@ -24,9 +24,23 @@ const caveat = Caveat({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
+  ),
   title: "Comadre. — tu vecina de confianza, en tu teléfono",
   description:
     "Manda plata, ahorra de a poquito y organiza tandas, todo por WhatsApp. Como si te ayudara una vecina, no un banco.",
+  openGraph: {
+    type: "website",
+    siteName: "Comadre",
+    locale: "es_419",
+    title: "Comadre. — tu vecina de confianza, en tu teléfono",
+    description:
+      "Manda plata, ahorra de a poquito y organiza tandas, todo por WhatsApp.",
+  },
+  twitter: {
+    card: "summary_large_image",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
