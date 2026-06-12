@@ -131,7 +131,7 @@ app.post("/webhooks/whatsapp", async (c) => {
   }
 
   // Step 8 — Dedup on OpenWA message id (data.id = msg.id._serialized)
-  // Gated by SKIP_REDIS and NODE_ENV exactly as the previous Twilio dedup guard.
+  // Gated by SKIP_REDIS and NODE_ENV (same discipline as the rate-limit guard above).
   if (
     data.id.length > 0 &&
     process.env["SKIP_REDIS"] !== "true" &&

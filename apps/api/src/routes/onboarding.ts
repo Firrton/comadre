@@ -17,8 +17,6 @@ import type { MiddlewareHandler } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
-import twilio from "twilio";
-
 import { getLogger } from "../middlewares/logger.js";
 import { db, authSessions, smartWallets, sessionKeys, users } from "@comadre/db";
 import {
@@ -194,20 +192,9 @@ onboardingRouter.post(
     }
     const magicLink = `${baseUrl.replace(/\/$/, "")}/o/${magicToken}`;
 
-    const sid = process.env["TWILIO_ACCOUNT_SID"];
-    const token = process.env["TWILIO_AUTH_TOKEN"];
-    const from = process.env["TWILIO_SMS_FROM"];
-
-    if (!sid || !token || !from) {
-      log.warn(
-        { hasSid: !!sid, hasToken: !!token, hasFrom: !!from },
-        "[onboarding] Twilio SMS env missing; returning magicLink in response",
-      );
-      return c.json({ ok: true, magicLink }, 200);
-    }
-
-    await twilio(sid, token).messages.create({ from, to: phone, body: magicLink });
-    return c.json({ ok: true }, 200);
+    // SMS delivery is deferred (SMS provider removed; provider TBD).
+    // The magic-link is returned in the response body — the agent forwards it to the user.
+    return c.json({ ok: true, magicLink }, 200);
   },
 );
 

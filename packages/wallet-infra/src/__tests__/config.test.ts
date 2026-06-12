@@ -11,9 +11,6 @@ const VALID_ENV_WITHOUT_KMS: Record<string, string> = {
   PRIVY_APP_SECRET: "privy-secret-test",
   PIMLICO_API_KEY: "pim_test_key",
   PIMLICO_PAYMASTER_ENABLED: "true",
-  TWILIO_ACCOUNT_SID: "AC_test",
-  TWILIO_AUTH_TOKEN: "auth_test",
-  TWILIO_VERIFY_SERVICE_SID: "VA_test",
   ONBOARDING_BASE_URL: "https://example.com",
 };
 

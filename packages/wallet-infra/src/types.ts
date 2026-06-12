@@ -4,7 +4,7 @@ import type { Address, Hex } from "viem";
  * Two kinds of session keys per smart wallet:
  *  - "daily": low-cap (50 USDC), high rate-limit. Used by the agent for normal ops.
  *  - "elevated": higher-cap (1000 USDC), strict rate-limit. Decrypted only after
- *    fresh Twilio Verify OTP check passes.
+ *    an OTP verification step passes (provider TBD; deferred — see COM-OTP-DEFER).
  */
 export type SessionKeyKind = "daily" | "elevated";
 

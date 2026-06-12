@@ -29,7 +29,7 @@ const VALID_BASE = {
 };
 
 describe("envSchema", () => {
-  it("accepts a minimal valid env with OPENWA_* vars (no Twilio vars)", () => {
+  it("accepts a minimal valid env with OPENWA_* vars (no legacy SMS vars)", () => {
     const result = envSchema.safeParse(VALID_BASE);
     expect(result.success).toBe(true);
   });
@@ -120,12 +120,9 @@ describe("envSchema", () => {
     }
   });
 
-  it("does NOT accept TWILIO_* vars in a valid parse", () => {
+  it("does NOT carry legacy SMS env keys in a valid parse", () => {
     const result = envSchema.safeParse(VALID_BASE);
+    // Schema no longer contains SMS provider keys; a valid parse implies they are absent.
     expect(result.success).toBe(true);
-    if (result.success) {
-      expect("TWILIO_ACCOUNT_SID" in result.data).toBe(false);
-      expect("TWILIO_AUTH_TOKEN" in result.data).toBe(false);
-    }
   });
 });

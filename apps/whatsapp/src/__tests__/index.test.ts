@@ -4,7 +4,7 @@ import { describe, expect, test, mock } from "bun:test";
 // OpenWA inbound route tests
 //
 // The dedup and rate-limit blocks in POST /webhooks/whatsapp are intentionally
-// disabled when NODE_ENV === "test" (mirrors the Twilio-era pattern).
+// disabled when NODE_ENV === "test" (mirrors the existing pattern for Redis guards).
 // The core dedup logic is fully tested in packages/cache/src/__tests__/msgDedup.test.ts.
 // Signature verification is fully tested in __tests__/openwaInbound.test.ts.
 //
@@ -12,7 +12,7 @@ import { describe, expect, test, mock } from "bun:test";
 //   (a) filter pipeline drop cases (fromMe, isGroup, non-text, bad JID, event type)
 //   (b) valid message forwarded to agent → 200 {ok:true}
 //   (c) markMessageSeen is NOT called in test mode (Redis guard)
-//   (d) /reply HMAC auth (unchanged from Twilio era)
+//   (d) /reply HMAC auth (unchanged)
 //   (e) /health baseline
 // ---------------------------------------------------------------------------
 
@@ -190,7 +190,7 @@ describe("whatsapp service", () => {
   });
 
   // -------------------------------------------------------------------------
-  // POST /reply — HMAC-authed outbound (unchanged from Twilio era)
+  // POST /reply — HMAC-authed outbound (unchanged)
   // -------------------------------------------------------------------------
 
   test("POST /reply without auth returns 401", async () => {
