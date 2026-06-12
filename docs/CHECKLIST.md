@@ -497,9 +497,15 @@ Las secciones Solana abajo se mantienen como **historia del proyecto** (Phase 0)
 - [x] Landing page (branding Tía Vera, CTA a WhatsApp, `/privacy` para verificación de Meta) — 2026-06-11
   - `apps/web` re-incluido en `pnpm-workspace.yaml` (la exclusión de PR #4 era por el build roto de `wallet-infra`, arreglado con `extensionAlias` en `next.config.ts`)
   - Requiere `NEXT_PUBLIC_WA_NUMBER` en producción (ver `.env.example`)
-  - Enriquecida 2026-06-11: 3 chats demo auto-animados (CSS puro, `prefers-reduced-motion`), sección "Cómo empezar", sección "El guardadito"; ilustraciones de marca pendientes de generar (poses Sobre/Plantita/Monedas/Saluda, ver spec `2026-06-11-landing-enrichment-design.md`)
+  - Enriquecida 2026-06-11: 3 chats demo auto-animados (CSS puro, `prefers-reduced-motion`), sección "Cómo empezar", sección "El guardadito" (spec `2026-06-11-landing-enrichment-design.md`)
   - Tarjeta Open Graph 1200×630 + favicon (avatar Tía Vera) — 2026-06-12; requiere `NEXT_PUBLIC_SITE_URL` en producción para URLs absolutas de og:image
-  - PR #65 abierto hacia main (`feat/web-landing-page`)
+  - Mergeado a main: PR #65 (landing), PR #66 (onboarding con marca + fix client-bundle), PR #67 (íconos de marca)
+- [x] Onboarding `/o/[token]` con identidad de marca (PR #66) — 2026-06-12
+  - ⚠️ Fix crítico incluido: la página blanqueaba en navegadores (barrel de `sessionKey` metía validación de env de `@comadre/config` + SDK de Turnkey en el bundle del cliente). Nuevo export client-safe `@comadre/wallet-infra/sessionKey/approve`. Desbloquea el onboarding del E2E Paso 2.
+- [x] Íconos de marca dibujados a mano (PR #67) — 2026-06-12
+  - Librería completa en `docs/assets/branding/icons/` (24 glifos × 4 colores; falta `manos-añil` en el set fuente)
+  - Landing usa sobre/plantita/tanda (miel, en chips papel) + maceta (barro) en El guardadito
+- [ ] Deploy en Vercel (owner): importar repo, root `apps/web`, env `NEXT_PUBLIC_WA_NUMBER=59171233968` (Bolivia) + `NEXT_PUBLIC_SITE_URL`
 - [ ] Waitlist
 - [ ] `/admin` con Privy gate (allowlist de wallets)
 - [ ] Tablas: tandas activas, KYC pendientes, disputas
