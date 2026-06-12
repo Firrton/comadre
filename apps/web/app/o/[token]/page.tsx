@@ -2,8 +2,12 @@
 
 // State machine: validating -> ready -> authenticating -> finalizing -> installing -> done | error
 import { use, useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { PrivyProvider, usePrivy, useWallets } from "@privy-io/react-auth";
-import { approveSessionKey } from "@comadre/wallet-infra/sessionKey";
+// Import the client-safe module directly: the sessionKey barrel re-exports
+// sign/revoke, which pull @comadre/config env validation and the Turnkey
+// server SDK into the browser bundle and blank the page on hydration.
+import { approveSessionKey } from "@comadre/wallet-infra/sessionKey/approve";
 import { monadTestnet } from "@comadre/wallet-infra/chains";
 import type { Address } from "viem";
 
@@ -170,14 +174,16 @@ function OnboardingFlow({ token, config }: { token: string; config: SessionConfi
     <Shell>
       {step.kind === "ready" && (
         <>
-          <h1 className="text-2xl font-semibold">Te llega un código por SMS.</h1>
-          <p className="mt-3 text-base text-gray-600">
-            Tocá Continuar y seguí los pasos para confirmar tu número.
+          <h1 className="font-headline text-2xl font-semibold">
+            Te llega un código por SMS.
+          </h1>
+          <p className="mt-3 text-base text-olivo">
+            Toca Continuar y sigue los pasos para confirmar tu número.
           </p>
           <button
             onClick={handleStart}
             disabled={!ready}
-            className="mt-8 w-full rounded-2xl bg-emerald-600 px-6 py-4 text-lg font-semibold text-white active:bg-emerald-700 disabled:opacity-50"
+            className="mt-8 w-full rounded-full bg-olivo px-6 py-4 text-lg font-semibold text-papel active:bg-hoja disabled:opacity-50"
           >
             Continuar
           </button>
@@ -204,13 +210,13 @@ function OnboardingFlow({ token, config }: { token: string; config: SessionConfi
       {step.kind === "done" && (
         <>
           <p className="text-4xl">✅</p>
-          <h1 className="mt-4 text-2xl font-semibold">¡Listo!</h1>
-          <p className="mt-3 text-base text-gray-600">
-            Volvé a WhatsApp y seguimos charlando.
+          <h1 className="mt-4 font-headline text-2xl font-semibold">¡Listo!</h1>
+          <p className="mt-3 text-base text-olivo">
+            Vuelve a WhatsApp y seguimos charlando.
           </p>
           <a
             href={`https://wa.me/${WA_NUMBER}`}
-            className="mt-8 inline-block w-full rounded-2xl bg-emerald-600 px-6 py-4 text-center text-lg font-semibold text-white active:bg-emerald-700"
+            className="mt-8 inline-block w-full rounded-full bg-olivo px-6 py-4 text-center text-lg font-semibold text-papel active:bg-hoja"
           >
             Abrir WhatsApp
           </a>
@@ -225,9 +231,19 @@ function OnboardingFlow({ token, config }: { token: string; config: SessionConfi
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 px-5">
+    <main className="flex min-h-screen items-center justify-center bg-papel px-5">
       <div className="w-full max-w-sm rounded-3xl bg-white p-7 text-center shadow-sm">
-        {children}
+        <span className="font-headline text-xl font-semibold">
+          Comadre<span className="text-barro">.</span>
+        </span>
+        <Image
+          src="/brand/tia-vera.png"
+          alt=""
+          width={72}
+          height={72}
+          className="mx-auto mt-4 rounded-full"
+        />
+        <div className="mt-6">{children}</div>
       </div>
     </main>
   );
@@ -236,7 +252,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 function Spinner() {
   return (
     <div
-      className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-gray-200 border-t-emerald-600"
+      className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-olivo/25 border-t-olivo"
       aria-label="cargando"
     />
   );
@@ -246,11 +262,11 @@ function ErrorView({ message, onRetry }: { message: string; onRetry: () => void 
   return (
     <>
       <p className="text-4xl">😕</p>
-      <h1 className="mt-4 text-2xl font-semibold">Ups</h1>
-      <p className="mt-3 text-base text-gray-600">{message}</p>
+      <h1 className="mt-4 font-headline text-2xl font-semibold">Ups</h1>
+      <p className="mt-3 text-base text-olivo">{message}</p>
       <button
         onClick={onRetry}
-        className="mt-8 w-full rounded-2xl bg-emerald-600 px-6 py-4 text-lg font-semibold text-white active:bg-emerald-700"
+        className="mt-8 w-full rounded-full bg-olivo px-6 py-4 text-lg font-semibold text-papel active:bg-hoja"
       >
         Reintentar
       </button>
