@@ -34,7 +34,7 @@ mock.module("@comadre/cache", () => ({
   markNonceSeen: mockMarkNonceSeen,
 }));
 
-import { app, signReplyRequest } from "../index.js";
+import { app, signReplyRequest, redactJidForLog, redactMsgIdForLog } from "../index.js";
 
 const SECRET = process.env["INTERNAL_HMAC_SECRET"] ?? "test-secret";
 
@@ -249,5 +249,50 @@ describe("whatsapp service", () => {
     expect(second.status).toBe(401);
     const json = (await second.json()) as { error: string };
     expect(json.error).toBe("replayed request");
+  });
+
+  // -------------------------------------------------------------------------
+  // W1: redactJidForLog — raw JID (PII) must not appear in log output.
+  // Tests the helper used at the bad-JID drop site (Step 9 in filter pipeline).
+  // -------------------------------------------------------------------------
+
+  test("redactJidForLog: normal JID does not contain raw phone digits", () => {
+    const jid = "5491112345678@c.us";
+    const redacted = redactJidForLog(jid);
+    // Raw phone segment must not survive in the output
+    expect(redacted).not.toContain("5491112345678");
+    // Suffix domain is preserved (correlation)
+    expect(redacted).toContain("@c.us");
+  });
+
+  test("redactJidForLog: very short JID returns <redacted>", () => {
+    expect(redactJidForLog("12@x")).toBe("<redacted>");
+  });
+
+  // -------------------------------------------------------------------------
+  // W2: redactMsgIdForLog — OpenWA msg id phone segment must be masked.
+  // Tested here because the helper is defined in and exported from index.ts.
+  // -------------------------------------------------------------------------
+
+  test("redactMsgIdForLog: standard OpenWA id masks the phone-bearing segment", () => {
+    const msgId = "true_5491112345678@c.us_3EB0abc";
+    const redacted = redactMsgIdForLog(msgId);
+    expect(redacted).not.toContain("5491112345678");
+    // Unique suffix preserved for correlation
+    expect(redacted).toContain("3EB0abc");
+    // Format: prefix_***@c.us_suffix
+    expect(redacted).toBe("true_***@c.us_3EB0abc");
+  });
+
+  test("redactMsgIdForLog: id without underscores is returned unchanged", () => {
+    expect(redactMsgIdForLog("simpleid")).toBe("simpleid");
+  });
+
+  test("redactMsgIdForLog: id with only one underscore is returned unchanged", () => {
+    expect(redactMsgIdForLog("prefix_suffix")).toBe("prefix_suffix");
+  });
+
+  test("redactMsgIdForLog: empty string is returned unchanged", () => {
+    expect(redactMsgIdForLog("")).toBe("");
   });
 });

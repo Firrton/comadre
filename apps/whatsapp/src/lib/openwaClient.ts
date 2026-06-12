@@ -66,6 +66,14 @@ export async function sendText(
   if (res.status === 401 || res.status === 403) {
     throw new OpenWaSendError("unauthorized", res.status);
   }
+  if (res.status === 400) {
+    // Upstream message.controller.ts returns 400 for "Session not active or invalid request"
+    // (BadRequestException from getEngine when the session has no active engine).
+    // Upstream conflates "session not active" and "invalid request body" under the same 400;
+    // we map conservatively to session_disconnected — the only 400 our call path can trigger
+    // is the getEngine guard (chatId is always well-formed at this point).
+    throw new OpenWaSendError("session_disconnected", res.status);
+  }
   if (res.status === 409 || res.status === 422 || res.status === 503) {
     // Session not ready: disconnected, QR scan required, or service unavailable.
     throw new OpenWaSendError("session_disconnected", res.status);

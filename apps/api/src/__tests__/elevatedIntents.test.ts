@@ -109,7 +109,8 @@ if (runDbTests)
       });
 
       // Owner (matching users.id) passes the ownership gate and reaches the OTP
-      // deferred gate (503 otp_unavailable). Guards against an over-aggressive fix.
-      expect(res.status).not.toBe(404);
+      // deferred gate — must be exactly 503 otp_unavailable (fail-closed).
+      // A future regression that re-opens the gate (2xx, 4xx) would be caught here.
+      expect(res.status).toBe(503);
     });
   });
