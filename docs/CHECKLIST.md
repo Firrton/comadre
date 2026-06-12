@@ -494,6 +494,8 @@ Las secciones Solana abajo se mantienen como **historia del proyecto** (Phase 0)
   - `apps/web` re-incluido en `pnpm-workspace.yaml` (la exclusión de PR #4 era por el build roto de `wallet-infra`, arreglado con `extensionAlias` en `next.config.ts`)
   - Requiere `NEXT_PUBLIC_WA_NUMBER` en producción (ver `.env.example`)
   - Enriquecida 2026-06-11: 3 chats demo auto-animados (CSS puro, `prefers-reduced-motion`), sección "Cómo empezar", sección "El guardadito"; ilustraciones de marca pendientes de generar (poses Sobre/Plantita/Monedas/Saluda, ver spec `2026-06-11-landing-enrichment-design.md`)
+  - Tarjeta Open Graph 1200×630 + favicon (avatar Tía Vera) — 2026-06-12; requiere `NEXT_PUBLIC_SITE_URL` en producción para URLs absolutas de og:image
+  - PR #65 abierto hacia main (`feat/web-landing-page`)
 - [ ] Waitlist
 - [ ] `/admin` con Privy gate (allowlist de wallets)
 - [ ] Tablas: tandas activas, KYC pendientes, disputas
