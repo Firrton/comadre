@@ -54,8 +54,9 @@ app.post("/webhook", async (c) => {
     if (typeof v === "string") params[k] = v;
   }
 
+  // NOTE: TWILIO_AUTH_TOKEN removed from schema in PR 1. This route is replaced in PR 2.
   const valid = verifyTwilioSignature({
-    authToken: env.TWILIO_AUTH_TOKEN,
+    authToken: process.env["TWILIO_AUTH_TOKEN"] ?? "",
     signature,
     url,
     params,

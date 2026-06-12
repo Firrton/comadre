@@ -1,5 +1,3 @@
-import { env } from "@comadre/config";
-
 import { twilioClient } from "./twilioClient.js";
 
 /**
@@ -15,8 +13,9 @@ export async function sendWhatsAppMessage(
   to: string,
   body: string,
 ): Promise<{ messageSid: string; status: string }> {
+  // NOTE: TWILIO_WHATSAPP_FROM removed from schema in PR 1; replaced by OPENWA_* in PR 3.
   const msg = await twilioClient.messages.create({
-    from: env.TWILIO_WHATSAPP_FROM,
+    from: process.env["TWILIO_WHATSAPP_FROM"] ?? "",
     to,
     body,
   });
