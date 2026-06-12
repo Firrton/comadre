@@ -28,13 +28,6 @@ import { env } from "@comadre/config";
 
 const SEND_TIMEOUT_MS = 10_000;
 
-type OpenWaSendErrorKind =
-  | "session_disconnected"
-  | "unauthorized"
-  | "server_error"
-  | "timeout"
-  | "unexpected";
-
 async function sendTextWithFetch(
   chatId: string,
   text: string,
