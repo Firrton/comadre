@@ -120,7 +120,7 @@ export default function Home() {
               ariaLabel="Ejemplo: le pides a Comadre mandar $20 a tu mamá, ella confirma contigo y lo envía."
               messages={[
                 { from: "user", text: "Comadre, mándale $20 a mi mamá" },
-                { from: "comadre", text: "A ver, mija — ¿$20 para tu mamá, va?" },
+                { from: "comadre", text: "A ver, mija — $20 para tu mamá, ¿va?" },
                 { from: "user", text: "Va 👍" },
                 { from: "comadre", text: "Listo, ya lo mandé ✅" },
               ]}
@@ -133,7 +133,7 @@ export default function Home() {
                 { from: "user", text: "Guárdame $10 por semana" },
                 { from: "comadre", text: "Anotado, mija. Yo me encargo 🌱" },
                 { from: "user", text: "¿Cómo va mi ahorrito?" },
-                { from: "comadre", text: "Esta semana ahorraste $50" },
+                { from: "comadre", text: "Vas muy bien: ya llevas $50 en tu guardadito 🌱" },
               ]}
             />
             <ChatDemo
@@ -161,7 +161,7 @@ export default function Home() {
                 1
               </span>
               <p className="mt-4">
-                Toca el botón y guarda el número de Comadre.
+                Toca cualquier botón verde y se abre tu chat con Comadre.
               </p>
             </li>
             <li className="text-center">
@@ -188,8 +188,8 @@ export default function Home() {
           <PlantPotGlyph />
           <h2 className="mt-6 font-headline text-2xl">El guardadito</h2>
           <p className="mt-4 max-w-xl text-olivo">
-            Cada semana, Comadre aparta lo que tú le digas. Tu ahorrito crece
-            de a poquito, sin que tengas que pensarlo.
+            Cada semana, Comadre aparta lo que tú le digas, y tu guardadito
+            crece solito.
           </p>
           <p className="mt-6 font-hand text-2xl text-barro">
             “Anotado. Esta semana ahorraste $50.”

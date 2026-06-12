@@ -3,6 +3,10 @@ type ChatMessage = {
   text: string;
 };
 
+// The animation contract in globals.css (chat-b1..chat-b4, typing-window)
+// supports exactly 4 messages alternating user/comadre — hence the tuple.
+type ChatScript = [ChatMessage, ChatMessage, ChatMessage, ChatMessage];
+
 export function ChatDemo({
   emoji,
   title,
@@ -12,7 +16,7 @@ export function ChatDemo({
   emoji: string;
   title: string;
   ariaLabel: string;
-  messages: ChatMessage[];
+  messages: ChatScript;
 }) {
   return (
     <div
@@ -29,7 +33,7 @@ export function ChatDemo({
             key={index}
             className={`chat-bubble chat-b${index + 1} w-fit max-w-[85%] rounded-2xl px-4 py-2 ${
               message.from === "user"
-                ? "ml-auto rounded-br-sm bg-nopal text-papel"
+                ? "ml-auto rounded-br-sm bg-olivo text-papel"
                 : "rounded-bl-sm bg-white"
             }`}
           >
