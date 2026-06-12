@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-papel text-hoja font-sans antialiased;
+}
+
+/* --- Self-typing chat demos (14s cycle: type in ~7s, hold, fade, restart) --- */
+.chat-bubble {
+  opacity: 0;
+}
+
+.chat-b1 { animation: chat-pop-1 14s ease-out infinite; }
+.chat-b2 { animation: chat-pop-2 14s ease-out infinite; }
+.chat-b3 { animation: chat-pop-3 14s ease-out infinite; }
+.chat-b4 { animation: chat-pop-4 14s ease-out infinite; }
+
+@keyframes chat-pop-1 {
+  0%, 5%   { opacity: 0; transform: translateY(8px); }
+  8%, 93%  { opacity: 1; transform: none; }
+  98%, 100% { opacity: 0; transform: translateY(8px); }
+}
+@keyframes chat-pop-2 {
+  0%, 18%  { opacity: 0; transform: translateY(8px); }
+  21%, 93% { opacity: 1; transform: none; }
+  98%, 100% { opacity: 0; transform: translateY(8px); }
+}
+@keyframes chat-pop-3 {
+  0%, 31%  { opacity: 0; transform: translateY(8px); }
+  34%, 93% { opacity: 1; transform: none; }
+  98%, 100% { opacity: 0; transform: translateY(8px); }
+}
+@keyframes chat-pop-4 {
+  0%, 44%  { opacity: 0; transform: translateY(8px); }
+  47%, 93% { opacity: 1; transform: none; }
+  98%, 100% { opacity: 0; transform: translateY(8px); }
+}
+
+/* Typing status line: visible in the gaps before Comadre's replies */
+.typing-line {
+  opacity: 0;
+  animation: typing-window 14s linear infinite;
+}
+@keyframes typing-window {
+  0%, 8%   { opacity: 0; }
+  10%, 18% { opacity: 1; }
+  20%, 33% { opacity: 0; }
+  35%, 43% { opacity: 1; }
+  45%, 100% { opacity: 0; }
+}
+.typing-line i {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  display: inline-block;
+  animation: typing-bounce 1s ease-in-out infinite;
+}
+.typing-line i:nth-child(2) { animation-delay: 0.15s; }
+.typing-line i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: none; }
+  30% { transform: translateY(-3px); }
+}
+
+/* Guardadito plant sways gently */
+.plant-sway {
+  transform-origin: bottom center;
+  animation: plant-sway 4s ease-in-out infinite alternate;
+}
+@keyframes plant-sway {
+  from { transform: rotate(-3deg); }
+  to   { transform: rotate(3deg); }
+}
+
+/* Reduced motion: everything rests in its final, fully-visible state */
+@media (prefers-reduced-motion: reduce) {
+  .chat-bubble { animation: none; opacity: 1; }
+  .typing-line { animation: none; opacity: 0; }
+  .typing-line i { animation: none; }
+  .plant-sway { animation: none; }
+}

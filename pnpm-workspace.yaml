@@ -3,4 +3,5 @@ packages:
   - "apps/agent"
   - "apps/cron"
   - "apps/whatsapp"
+  - "apps/web"
   - "packages/*"
