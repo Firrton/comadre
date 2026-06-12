@@ -2,10 +2,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { ChatDemo } from "./components/ChatDemo";
 import {
-  CoinsGlyph,
   EnvelopeGlyph,
   PlantPotGlyph,
   SproutGlyph,
+  TandaGlyph,
 } from "./components/glyphs";
 
 const WA_NUMBER = process.env.NEXT_PUBLIC_WA_NUMBER ?? "5491100000000";
@@ -92,7 +92,7 @@ export default function Home() {
             </p>
           </div>
           <div>
-            <CoinsGlyph />
+            <TandaGlyph />
             <h2 className="mt-4 font-headline text-xl text-miel">
               Organiza tu tanda
             </h2>
