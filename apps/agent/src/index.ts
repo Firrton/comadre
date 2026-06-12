@@ -15,7 +15,7 @@ import { runAgent } from "./agentLoop.js";
 import { loadHistory, saveHistory } from "./lib/conversationStore.js";
 import { normalizePhoneE164 } from "./lib/phoneNormalize.js";
 import { loadSavingsContext } from "./lib/savingsContext.js";
-import { resolveUserFromTwilio } from "./lib/userResolver.js";
+import { resolveUserFromPhone } from "./lib/userResolver.js";
 import { shouldNudgeGuardadito, recordGuardaditoNudge } from "./lib/nudgeGate.js";
 
 if (env.SENTRY_DSN) {
@@ -31,7 +31,7 @@ const log = pino({ name: "agent" });
 export const processDeps = {
   runAgent,
   resolveTransferConfirmation,
-  resolveUserFromTwilio,
+  resolveUserFromPhone,
   loadHistory,
   saveHistory,
 };
@@ -145,7 +145,7 @@ app.post("/process", async (c) => {
 
     let userId: string | null = null;
     try {
-      const resolved = await processDeps.resolveUserFromTwilio(senderPhone);
+      const resolved = await processDeps.resolveUserFromPhone(senderPhone);
       userId = resolved?.userId ?? null;
     } catch (resolveErr) {
       log.error({ err: resolveErr, sender: senderLogKey }, "user resolve failed");

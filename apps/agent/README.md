@@ -16,7 +16,7 @@ Body:
 ```
 
 Flow del handler:
-1. **Resolve user** via `resolveUserFromTwilio(from)` — DB primary lookup por phone_hash
+1. **Resolve user** via `resolveUserFromPhone(from)` — DB primary lookup por phone_hash
    - `null` → unregistered (tool-use loop solo permite `iniciar_onboarding`)
    - `{ wallet, ... }` → registered, todas las tools disponibles
 2. **Load history** desde Redis (`agent:conv:{conversationKey}`, TTL 24h, max 20 msgs)
@@ -37,7 +37,7 @@ Flow del handler:
 src/
 ├── index.ts                  ← Hono app + /process endpoint (entry)
 ├── agentLoop.ts              ← runAgent() — tool-use loop con Moonshot
-├── userResolver.ts           ← resolveUserFromTwilio(): phone → wallet via DB
+├── userResolver.ts           ← resolveUserFromPhone(): phone → wallet via DB
 ├── lib/
 │   ├── moonshotClient.ts     ← OpenAI client con baseURL Moonshot/Groq
 │   ├── conversationStore.ts  ← loadHistory/saveHistory en Redis
