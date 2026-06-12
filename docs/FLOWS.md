@@ -2,7 +2,7 @@
 
 > Diagramas de secuencia (Mermaid) de los flujos críticos. Para la visión, el alcance del MVP y la topología/arquitectura ver `COMADRE.md` (documento canónico).
 >
-> **Actualizado: 2026-05-28 — arquitectura Monad.** Stack real: **WhatsApp (Twilio) → agente LLM (Kimi K2) → API (Hono/Bun) → wallet-infra → Turnkey (firma HSM) → Pimlico (bundler ERC-4337) → Monad**. Las wallets de usuario son **smart accounts ZeroDev Kernel v3.1**; el _owner_ se crea con **Privy**; el agente opera con una **session key** acotada.
+> **Actualizado: 2026-06-11 — canal migrado de Twilio a OpenWA.** Stack real: **WhatsApp (OpenWA) → agente LLM (Kimi K2) → API (Hono/Bun) → wallet-infra → Turnkey (firma HSM) → Pimlico (bundler ERC-4337) → Monad**. Las wallets de usuario son **smart accounts ZeroDev Kernel v3.1**; el _owner_ se crea con **Privy**; el agente opera con una **session key** acotada.
 >
 > Reescrito desde cero: los diagramas previos describían el stack legacy **Solana / SPL / Privy-sign / Anchor**, ya retirado. Si encontrás `VersionedTransaction`, `signWithUserKeypair`, `airdrop SOL` o `init_user_profile` en algún diagrama, es legacy — reportalo.
 
@@ -59,11 +59,11 @@ Las tablas `users / tandas / members / disputes` son **espejos** de estado on-ch
 
 ## 1. Onboarding 🟢 {#1-onboarding}
 
-> El flujo arranca por WhatsApp pero **se completa en el browser**: el agente solo dispara un magic-link por SMS. Privy crea el _owner_ del usuario; la API provisiona el _agente_ en Turnkey; el browser instala la session key sobre el Kernel.
+> El flujo arranca por WhatsApp pero **se completa en el browser**: el agente devuelve un magic-link en la respuesta (fallback de SMS; Twilio ya no se usa para esta entrega). Privy crea el _owner_ del usuario; la API provisiona el _agente_ en Turnkey; el browser instala la session key sobre el Kernel.
 
 ### Pre-condiciones
 
-- El teléfono no existe en `users` (`resolveUserFromTwilio` → `null`).
+- El teléfono no existe en `users` (`resolveUserFromPhone` → `null`).
 - Único tool permitido sin wallet: `iniciar_cuenta_segura` (el teléfono se inyecta server-side, no lo controla el LLM).
 
 ### Secuencia
@@ -71,24 +71,24 @@ Las tablas `users / tandas / members / disputes` son **espejos** de estado on-ch
 ```mermaid
 sequenceDiagram
   participant U as Usuario WhatsApp
+  participant OWA as OpenWA bridge
   participant W as apps/whatsapp :3002
   participant A as apps/agent :3003
   participant API as apps/api :3001
-  participant TW as Twilio (SMS)
   participant B as Browser (magic-link)
   participant P as Privy
   participant TK as Turnkey HSM
   participant DB as Postgres
 
-  U->>W: "hola, quiero usar Comadre"
+  U->>OWA: "hola, quiero usar Comadre"
+  OWA->>W: POST /webhooks/whatsapp (X-OpenWA-Signature HMAC-SHA256 + JSON)
   W->>A: POST /process (HMAC interno + anti-replay)
-  A->>DB: resolveUserFromTwilio(phone_hash) → null
+  A->>DB: resolveUserFromPhone(phone_hash) → null
   A->>API: POST /api/v1/onboarding/monad/start (HMAC interno)
   Note over API,DB: COM-034 cancela tokens previos pendientes
   API->>DB: INSERT auth_sessions { magic_token, status:pending, TTL 15min }
-  API->>TW: SMS con link {ONBOARDING_BASE_URL}/o/{token}
-  API-->>A: { ok }
-  A-->>U: "Te mandé un link por SMS para crear tu cuenta segura."
+  API-->>A: { ok, magicLink }
+  A-->>U: "Te mando tu link de registro: {magicLink}"
 
   U->>B: abre el magic-link
   B->>API: GET /monad/session/:token
@@ -148,7 +148,7 @@ sequenceDiagram
 
   U->>W: "mandá 10 USDC al +52..."
   W->>A: POST /process (HMAC + anti-replay)
-  A->>DB: resolveUserFromTwilio → { wallet: sender }
+  A->>DB: resolveUserFromPhone → { wallet: sender }
   A->>K: completions (tools=ALL_TOOLS)
   K-->>A: tool_call: enviar_plata { toPhone, amountUsdc }
   A->>API: POST /api/v1/transfers-monad (HMAC interno)
