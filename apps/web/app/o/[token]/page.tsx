@@ -67,8 +67,11 @@ export default function OnboardingPage({
   if (!config) {
     return (
       <Shell>
-        <Spinner />
-        <p className="mt-6 text-lg">Preparando tu cuenta…</p>
+        <WaitScreen
+          icon="/brand/icons/cafe-barro.svg"
+          title="Preparando tu cuenta…"
+          note="Tía Vera está poniendo todo en orden"
+        />
       </Shell>
     );
   }
@@ -170,8 +173,23 @@ function OnboardingFlow({ token, config }: { token: string; config: SessionConfi
 
   const handleRetry = () => setStep({ kind: "ready", config });
 
+  const statusText: Record<Step["kind"], string> = {
+    validating: "Preparando tu cuenta",
+    ready: "",
+    authenticating: "Confirmando tu número",
+    finalizing: "Configurando tu seguridad",
+    installing: "Casi listo, último paso",
+    done: "Listo. Vuelve a WhatsApp y seguimos charlando.",
+    error: step.kind === "error" ? step.message : "",
+  };
+
   return (
     <Shell>
+      {/* Persistent live region: screen readers announce step changes
+          reliably only when content changes inside an existing region. */}
+      <p aria-live="polite" role="status" className="sr-only">
+        {statusText[step.kind]}
+      </p>
       {step.kind === "ready" && (
         <>
           <h1 className="font-headline text-2xl font-semibold">
@@ -190,26 +208,37 @@ function OnboardingFlow({ token, config }: { token: string; config: SessionConfi
         </>
       )}
       {step.kind === "authenticating" && (
-        <>
-          <Spinner />
-          <p className="mt-6 text-lg">Confirmando tu número…</p>
-        </>
+        <WaitScreen
+          icon="/brand/icons/telefono-nopal.svg"
+          title="Confirmando tu número…"
+          note="revisa tus mensajes"
+        />
       )}
       {step.kind === "finalizing" && (
-        <>
-          <Spinner />
-          <p className="mt-6 text-lg">Configurando tu seguridad…</p>
-        </>
+        <WaitScreen
+          icon="/brand/icons/escudo-nopal.svg"
+          title="Configurando tu seguridad…"
+          note="tu dinero, en buenas manos"
+        />
       )}
       {step.kind === "installing" && (
-        <>
-          <Spinner />
-          <p className="mt-6 text-lg">Casi listo, último paso…</p>
-        </>
+        <WaitScreen
+          icon="/brand/icons/sol-miel.svg"
+          title="Casi listo, último paso…"
+          note="de a poquito, todo se logra"
+        />
       )}
       {step.kind === "done" && (
         <>
-          <p className="text-4xl">✅</p>
+          <span className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-papel">
+            <Image
+              src="/brand/icons/corazon-barro.svg"
+              alt=""
+              width={44}
+              height={44}
+              className="h-11 w-11"
+            />
+          </span>
           <h1 className="mt-4 font-headline text-2xl font-semibold">¡Listo!</h1>
           <p className="mt-3 text-base text-olivo">
             Vuelve a WhatsApp y seguimos charlando.
@@ -249,12 +278,37 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Spinner() {
+function WaitScreen({
+  icon,
+  title,
+  note,
+}: {
+  icon: string;
+  title: string;
+  note: string;
+}) {
   return (
-    <div
-      className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-olivo/25 border-t-olivo"
-      aria-label="cargando"
-    />
+    <div>
+      <span className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-papel">
+        <Image
+          src={icon}
+          alt=""
+          width={56}
+          height={56}
+          className="gentle-pulse h-14 w-14"
+        />
+      </span>
+      <p className="mt-6 text-lg font-medium">{title}</p>
+      <p className="mt-2 font-hand text-2xl text-barro">{note}</p>
+      <span
+        aria-hidden="true"
+        className="wait-dots mt-5 flex items-center justify-center gap-1.5"
+      >
+        <i className="bg-olivo" />
+        <i className="bg-olivo" />
+        <i className="bg-olivo" />
+      </span>
+    </div>
   );
 }
 

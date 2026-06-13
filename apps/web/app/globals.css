@@ -73,10 +73,30 @@ body {
   to   { transform: rotate(3deg); }
 }
 
+/* Onboarding wait screens: soft icon pulse + always-on bouncing dots */
+.gentle-pulse {
+  animation: gentle-pulse 2.4s ease-in-out infinite;
+}
+@keyframes gentle-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.07); }
+}
+.wait-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  display: inline-block;
+  animation: typing-bounce 1s ease-in-out infinite;
+}
+.wait-dots i:nth-child(2) { animation-delay: 0.15s; }
+.wait-dots i:nth-child(3) { animation-delay: 0.3s; }
+
 /* Reduced motion: everything rests in its final, fully-visible state */
 @media (prefers-reduced-motion: reduce) {
   .chat-bubble { animation: none; opacity: 1; }
   .typing-line { animation: none; opacity: 0; }
   .typing-line i { animation: none; }
   .plant-sway { animation: none; }
+  .gentle-pulse { animation: none; }
+  .wait-dots i { animation: none; }
 }
